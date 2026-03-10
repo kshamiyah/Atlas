@@ -3,16 +3,16 @@ import Link from "next/link";
 const STEPS = [
   {
     label: "Create your account",
-    done: true, // always true if we're rendering this component
+    done: true,
   },
   {
     label: "Install the Chrome extension",
     done: false,
-    href: "https://chrome.google.com/webstore", // placeholder
+    href: "https://chrome.google.com/webstore",
     hrefLabel: "Chrome Web Store →",
   },
   {
-    label: "Open a Kaizen page and click \"Sync to PortfolioIQ\"",
+    label: 'Open a Kaizen page and click "Sync to PortfolioIQ"',
     done: false,
   },
   {
@@ -36,7 +36,6 @@ export function GettingStartedSection() {
       <ol className="space-y-3">
         {STEPS.map((step, i) => (
           <li key={i} className="flex items-start gap-3">
-            {/* Icon */}
             <span
               className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                 step.done
@@ -46,8 +45,6 @@ export function GettingStartedSection() {
             >
               {step.done ? "✓" : i + 1}
             </span>
-
-            {/* Label + optional link */}
             <div>
               <p
                 className={`text-xs ${
