@@ -74,7 +74,7 @@ export async function POST(request: Request) {
   }
 
   const dataHash = JSON.stringify(
-    cips.map((c) => [c.cip_number, c.percentage]).sort((a, b) => a[0] - b[0])
+    cips.map((c) => [c.cip_number, c.percentage]).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0))
   );
   await supabase.from("kaizen_sync_log").insert({
     user_id: user.id,
