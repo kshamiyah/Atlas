@@ -56,6 +56,12 @@ export async function handleAuthMiddleware(request: NextRequest) {
   }
 
   if (session && isLoginPage) {
+    const source = request.nextUrl.searchParams.get("source");
+    if (source === "extension") {
+      return NextResponse.redirect(
+        new URL("/auth/extension-done", request.url)
+      );
+    }
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
