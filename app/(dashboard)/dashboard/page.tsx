@@ -31,7 +31,7 @@ export default async function DashboardPage() {
       .from("kaizen_sync_log")
       .select("sync_type, synced_at")
       .order("synced_at", { ascending: false })
-      .limit(10),
+      .limit(50),
     supabase
       .from("kaizen_entries")
       .select("*")
