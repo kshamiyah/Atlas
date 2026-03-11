@@ -25,7 +25,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     if (!email) return;
 
     const supabase = await getServerSupabaseClient();
-    const origin = process.env.NEXT_PUBLIC_SITE_URL;
+    const origin = process.env.SITE_URL;
     const source = formData.get("source");
     const base = `${origin ?? ""}/auth/callback`;
     const callbackUrl =
