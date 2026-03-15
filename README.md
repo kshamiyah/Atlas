@@ -1,36 +1,96 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PortfolioIQ
 
-## Getting Started
+PortfolioIQ is an AI-assisted web app for RCOG trainees to track ARCP progress, surface CiP/key-skill gaps, and generate structured Kaizen-ready portfolio entries from rough notes.
 
-First, run the development server:
+[Companion Chrome extension](https://github.com/kshamiyah/portfolioiq-extension)
+
+## Why this project
+
+Building a high-quality training portfolio is time-consuming and fragmented. PortfolioIQ reduces admin burden by combining:
+
+- evidence sync from Kaizen (via extension),
+- progress analytics against curriculum structure,
+- AI-assisted drafting for faster, better-documented entries.
+
+## Core Features
+
+- Dashboard with trainee stage selection and CiP progress overview.
+- Gap report showing uncovered key skills by CiP.
+- Key-skill review workflow with confidence-based suggestion triage.
+- AI entry generation from free-text clinical notes into structured templates.
+- Magic-link authentication and user-scoped data access with Supabase.
+
+## Tech Stack
+
+- Frontend: Next.js (App Router), React, TypeScript, Tailwind CSS
+- Backend/API: Next.js route handlers
+- Data/Auth: Supabase (Postgres + Auth)
+- AI: OpenAI + Anthropic SDK integrations
+- Tooling: ESLint, npm scripts, GitHub Actions CI
+
+## Project Structure
+
+```text
+app/          Next.js pages + API routes
+components/   UI components and feature modules
+lib/          Domain logic, AI prompts, Supabase clients, shared types
+supabase/     SQL migrations and Supabase config
+scripts/      Utility scripts (for data/seed verification)
+```
+
+## Local Setup
+
+1. Install dependencies:
+
+```bash
+npm ci
+```
+
+2. Create your local env file:
+
+```bash
+cp .env.example .env.local
+```
+
+3. Fill in required environment variables in `.env.local`.
+4. Start the app:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+5. Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create `.env.local` with:
 
-## Learn More
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+SITE_URL=http://localhost:3000
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run dev     # start local dev server
+npm run lint    # run eslint
+npm run build   # production build
+npm run start   # run production server
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## CV Talking Points
 
-## Deploy on Vercel
+- Designed a workflow-centric product for medical training portfolio management.
+- Integrated LLM-based content generation with strict structured outputs.
+- Built a full-stack TypeScript app with auth, analytics, and review pipelines.
+- Implemented schema/migration-driven data modeling in Supabase.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Disclaimer
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+PortfolioIQ is an independent tool and is not affiliated with RCOG or Kaizen.
