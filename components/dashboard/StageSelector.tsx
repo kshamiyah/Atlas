@@ -14,10 +14,7 @@ type StageSelectorProps = {
   stages: StageItem[];
 };
 
-export function StageSelector({
-  currentStageId,
-  stages,
-}: StageSelectorProps) {
+export function StageSelector({ currentStageId, stages }: StageSelectorProps) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
@@ -44,7 +41,7 @@ export function StageSelector({
         setSaving(false);
       }
     },
-    [currentStageId, router, saving]
+    [currentStageId, router, saving],
   );
 
   const currentStage = stages.find((s) => s.id === currentStageId);
@@ -55,56 +52,84 @@ export function StageSelector({
     return acc;
   }, {});
 
-  const showPills = showPicker || !currentStageId;
+  // Not yet synced — prompt user to sync
+  if (!currentStageId) {
+    return (
+      <section className="card flex items-center gap-3 px-4 py-3">
+        <div className="h-2 w-2 rounded-full bg-accent-amber" />
+        <p className="text-small text-secondary">
+          Sync your portfolio to detect your training stage automatically.
+        </p>
+      </section>
+    );
+  }
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-      {!currentStageId && (
-        <p className="mb-3 text-sm font-medium text-slate-200">
-          Select your training stage
-        </p>
-      )}
-      {currentStageId && !showPicker && (
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-slate-400">Stage:</span>
-          <span className="inline-flex items-center rounded-full bg-sky-500/20 px-3 py-1 text-sm font-medium text-sky-300 ring-1 ring-sky-500/40">
-            {currentStage?.name ?? "—"}
+    <section className="card px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Synced badge */}
+        <div className="flex items-center gap-1.5">
+          <div className="h-1.5 w-1.5 rounded-full bg-accent-green" />
+          <span className="text-micro text-muted">Current stage</span>
+        </div>
+
+        <span className="inline-flex items-center rounded-full bg-accent-green/10 px-2.5 py-0.5 text-micro font-semibold text-accent-green ring-1 ring-accent-green/20">
+          {currentStage?.name ?? "—"}
+          <span className="ml-1 font-normal text-accent-green/60">
+            · {currentStage?.stage_group}
           </span>
+        </span>
+
+        <span className="text-micro text-muted">· synced from Kaizen</span>
+
+        {/* Escape hatch — only show if user really needs to override */}
+        {!showPicker && (
           <button
             type="button"
             onClick={() => setShowPicker(true)}
-            className="text-xs text-slate-400 underline hover:text-slate-300"
+            className="text-micro text-muted underline decoration-dotted transition-colors hover:text-primary"
           >
-            Change
+            override
           </button>
-        </div>
-      )}
-      {showPills && (
-        <div className="flex flex-wrap gap-2">
+        )}
+      </div>
+
+      {/* Stage picker — only visible after clicking override */}
+      {showPicker && (
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-subtle pt-3">
           {Object.entries(groups).map(([groupName, groupStages]) => (
             <div key={groupName} className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-slate-500">{groupName}:</span>
+              <span className="text-micro text-muted">{groupName}:</span>
               {groupStages.map((stage) => (
                 <button
                   key={stage.id}
                   type="button"
                   disabled={saving}
                   onClick={() => handleSelect(stage.id)}
-                  className={`rounded-full px-3 py-1.5 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:opacity-50 ${
+                  className={[
+                    "rounded-full px-3 py-1 text-micro font-medium transition-colors disabled:opacity-50",
                     currentStageId === stage.id
-                      ? "bg-sky-500/30 text-sky-200 ring-1 ring-sky-500/50"
-                      : "bg-slate-800 text-slate-300 ring-1 ring-slate-700 hover:bg-slate-700 hover:text-slate-200"
-                  }`}
+                      ? "bg-accent-green/10 text-accent-green ring-1 ring-accent-green/20"
+                      : "bg-surface-3 text-secondary hover:bg-surface-4 hover:text-primary",
+                  ].join(" ")}
                 >
                   {stage.name}
                 </button>
               ))}
             </div>
           ))}
+          <button
+            type="button"
+            onClick={() => setShowPicker(false)}
+            className="text-micro text-muted underline decoration-dotted transition-colors hover:text-primary"
+          >
+            cancel
+          </button>
         </div>
       )}
+
       {saving && (
-        <p className="mt-2 text-xs text-slate-500">Saving…</p>
+        <p className="mt-2 text-micro text-muted">Saving…</p>
       )}
     </section>
   );

@@ -10,9 +10,7 @@ export function GenerateForm() {
   const [entryType, setEntryType] = useState<GeneratedEntryType>("reflection");
   const [freeText, setFreeText] = useState("");
   const [date, setDate] = useState("");
-  const [status, setStatus] = useState<
-    "idle" | "loading" | "done" | "error"
-  >("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [result, setResult] = useState<GeneratedAIOutput | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -39,62 +37,58 @@ export function GenerateForm() {
       setSavedId(json.id ?? null);
       setStatus("done");
     } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : "Something went wrong"
-      );
+      setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
       setStatus("error");
     }
   }
 
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-        <label className="mb-3 block text-xs font-medium text-slate-400">
+      {/* Fix 12: use .card class; Fix 11: replace slate-* with design tokens */}
+      <section className="card p-5">
+        <label className="mb-3 block text-micro font-medium text-muted">
           Entry type
         </label>
         <div className="flex flex-wrap gap-2">
-          {(Object.keys(ENTRY_TYPE_SCHEMAS) as GeneratedEntryType[]).map(
-            (type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => {
+          {(Object.keys(ENTRY_TYPE_SCHEMAS) as GeneratedEntryType[]).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => {
                 setEntryType(type);
-                // Clear a stale result — it belongs to the previous entry type
                 if (status === "done") {
                   setStatus("idle");
                   setResult(null);
                 }
               }}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                  entryType === type
-                    ? "bg-emerald-600 text-white"
-                    : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                }`}
-              >
-                {ENTRY_TYPE_SCHEMAS[type].title}
-              </button>
-            )
-          )}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                entryType === type
+                  ? "bg-accent-green text-white"
+                  : "bg-surface-3 text-secondary hover:bg-surface-4 hover:text-primary"
+              }`}
+            >
+              {ENTRY_TYPE_SCHEMAS[type].title}
+            </button>
+          ))}
         </div>
       </section>
 
-      <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+      <section className="card p-5 space-y-4">
         <div>
-          <label className="mb-1.5 block text-xs font-medium text-slate-400">
+          <label className="mb-1.5 block text-micro font-medium text-muted">
             Date of event{" "}
-            <span className="text-slate-600">(optional)</span>
+            <span className="text-muted opacity-60">(optional)</span>
           </label>
           <input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none"
+            className="rounded-md border border-subtle bg-surface-3 px-3 py-1.5 text-xs text-primary focus:border-accent-green focus:outline-none"
           />
         </div>
 
         <div>
-          <label className="mb-1.5 block text-xs font-medium text-slate-400">
+          <label className="mb-1.5 block text-micro font-medium text-muted">
             Describe what happened
           </label>
           <textarea
@@ -102,7 +96,7 @@ export function GenerateForm() {
             value={freeText}
             onChange={(e) => setFreeText(e.target.value)}
             placeholder="Write a brief clinical description — the AI will expand this into a full portfolio entry. E.g. 'Assisted with LSCS for FTP, supervised by consultant, patient anxious, good outcome, discussed post-op care.'"
-            className="w-full resize-y rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:border-emerald-500 focus:outline-none"
+            className="w-full resize-y rounded-md border border-subtle bg-surface-3 px-3 py-2 text-sm text-primary placeholder-muted focus:border-accent-green focus:outline-none"
           />
         </div>
 
@@ -110,13 +104,13 @@ export function GenerateForm() {
           type="button"
           onClick={handleGenerate}
           disabled={status === "loading" || !freeText.trim()}
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
         >
           {status === "loading" ? "Generating…" : "Generate entry"}
         </button>
 
         {status === "error" && (
-          <p className="text-xs text-red-400">{errorMsg}</p>
+          <p className="text-xs text-accent-red">{errorMsg}</p>
         )}
       </section>
 

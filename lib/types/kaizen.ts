@@ -29,12 +29,19 @@ export type KaizenKeySkillCoverage = {
 export type KaizenEntry = {
   id: string;
   user_id: string;
+  source_entry_id: string | null;
+  source_url: string | null;
+  detected_entry_type: string | null;
   kaizen_date: string;
   assessment_type: string;
   title: string;
   category: string;
   training_year: string;
   status: string;
+  linked_cip_number: number | null;
+  entry_text: string;
+  extracted_fields: Record<string, unknown>;
+  extraction_status: "none" | "partial" | "full" | "failed";
   key_skills_count: number | null;
   synced_at: string;
 };
@@ -61,4 +68,3 @@ export type KaizenSupervisorMeeting = {
   supervisor_name: string;
   synced_at: string;
 };
-

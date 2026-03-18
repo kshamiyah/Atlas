@@ -1,6 +1,5 @@
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { DashboardHeader } from "@/components/DashboardHeader";
 import { GenerateForm } from "@/components/generate/GenerateForm";
 
 export default async function GeneratePage() {
@@ -11,8 +10,7 @@ export default async function GeneratePage() {
   if (!user) redirect("/login");
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50">
-      <DashboardHeader userEmail={user.email} />
+    <div className="min-h-full">
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
         <div>
           <h1 className="text-lg font-semibold text-slate-100">

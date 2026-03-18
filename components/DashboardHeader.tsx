@@ -34,6 +34,18 @@ export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
           >
             Generate
           </Link>
+          <Link
+            href="/dashboard/key-skill-review"
+            className="rounded-md px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+          >
+            Key Skills
+          </Link>
+          <Link
+            href="/dashboard/gap-report"
+            className="rounded-md px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+          >
+            Gap report
+          </Link>
           <button
             type="button"
             onClick={signOut}

@@ -1,4 +1,5 @@
 import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 type LoginPageProps = {
@@ -25,18 +26,36 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     if (!email) return;
 
     const supabase = await getServerSupabaseClient();
-    const origin = process.env.SITE_URL;
+    const reqHeaders = await headers();
+    const host =
+      reqHeaders.get("x-forwarded-host") ?? reqHeaders.get("host");
+    const protocol = reqHeaders.get("x-forwarded-proto") ?? "http";
+    const requestOrigin = host ? `${protocol}://${host}` : null;
+    const origin =
+      process.env.SITE_URL ??
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      requestOrigin;
+    if (!origin) {
+      console.error(
+        "[login] Missing SITE_URL/NEXT_PUBLIC_SITE_URL and could not infer request origin.",
+      );
+      return;
+    }
     const source = formData.get("source");
-    const base = `${origin ?? ""}/auth/callback`;
+    const base = `${origin}/auth/callback`;
     const callbackUrl =
       source === "extension" ? `${base}?source=extension` : base;
 
-    await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
         emailRedirectTo: callbackUrl,
       },
     });
+
+    if (error) {
+      console.error("[login] Failed to send magic link:", error.message);
+    }
   }
 
   return (
@@ -76,4 +95,3 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     </main>
   );
 }
-

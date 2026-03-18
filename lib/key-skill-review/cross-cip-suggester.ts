@@ -1,0 +1,212 @@
+import Anthropic from "@anthropic-ai/sdk";
+
+export type CrossCipSkillInput = {
+  key_skill_id: string;
+  cip_number: number;
+  title: string;
+};
+
+export type CrossCipSuggestion = {
+  key_skill_id: string;
+  cip_number: number;
+  confidence: number;
+  rationale: string;
+};
+
+const MAX_SKILLS_PER_CALL = 60;
+const MODEL_NAME = "claude-haiku-4-5-20251001";
+
+// Haiku 4.5 pricing (per million tokens) — https://www.anthropic.com/pricing
+const PRICE_INPUT_PER_MTOK = 1.0;
+const PRICE_OUTPUT_PER_MTOK = 5.0;
+
+type CallUsage = { input_tokens: number; output_tokens: number };
+
+function logUsage(
+  callIndex: number,
+  usage: CallUsage,
+  runningTotal: CallUsage,
+) {
+  const inputCost = (usage.input_tokens / 1_000_000) * PRICE_INPUT_PER_MTOK;
+  const outputCost = (usage.output_tokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK;
+  console.log(
+    `[cross-cip-suggester] call #${callIndex} — ` +
+      `in: ${usage.input_tokens} tok ($${inputCost.toFixed(5)}), ` +
+      `out: ${usage.output_tokens} tok ($${outputCost.toFixed(5)}) | ` +
+      `running total: ${runningTotal.input_tokens} in / ${runningTotal.output_tokens} out`,
+  );
+}
+
+function logSummary(totalCalls: number, total: CallUsage) {
+  const inputCost = (total.input_tokens / 1_000_000) * PRICE_INPUT_PER_MTOK;
+  const outputCost = (total.output_tokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK;
+  const totalCost = inputCost + outputCost;
+  console.log(
+    `[cross-cip-suggester] ✅ DONE — ${totalCalls} call(s) | ` +
+      `total tokens: ${total.input_tokens} in / ${total.output_tokens} out | ` +
+      `estimated cost: $${inputCost.toFixed(5)} in + $${outputCost.toFixed(5)} out = $${totalCost.toFixed(5)}`,
+  );
+}
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+function buildPrompt(
+  entryText: string,
+  entryType: string | null,
+  linkedCipNumber: number,
+  skills: CrossCipSkillInput[],
+): string {
+  const type = entryType ?? "unspecified";
+  const cipLabel = linkedCipNumber === 0 ? "None (unlinked entry)" : String(linkedCipNumber);
+  const skillsHeader =
+    linkedCipNumber === 0
+      ? "Key skills to consider (all CiPs — entry has no primary CiP):"
+      : `Cross-CiP key skills to consider (from CiPs other than CiP ${linkedCipNumber}):`;
+  const conservativeNote =
+    linkedCipNumber === 0
+      ? "- Entry has no primary CiP — match any skills the text directly evidences"
+      : "- Be conservative — clinical procedures usually only evidence their primary CiP";
+  return [
+    "You are an RCOG curriculum expert. Given a portfolio entry, identify which key skills the entry provides direct evidence for.",
+    "",
+    `Entry type: ${type}`,
+    `Linked CiP: ${cipLabel}`,
+    "Entry text:",
+    '"""',
+    entryText,
+    '"""',
+    "",
+    skillsHeader,
+    JSON.stringify(
+      skills.map((s) => ({
+        key_skill_id: s.key_skill_id,
+        cip_number: s.cip_number,
+        title: s.title,
+      })),
+      null,
+      2,
+    ),
+    "",
+    "Rules:",
+    "- Only return skills where the entry TEXT clearly and explicitly demonstrates that skill",
+    conservativeNote,
+    "- confidence: 0.0–1.0 (use 0.7+ for strong explicit evidence, 0.5–0.69 for moderate)",
+    "- rationale: short phrase max 8 words explaining the specific evidence",
+    "- If no skills are evidenced, output just ]",
+    "- Output ONLY array items and closing ]. No prose. No code fences.",
+    "",
+    "Continue the JSON array that has already been started. Output one object per evidenced skill:",
+    '  { "key_skill_id": "<id>", "cip_number": N, "confidence": 0.0, "rationale": "short phrase" },',
+  ].join("\n");
+}
+
+async function callAnthropic(
+  prompt: string,
+): Promise<{ data: unknown; usage: CallUsage }> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY is not configured");
+  }
+
+  // Prefill "[" so the model continues the JSON array directly
+  const message = await anthropic.messages.create({
+    model: MODEL_NAME,
+    max_tokens: 2048,
+    temperature: 0,
+    messages: [
+      { role: "user", content: prompt },
+      { role: "assistant", content: "[" },
+    ],
+  });
+
+  const usage: CallUsage = {
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
+  };
+
+  const textPart = message.content.find(
+    (c) => c.type === "text",
+  ) as { type: "text"; text: string } | undefined;
+
+  if (!textPart?.text) {
+    // Model returned nothing — no cross-CiP matches
+    return { data: [], usage };
+  }
+
+  const jsonText = "[" + textPart.text.trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    const preview = jsonText.slice(0, 400).replace(/\n/g, " ");
+    throw new Error(
+      `Failed to parse cross-CiP response as JSON. Preview: ${preview}`,
+    );
+  }
+
+  return { data: parsed, usage };
+}
+
+export async function suggestCrossCipSkills(
+  entryText: string,
+  entryType: string | null,
+  linkedCipNumber: number,
+  crossCipSkills: CrossCipSkillInput[],
+): Promise<CrossCipSuggestion[]> {
+  if (crossCipSkills.length === 0) return [];
+
+  const chunks: CrossCipSkillInput[][] = [];
+  for (let i = 0; i < crossCipSkills.length; i += MAX_SKILLS_PER_CALL) {
+    chunks.push(crossCipSkills.slice(i, i + MAX_SKILLS_PER_CALL));
+  }
+
+  const results: CrossCipSuggestion[] = [];
+  const totalUsage: CallUsage = { input_tokens: 0, output_tokens: 0 };
+  let callIndex = 0;
+
+  for (const chunk of chunks) {
+    callIndex++;
+    const prompt = buildPrompt(entryText, entryType, linkedCipNumber, chunk);
+    const { data: raw, usage } = await callAnthropic(prompt);
+
+    totalUsage.input_tokens += usage.input_tokens;
+    totalUsage.output_tokens += usage.output_tokens;
+    logUsage(callIndex, usage, totalUsage);
+
+    if (!Array.isArray(raw)) continue;
+
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+
+      const key_skill_id = String((item as Record<string, unknown>).key_skill_id ?? "");
+      if (!key_skill_id) continue;
+
+      const meta = chunk.find((s) => s.key_skill_id === key_skill_id);
+      if (!meta) continue;
+
+      const confidenceRaw = Number((item as Record<string, unknown>).confidence ?? 0);
+      const confidence =
+        Number.isFinite(confidenceRaw) &&
+        confidenceRaw >= 0 &&
+        confidenceRaw <= 1
+          ? confidenceRaw
+          : 0;
+
+      const rationale = String(
+        (item as Record<string, unknown>).rationale ?? "AI cross-CiP match",
+      ).slice(0, 200);
+
+      results.push({
+        key_skill_id,
+        cip_number: meta.cip_number,
+        confidence,
+        rationale,
+      });
+    }
+  }
+
+  logSummary(callIndex, totalUsage);
+  return results;
+}

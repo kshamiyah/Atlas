@@ -16,11 +16,11 @@ type RecentEntriesSectionProps = {
 export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
   if (entries.length === 0) {
     return (
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-        <h2 className="text-sm font-semibold text-slate-200">
+      <section className="rounded-lg border border-subtle bg-surface-2 p-5">
+        <h2 className="text-small font-semibold text-primary">
           Recent entries
         </h2>
-        <p className="mt-2 text-xs text-slate-400">
+        <p className="mt-2 text-micro text-muted">
           No entries synced yet. Sync the entries list from Kaizen (set to 100 per
           page) using the extension.
         </p>
@@ -29,14 +29,14 @@ export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
   }
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-      <h2 className="text-sm font-semibold text-slate-200 mb-3">
+    <section className="rounded-lg border border-subtle bg-surface-2 p-5">
+      <h2 className="text-small font-semibold text-primary mb-3">
         Recent entries
       </h2>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-micro">
           <thead>
-            <tr className="border-b border-slate-700 text-left text-slate-400">
+            <tr className="border-b border-subtle text-left text-muted">
               <th className="pb-2 pr-2 font-medium">Date</th>
               <th className="pb-2 pr-2 font-medium">Type</th>
               <th className="pb-2 pr-2 font-medium">Title</th>
@@ -49,7 +49,7 @@ export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
             {entries.map((e) => (
               <tr
                 key={e.id}
-                className="border-b border-slate-800/80 text-slate-300"
+                className="border-b border-subtle text-secondary"
               >
                 <td className="py-1.5 pr-2">{e.kaizen_date || "—"}</td>
                 <td className="py-1.5 pr-2">{e.assessment_type || "—"}</td>
@@ -64,7 +64,7 @@ export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 text-micro text-muted">
         Showing up to 15 most recent entries.
       </p>
     </section>

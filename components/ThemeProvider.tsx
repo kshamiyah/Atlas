@@ -1,0 +1,71 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+
+type Theme = "light" | "dark";
+
+type ThemeContextValue = {
+  theme: Theme;
+  toggle: () => void;
+};
+
+const ThemeContext = createContext<ThemeContextValue>({
+  theme: "light",
+  toggle: () => {},
+});
+
+export function useTheme() {
+  return useContext(ThemeContext);
+}
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<Theme>("light");
+
+  // On first mount: read stored preference or fall back to system preference
+  useEffect(() => {
+    const stored = localStorage.getItem("theme") as Theme | null;
+    const prefersDark = window.matchMedia(
+      "(prefers-color-scheme: dark)",
+    ).matches;
+    const initial: Theme = stored ?? (prefersDark ? "dark" : "light");
+
+    setTheme(initial);
+    applyTheme(initial);
+
+    // Enable colour transitions only after first paint — prevents
+    // a flash of transition on page load
+    requestAnimationFrame(() => {
+      document.documentElement.classList.add("theme-ready");
+    });
+  }, []);
+
+  const toggle = useCallback(() => {
+    setTheme((prev) => {
+      const next: Theme = prev === "light" ? "dark" : "light";
+      localStorage.setItem("theme", next);
+      applyTheme(next);
+      return next;
+    });
+  }, []);
+
+  return (
+    <ThemeContext.Provider value={{ theme, toggle }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+function applyTheme(theme: Theme) {
+  const root = document.documentElement;
+  if (theme === "dark") {
+    root.classList.add("dark");
+  } else {
+    root.classList.remove("dark");
+  }
+}

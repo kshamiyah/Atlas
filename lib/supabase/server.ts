@@ -31,3 +31,8 @@ export async function getServerSupabaseClient(): Promise<TypedSupabaseClient> {
   });
 }
 
+/** Alias for getServerSupabaseClient (cookie-based auth). */
+export async function createClient() {
+  return getServerSupabaseClient();
+}
+
