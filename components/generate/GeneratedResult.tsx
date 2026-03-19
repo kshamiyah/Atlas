@@ -37,6 +37,13 @@ export function GeneratedResult({
 }: Props) {
   const schema = ENTRY_TYPE_SCHEMAS[entryType];
   const fields = schema?.fields ?? [];
+  const [fieldValues, setFieldValues] = useState<
+    Record<string, string>
+  >(() =>
+    Object.fromEntries(
+      fields.map((f) => [f.id, String(result.fields[f.id] ?? "")])
+    )
+  );
 
   return (
     <div className="space-y-4">
@@ -56,35 +63,61 @@ export function GeneratedResult({
           const value = result.fields[field.id];
           if (value === undefined || value === null || value === "")
             return null;
-          const displayValue = String(value);
           return (
             <div key={field.id}>
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-400">
                   {field.label}
                 </span>
-                <CopyButton text={displayValue} />
+                <CopyButton text={fieldValues[field.id]} />
               </div>
-              <pre className="whitespace-pre-wrap rounded-md bg-slate-800 px-3 py-2 text-xs leading-relaxed text-slate-200">
-                {displayValue}
-              </pre>
+              <textarea
+                value={fieldValues[field.id]}
+                onChange={(e) =>
+                  setFieldValues((prev) => ({
+                    ...prev,
+                    [field.id]: e.target.value,
+                  }))
+                }
+                rows={field.type === "string" ? 1 : 5}
+                className="w-full resize-y rounded-md border border-subtle bg-surface-3 px-3 py-2 text-sm text-primary focus:border-accent-green focus:outline-none"
+              />
             </div>
           );
         })}
       </section>
 
-      {result.suggested_key_skill_ids.length > 0 && (
+      {result.suggested_key_skills_detail.length > 0 && (
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-          <h3 className="mb-2 text-xs font-medium text-slate-400">
-            Suggested key skills ({result.suggested_key_skill_ids.length})
+          <h3 className="mb-3 text-xs font-medium text-slate-400">
+            Suggested key skills ({result.suggested_key_skills_detail.length})
           </h3>
-          <ul className="flex flex-wrap gap-1.5">
-            {result.suggested_key_skill_ids.map((id) => (
+          <ul className="space-y-3">
+            {result.suggested_key_skills_detail.map((skill) => (
               <li
-                key={id}
-                className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300"
+                key={skill.key_skill_id}
+                className="rounded-md bg-slate-800 p-3"
               >
-                {id}
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-200">
+                    {skill.title}
+                  </span>
+                  {skill.cip_number != null && (
+                    <span className="text-xs text-slate-500">
+                      CiP {skill.cip_number}
+                    </span>
+                  )}
+                  {skill.covered === false && (
+                    <span className="rounded-full bg-amber-900/50 px-2 py-0.5 text-xs text-amber-400">
+                      gap
+                    </span>
+                  )}
+                </div>
+                {skill.rationale && (
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    {skill.rationale}
+                  </p>
+                )}
               </li>
             ))}
           </ul>

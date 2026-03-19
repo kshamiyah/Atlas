@@ -6,7 +6,7 @@ export type GeneratedEntryType =
   | "notss"
   | "osats_formative"
   | "osats_summative"
-  | "courses";
+  | "other_evidence";
 
 export type GeneratedEntry = {
   id: string;

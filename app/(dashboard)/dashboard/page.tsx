@@ -18,11 +18,6 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  // Week boundary for "entries this week"
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .split("T")[0];
-
   const [
     { data: profile },
     { data: stages },
@@ -30,11 +25,10 @@ export default async function DashboardPage() {
     { data: syncLog },
     { data: entries },
     { count: totalEntries },
-    { count: entriesThisWeek },
   ] = await Promise.all([
     supabase
       .from("profiles")
-      .select("current_stage_id")
+      .select("current_stage_id, arcp_date")
       .eq("id", user.id)
       .maybeSingle(),
     supabase
@@ -54,10 +48,6 @@ export default async function DashboardPage() {
     supabase
       .from("kaizen_entries")
       .select("id", { count: "exact", head: true }),
-    supabase
-      .from("key_skill_review_entries")
-      .select("id", { count: "exact", head: true })
-      .gte("event_date", weekAgo),
   ]);
 
   const lastSyncByType: Record<string, string> = {};
@@ -66,6 +56,13 @@ export default async function DashboardPage() {
       lastSyncByType[row.sync_type] = row.synced_at;
     }
   });
+
+  const daysToArcp: number | null = profile?.arcp_date
+    ? Math.ceil(
+        (new Date(profile.arcp_date).getTime() - Date.now()) /
+          (1000 * 60 * 60 * 24)
+      )
+    : null;
 
   const hasNoData =
     (cipProgress ?? []).length === 0 &&
@@ -102,7 +99,7 @@ export default async function DashboardPage() {
                 with AI.
               </p>
             </div>
-            <GettingStartedSection />
+            <GettingStartedSection hasSynced={Object.keys(lastSyncByType).length > 0} />
           </div>
         </main>
       </div>
@@ -121,7 +118,8 @@ export default async function DashboardPage() {
           {/* Stats + Traffic light + Ring + Donuts + Priority actions — all from one fetch */}
           <DashboardReadinessSection
             totalEntries={totalEntries ?? 0}
-            entriesThisWeek={entriesThisWeek ?? 0}
+            daysToArcp={daysToArcp}
+            arcpDate={profile?.arcp_date ?? null}
           />
 
           <CipProgressSection cips={cipProgress ?? []} />

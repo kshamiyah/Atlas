@@ -23,10 +23,15 @@ const STAGE_TABS: StageTab[] = [
 
 type Props = {
   totalEntries: number;
-  entriesThisWeek: number;
+  daysToArcp: number | null;
+  arcpDate: string | null;
 };
 
-export function DashboardReadinessSection({ totalEntries, entriesThisWeek }: Props) {
+export function DashboardReadinessSection({
+  totalEntries,
+  daysToArcp,
+  arcpDate,
+}: Props) {
   const [selectedStageGroup, setSelectedStageGroup] = useState<string | null>(null);
   const [cips, setCips] = useState<GapReportCip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -58,7 +63,8 @@ export function DashboardReadinessSection({ totalEntries, entriesThisWeek }: Pro
         confirmedSkills={confirmedSkills}
         cipsInProgress={cipsInProgress}
         totalCips={totalCips}
-        entriesThisWeek={entriesThisWeek}
+        daysToArcp={daysToArcp}
+        arcpDate={arcpDate}
         isLoading={isLoading}
       />
 

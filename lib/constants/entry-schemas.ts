@@ -164,12 +164,6 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
     type: "osats_summative",
     title: "OSATS (Summative)",
     fields: [
-      {
-        id: "clinical_details_and_complexity",
-        label: "Clinical details & complexity",
-        type: "text",
-        required: true,
-      },
       { id: "what_went_well", label: "What went well", type: "text", required: true },
       {
         id: "what_could_have_gone_better",
@@ -183,18 +177,58 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
         label: "Assessor additional comments",
         type: "text",
       },
-      { id: "trainee_reflection", label: "Trainee reflection", type: "text" },
       { id: "assessor", label: "Assessor email", type: "string" },
     ],
   },
 
-  courses: {
-    type: "courses",
-    title: "Course / Conference",
+  other_evidence: {
+    type: "other_evidence",
+    title: "Other Evidence",
     fields: [
       { id: "title", label: "Title", type: "string", required: true },
-      { id: "date", label: "Date", type: "date", required: true },
       { id: "description", label: "Description", type: "text", required: true },
+      { id: "date", label: "Date", type: "date", required: true },
+      {
+        id: "evidence_type",
+        label: "Evidence type",
+        type: "select",
+        options: [
+          { value: "15", label: "APM in clinical Research" },
+          { value: "556", label: "Attendance and chairing of labour ward forum" },
+          { value: "477", label: "Audit" },
+          { value: "480", label: "Complaint management" },
+          { value: "501", label: "Confirmed participation in multidisciplinary team-based simulation training" },
+          { value: "1044", label: "Courses" },
+          { value: "17", label: "Critical appraisal / journal club presentation" },
+          { value: "1239", label: "CTG training" },
+          { value: "482", label: "Debrief" },
+          { value: "18", label: "Discussion of correspondence" },
+          { value: "19", label: "Equality and Diversity training" },
+          { value: "521", label: "Feedback on teaching" },
+          { value: "526", label: "FGM training" },
+          { value: "517", label: "GCP certificate" },
+          { value: "514", label: "Guideline development and implementation" },
+          { value: "479", label: "Incident reporting and investigation" },
+          { value: "502", label: "Leadership questionnaire" },
+          { value: "503", label: "Leads critical incident review" },
+          { value: "475", label: "Local and Deanery Teaching" },
+          { value: "21", label: "MRCOG" },
+          { value: "474", label: "MRCOG Part 1" },
+          { value: "473", label: "MRCOG Part 2" },
+          { value: "472", label: "MRCOG Part 3" },
+          { value: "522", label: "Multidisciplinary labour ward skills session facilitation" },
+          { value: "520", label: "Oral and poster presentations" },
+          { value: "1047", label: "Other" },
+          { value: "1045", label: "Patient feedback" },
+          { value: "519", label: "Peer reviewed publications" },
+          { value: "591", label: "Perform quality improvement project" },
+          { value: "585", label: "Presentation at a national/international conference" },
+          { value: "513", label: "Quality improvement project" },
+          { value: "538", label: "RCOG and other eLearning" },
+          { value: "548", label: "Simulation training" },
+          { value: "1451", label: "Structured feedback" },
+        ],
+      },
     ],
   },
 };
@@ -205,14 +239,13 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
 export const KAIZEN_FORM_FIELDS: Partial<
   Record<GeneratedEntryType, Record<string, string>>
 > = {
+  // Reflection field IDs verified via inspect script
   reflection: {
     title: "edit-name-0-value",
-    what_happened: "edit-field-assess-what-happened-0-value",
-    important_points: "edit-field-assess-important-points-0-value",
-    reflection: "edit-field-assess-reflection-0-value",
-    record_of_discussion_or_action_plan:
-      "edit-field-assess-record-of-discus-0-value",
-    log_procedure: "edit-field-assess-log-procedure-0-value",
+    what_happened: "edit-description-0-value",
+    important_points: "edit-field-important-points-0-value",
+    reflection: "edit-field-logentry-reflection-0-value",
+    record_of_discussion_or_action_plan: "edit-field-action-plan-0-value",
     date: "edit-event-date-0-value-date",
   },
   cbd: {
@@ -241,26 +274,28 @@ export const KAIZEN_FORM_FIELDS: Partial<
     assessor:
       "edit-assessment-request-0-inline-entity-form-assessor-email-0-value",
   },
+  // NOTSS field IDs verified via inspect script
   notss: {
     title: "edit-name-0-value",
     number_of_beds: "edit-field-assess-number-of-beds-0-value",
-    number_of_patients: "edit-field-assess-number-of-patient-0-value",
-    situation_awareness: "edit-field-assess-situation-awarene-0-value",
+    number_of_patients: "edit-field-assess-number-of-patients-0-value",
+    situation_awareness: "edit-field-assess-situation-awareness-0-value",
     decision_making: "edit-field-assess-decision-making-0-value",
-    communication_teamwork: "edit-field-assess-communication-tea-0-value",
+    communication_teamwork: "edit-field-assess-comm-teamwork-0-value",
     leadership: "edit-field-assess-leadership-0-value",
-    comments_by_trainee: "edit-field-assess-comments-by-train-0-value",
-    comments_by_assessor: "edit-field-assess-comments-by-asses-0-value",
+    comments_by_trainee: "edit-field-assess-comments-trainee-0-value",
+    comments_by_assessor: "edit-field-assess-comments-assessor-0-value",
     assessor:
       "edit-assessment-request-0-inline-entity-form-assessor-email-0-value",
     date: "edit-event-date-0-value-date",
   },
+  // OSATS Formative field IDs verified via inspect script
   osats_formative: {
     clinical_details_and_complexity:
-      "edit-field-assess-clinical-details-0-value",
-    what_went_well: "edit-field-assess-what-went-well-0-value",
-    what_could_have_gone_better: "edit-field-assess-what-could-have-0-value",
-    learning_plan: "edit-field-assess-learning-plan-0-value",
+      "edit-field-assess-details-complexity-0-value",
+    what_went_well: "edit-field-assess-whatwentwell-0-value",
+    what_could_have_gone_better: "edit-field-assess-whatcouldbebetter-0-value",
+    learning_plan: "edit-field-assess-trainee-learningpla-0-value",
     assessor_additional_comments:
       "edit-field-assessors-additional-comme-0-value",
     trainee_reflection: "edit-field-assess-trainee-reflection-0-value",
@@ -268,27 +303,31 @@ export const KAIZEN_FORM_FIELDS: Partial<
       "edit-assessment-request-0-inline-entity-form-assessor-email-0-value",
     date: "edit-event-date-0-value-date",
   },
+  // OSATS Summative field IDs verified via inspect script
+  // Note: no clinical_details_and_complexity or trainee_reflection on summative form
   osats_summative: {
-    clinical_details_and_complexity:
-      "edit-field-assess-clinical-details-0-value",
-    what_went_well: "edit-field-assess-what-went-well-0-value",
-    what_could_have_gone_better: "edit-field-assess-what-could-have-0-value",
-    learning_plan: "edit-field-assess-learning-plan-0-value",
+    what_went_well: "edit-field-assess-whatwentwell-0-value",
+    what_could_have_gone_better: "edit-field-assess-whatcouldbebetter-0-value",
+    learning_plan: "edit-field-assess-trainee-learningpla-0-value",
     assessor_additional_comments:
       "edit-field-assessors-additional-comme-0-value",
-    trainee_reflection: "edit-field-assess-trainee-reflection-0-value",
     assessor:
       "edit-assessment-request-0-inline-entity-form-assessor-email-0-value",
     date: "edit-event-date-0-value-date",
   },
-  courses: {
-    title: "edit-name-0-value",
-    date: "edit-event-date-0-value-date",
-    description: "edit-field-assess-description-0-value",
-  },
+  // courses fills as other_evidence with evidence_type "1044" — handled in extension fillEntryFields
+  // Procedure field IDs verified via inspect script
   procedure: {
-    description: "edit-field-assess-description-0-value",
+    level_of_supervision: "edit-field-level-of-supervision",
+    description: "edit-description-0-value",
     date: "edit-event-date-0-value-date",
+  },
+  // 'other_evidence' field IDs verified via inspect script
+  other_evidence: {
+    title: "edit-name-0-value",
+    description: "edit-description-0-value",
+    date: "edit-event-date-0-value-date",
+    evidence_type: "edit-field-logentry-evidence-type",
   },
 };
 

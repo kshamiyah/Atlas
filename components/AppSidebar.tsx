@@ -68,10 +68,15 @@ const NAV = [
   },
 ];
 
+const STALE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, toggle } = useTheme();
+
+  const syncAge = lastSyncAt ? Date.now() - new Date(lastSyncAt).getTime() : null;
+  const syncStatus = syncAge === null ? "never" : syncAge > STALE_MS ? "stale" : "fresh";
 
   async function signOut() {
     const supabase = getBrowserSupabaseClient();
@@ -84,8 +89,8 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
     <aside className="flex h-screen w-64 shrink-0 flex-col bg-surface-1 shadow-[1px_0_0_0_var(--border-subtle)]">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-green">
-          <span className="text-micro font-bold text-white">P</span>
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary">
+          <span className="text-micro font-bold" style={{ color: "var(--surface-1)" }}>P</span>
         </div>
         <span className="text-small font-bold tracking-tight text-primary">
           PortfolioIQ
@@ -109,11 +114,11 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
               className={[
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-small transition-colors",
                 isActive
-                  ? "bg-accent-green/[0.10] text-primary font-medium"
+                  ? "bg-accent-primary/[0.10] text-primary font-medium"
                   : "text-secondary hover:bg-surface-3 hover:text-primary",
               ].join(" ")}
             >
-              <span className={isActive ? "text-accent-green" : "text-muted"}>
+              <span className={isActive ? "text-accent-primary" : "text-muted"}>
                 {item.icon}
               </span>
               {item.label}
@@ -127,8 +132,8 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
         {/* User card */}
         {userEmail && (
           <div className="flex items-center gap-2.5 rounded-lg bg-surface-3 px-3 py-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-green/15">
-              <span className="text-micro font-semibold text-accent-green">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-primary/15">
+              <span className="text-micro font-semibold text-accent-primary">
                 {userEmail[0].toUpperCase()}
               </span>
             </div>
@@ -136,9 +141,23 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
               <p className="truncate text-micro font-medium text-primary">
                 {userEmail}
               </p>
-              <p className="text-micro text-muted">
-                {formatSyncTime(lastSyncAt)}
-              </p>
+              <div className="flex items-center gap-1.5">
+                {syncStatus === "fresh" && (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full animate-pulse-dot"
+                    style={{ backgroundColor: "var(--accent-green)" }}
+                  />
+                )}
+                {syncStatus === "stale" && (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: "var(--accent-amber)" }}
+                  />
+                )}
+                <p className="text-micro text-muted">
+                  {formatSyncTime(lastSyncAt)}
+                </p>
+              </div>
             </div>
           </div>
         )}
