@@ -99,82 +99,92 @@ export function GenerateForm() {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="card p-5">
-        <label className="mb-3 block text-micro font-medium text-muted">
-          Entry type
-        </label>
-        <p className="mb-2 text-micro text-muted opacity-60">
-          Optional — leave unselected to auto-detect
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {(Object.keys(ENTRY_TYPE_SCHEMAS) as GeneratedEntryType[]).map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => {
-                setEntryType((prev) => (prev === type ? null : type));
-                if (status === "done") {
-                  setStatus("idle");
-                  setResult(null);
-                }
-              }}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                entryType === type
-                  ? "bg-accent-green text-white"
-                  : "bg-surface-3 text-secondary hover:bg-surface-4 hover:text-primary"
-              }`}
-            >
-              {ENTRY_TYPE_SCHEMAS[type].title}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="card p-5 space-y-4">
-        <div>
-          <label className="mb-1.5 block text-micro font-medium text-muted">
-            Date of event{" "}
-            <span className="text-muted opacity-60">(optional)</span>
-          </label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="rounded-md border border-subtle bg-surface-3 px-3 py-1.5 text-xs text-primary focus:border-accent-green focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-micro font-medium text-muted">
-            Length
-          </label>
-          <div className="flex gap-2">
-            {(["short", "standard", "detailed"] as const).map((opt) => (
+    <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <aside className="space-y-4 lg:sticky lg:top-5 lg:self-start">
+        <section className="card p-5">
+          <div className="mb-3 border-b border-subtle pb-3">
+            <label className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+              Entry type
+            </label>
+            <p className="mt-1 text-xs text-muted">
+              Optional. Leave unselected to auto-detect.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(ENTRY_TYPE_SCHEMAS) as GeneratedEntryType[]).map((type) => (
               <button
-                key={opt}
+                key={type}
                 type="button"
-                onClick={() => setLength(opt)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition ${
-                  length === opt
-                    ? "bg-accent-green text-white"
-                    : "bg-surface-3 text-secondary hover:bg-surface-4 hover:text-primary"
+                onClick={() => {
+                  setEntryType((prev) => (prev === type ? null : type));
+                  if (status === "done") {
+                    setStatus("idle");
+                    setResult(null);
+                  }
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                  entryType === type
+                    ? "border-accent-primary bg-accent-primary text-surface-1"
+                    : "border-subtle bg-surface-3 text-secondary hover:bg-surface-4 hover:text-primary"
                 }`}
               >
-                {opt}
+                {ENTRY_TYPE_SCHEMAS[type].title}
               </button>
             ))}
           </div>
-        </div>
+        </section>
 
-        {/* Key skill targeting — searchable dropdown */}
-        <div>
-          <label className="mb-1.5 block text-micro font-medium text-muted">
-            Target key skills{" "}
-            <span className="text-muted opacity-60">(up to 3 — optional)</span>
-          </label>
+        <section className="card space-y-4 p-5">
+          <div className="border-b border-subtle pb-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+              Writing settings
+            </h2>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-muted">
+              Date of event
+            </label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="app-input w-full px-3 py-2 text-xs text-primary"
+            />
+          </div>
 
-          {/* Selected chips */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-muted">
+              Length
+            </label>
+            <div className="flex gap-2">
+              {(["short", "standard", "detailed"] as const).map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setLength(opt)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium capitalize transition ${
+                    length === opt
+                      ? "border-accent-primary bg-accent-primary text-surface-1"
+                      : "border-subtle bg-surface-3 text-secondary hover:bg-surface-4 hover:text-primary"
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="card p-5">
+          <div className="mb-3 border-b border-subtle pb-3">
+            <label className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+              Target key skills
+            </label>
+            <p className="mt-1 text-xs text-muted">
+              Up to 3 optional targets to steer output.
+            </p>
+          </div>
+
           {targetSkillIds.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {targetSkillIds.map((id) => {
@@ -182,7 +192,7 @@ export function GenerateForm() {
                 return (
                   <span
                     key={id}
-                    className="flex items-center gap-1 rounded-full bg-accent-green/20 px-2.5 py-1 text-xs text-accent-green ring-1 ring-accent-green/40"
+                    className="flex items-center gap-1 rounded-full bg-surface-3 px-2.5 py-1 text-xs text-primary ring-1 ring-subtle"
                   >
                     {skill?.title ?? id}
                     <button
@@ -199,7 +209,6 @@ export function GenerateForm() {
             </div>
           )}
 
-          {/* Dropdown */}
           <div ref={dropdownRef} className="relative">
             <input
               type="text"
@@ -212,11 +221,11 @@ export function GenerateForm() {
                   : "Search key skills…"
               }
               disabled={allSkills.length === 0}
-              className="w-full rounded-md border border-subtle bg-surface-3 px-3 py-2 text-xs text-primary placeholder-muted focus:border-accent-green focus:outline-none disabled:opacity-50"
+              className="app-input w-full px-3 py-2 text-xs text-primary placeholder-muted disabled:opacity-50"
             />
 
             {dropdownOpen && filteredSkills.length > 0 && (
-              <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-subtle bg-surface-2 shadow-lg">
+              <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-subtle bg-surface-2 shadow-lg" style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06)" }}>
                 {filteredSkills.map((skill) => {
                   const selected = targetSkillIds.includes(skill.key_skill_id);
                   const disabled = !selected && targetSkillIds.length >= 3;
@@ -232,7 +241,7 @@ export function GenerateForm() {
                         }}
                         className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition ${
                           selected
-                            ? "bg-accent-green/10 text-accent-green"
+                            ? "bg-surface-3 text-primary font-medium"
                             : disabled
                             ? "cursor-not-allowed opacity-40"
                             : "text-primary hover:bg-surface-3"
@@ -256,42 +265,55 @@ export function GenerateForm() {
               </ul>
             )}
           </div>
-        </div>
+        </section>
+      </aside>
 
-        <div>
-          <label className="mb-1.5 block text-micro font-medium text-muted">
-            Describe what happened
-          </label>
+      <div className="space-y-4">
+        <section className="card p-5 md:p-6">
+          <div className="mb-3 border-b border-subtle pb-3">
+            <label className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+              Clinical narrative
+            </label>
+            <p className="mt-1 text-xs text-muted">
+              Describe what happened. The generator will expand this into a structured entry.
+            </p>
+          </div>
           <textarea
-            rows={8}
+            rows={11}
             value={freeText}
             onChange={(e) => setFreeText(e.target.value)}
-            placeholder="Write a brief clinical description — the AI will expand this into a full portfolio entry. E.g. 'Assisted with LSCS for FTP, supervised by consultant, patient anxious, good outcome, discussed post-op care.'"
-            className="w-full resize-y rounded-md border border-subtle bg-surface-3 px-3 py-2 text-sm text-primary placeholder-muted focus:border-accent-green focus:outline-none"
+            placeholder="Example: Assisted with LSCS for FTP, supervised by consultant. Patient was anxious; I supported counselling and discussed post-op care and safety netting."
+            className="app-input w-full resize-y px-3 py-3 text-[15px] leading-relaxed text-primary placeholder-muted"
           />
-        </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={status === "loading" || !freeText.trim()}
+              className="btn-primary px-4 py-2 text-small disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {status === "loading" ? "Generating…" : "Generate entry"}
+            </button>
+            <span className="text-xs text-muted">
+              Output is editable before you copy it.
+            </span>
+          </div>
 
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={status === "loading" || !freeText.trim()}
-          className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {status === "loading" ? "Generating…" : "Generate entry"}
-        </button>
+          {status === "error" && (
+            <p className="mt-3 text-xs text-accent-red">{errorMsg}</p>
+          )}
+        </section>
 
-        {status === "error" && (
-          <p className="text-xs text-accent-red">{errorMsg}</p>
+        {status === "done" && result && entryType && (
+          <GeneratedResult
+            result={result}
+            entryType={entryType}
+            savedId={savedId}
+            rawInput={freeText}
+            length={length}
+          />
         )}
-      </section>
-
-      {status === "done" && result && entryType && (
-        <GeneratedResult
-          result={result}
-          entryType={entryType}
-          savedId={savedId}
-        />
-      )}
+      </div>
     </div>
   );
 }

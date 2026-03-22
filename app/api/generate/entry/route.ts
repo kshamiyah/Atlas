@@ -3,6 +3,7 @@ import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { generatePortfolioEntry } from "@/lib/ai/generate";
 import { matchKeySkills } from "@/lib/ai/match-key-skills";
 import type { GeneratedEntryType } from "@/lib/types/entries";
+import type { KeySkillCandidate } from "@/lib/ai/match-key-skills";
 
 const VALID_ENTRY_TYPES: GeneratedEntryType[] = [
   "reflection",
@@ -12,17 +13,74 @@ const VALID_ENTRY_TYPES: GeneratedEntryType[] = [
   "notss",
   "osats_formative",
   "osats_summative",
-  "courses",
+  "other_evidence",
 ];
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+};
+
+type AuthUser = { id: string };
+type CoverageRow = {
+  key_skill_name: string | null;
+  evidence_count: number | null;
+  covered: boolean | null;
+};
+type KeySkillRow = {
+  legacy_id: string | null;
+  title: string | null;
+  cips:
+    | {
+        number: number | null;
+        title: string | null;
+      }
+    | Array<{
+        number: number | null;
+        title: string | null;
+      }>
+    | null;
+  descriptors:
+    | Array<{
+        text: string | null;
+        sort_order: number | null;
+      }>
+    | null;
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
 
 export async function POST(request: Request) {
   const supabase = await getServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let user: AuthUser | null = null;
+  const authHeader = request.headers.get("Authorization");
+
+  // Prefer explicit Bearer auth from the extension; fall back to cookie auth.
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice("Bearer ".length);
+    try {
+      const { data } = await supabase.auth.getUser(token);
+      user = data.user;
+    } catch {
+      // Invalid token should behave like unauthenticated.
+      user = null;
+    }
   }
+
+  if (!user) {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  }
+  if (!user) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401, headers: CORS_HEADERS }
+    );
+  }
+  const userId = user.id;
 
   let body: {
     entry_type?: GeneratedEntryType;
@@ -34,13 +92,16 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid JSON body" },
+      { status: 400, headers: CORS_HEADERS }
+    );
   }
 
   if (body.entry_type && !VALID_ENTRY_TYPES.includes(body.entry_type)) {
     return NextResponse.json(
       { error: "Invalid entry_type" },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
   if (
@@ -50,7 +111,7 @@ export async function POST(request: Request) {
   ) {
     return NextResponse.json(
       { error: "free_text is required" },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
 
@@ -58,7 +119,7 @@ export async function POST(request: Request) {
   const { data: profile } = await supabase
     .from("profiles")
     .select("current_stage_id")
-    .eq("id", user.id)
+    .eq("id", userId)
     .maybeSingle();
 
   if (profile?.current_stage_id) {
@@ -79,52 +140,60 @@ export async function POST(request: Request) {
   const { data: coverageRows } = await supabase
     .from("kaizen_key_skill_coverage")
     .select("key_skill_name, evidence_count, covered")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
+
+  const typedCoverageRows = (coverageRows ?? []) as CoverageRow[];
+  const typedKeySkillRows = (keySkillRows ?? []) as KeySkillRow[];
 
   const coverageByName = new Map(
-    (coverageRows ?? []).map((c) => [
-      String((c as any).key_skill_name ?? "")
+    typedCoverageRows.map((c) => [
+      String(c.key_skill_name ?? "")
         .toLowerCase()
         .trim(),
       c,
     ])
   );
 
-  const enrichedKeySkills = (keySkillRows ?? [])
-    .filter((ks) => (ks as any).legacy_id && (ks as any).title)
+  const enrichedKeySkills: KeySkillCandidate[] = typedKeySkillRows
+    .filter(
+      (ks): ks is KeySkillRow & { legacy_id: string; title: string } =>
+        Boolean(ks.legacy_id && ks.title)
+    )
     .map((ks) => {
       const coverage = coverageByName.get(
-        String((ks as any).title ?? "").toLowerCase().trim()
+        String(ks.title ?? "").toLowerCase().trim()
       );
-      const descriptorTexts = (
-        (((ks as any).descriptors as { text: string; sort_order: number }[]) ??
-          [])
-      )
-        .sort((a, b) => a.sort_order - b.sort_order)
-        .map((d) => d.text);
+      const descriptorRows = Array.isArray(ks.descriptors) ? ks.descriptors : [];
+      const descriptorTexts = descriptorRows
+        .slice()
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        .map((d) => String(d.text ?? "").trim())
+        .filter((text) => text.length > 0);
 
-      const cip = (ks as any).cips as { number: number; title: string } | null;
+      const cip = Array.isArray(ks.cips) ? (ks.cips[0] ?? null) : ks.cips;
 
       return {
-        key_skill_id: (ks as any).legacy_id as string,
-        title: (ks as any).title as string,
+        key_skill_id: ks.legacy_id,
+        title: ks.title,
         cip_number: cip?.number ?? null,
         cip_title: cip?.title ?? null,
         descriptors: descriptorTexts,
-        covered: (coverage as any)?.covered ?? null,
-        evidence_count: (coverage as any)?.evidence_count ?? null,
+        covered: coverage?.covered ?? null,
+        evidence_count: coverage?.evidence_count ?? null,
       };
     });
 
-  const targetedSkills = (body.target_key_skill_ids ?? [])
+  const targetedSkillRows = (body.target_key_skill_ids ?? [])
     .map((id) =>
       enrichedKeySkills.find((s) => s.key_skill_id === id)
     )
-    .filter(Boolean)
+    .filter((s): s is KeySkillCandidate => s != null);
+
+  const targetedSkills = targetedSkillRows
     .map((s) => ({
-      id: (s as any).key_skill_id as string,
-      title: (s as any).title as string,
-      descriptors: (s as any).descriptors as string[],
+      id: s.key_skill_id,
+      title: s.title,
+      descriptors: s.descriptors,
     }));
 
   let result;
@@ -141,7 +210,7 @@ export async function POST(request: Request) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
       { error: "AI generation failed: " + msg },
-      { status: 500 }
+      { status: 500, headers: CORS_HEADERS }
     );
   }
 
@@ -204,7 +273,7 @@ export async function POST(request: Request) {
   const { data: saved, error: saveError } = await supabase
     .from("generated_entries")
     .insert({
-      user_id: user.id,
+      user_id: userId,
       entry_type: result.entry_type as GeneratedEntryType,
       raw_input: body.free_text.trim(),
       structured_data: result,
@@ -219,8 +288,14 @@ export async function POST(request: Request) {
       "[PortfolioIQ] Failed to save generated entry:",
       saveError.message
     );
-    return NextResponse.json({ ok: true, id: null, result });
+    return NextResponse.json(
+      { ok: true, id: null, result },
+      { headers: CORS_HEADERS }
+    );
   }
 
-  return NextResponse.json({ ok: true, id: saved.id, result });
+  return NextResponse.json(
+    { ok: true, id: saved.id, result },
+    { headers: CORS_HEADERS }
+  );
 }
