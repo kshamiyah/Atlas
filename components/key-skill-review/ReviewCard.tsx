@@ -16,13 +16,40 @@ type ReviewCardProps = {
     nextStatus: SkillSuggestion["status"],
   ) => void;
   disabled?: boolean;
+  expandedByDefault?: boolean;
 };
+
+const PRIMARY_VISIBLE_SUGGESTIONS = 3;
+const STATUS_PRIORITY: Record<SkillSuggestion["status"], number> = {
+  suggested: 0,
+  confirmed: 1,
+  rejected: 2,
+};
+
+function sortSuggestionsForReview(
+  suggestions: SkillSuggestion[],
+): SkillSuggestion[] {
+  return [...suggestions].sort((a, b) => {
+    const statusDelta = STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status];
+    if (statusDelta !== 0) return statusDelta;
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    return a.key_skill_title.localeCompare(b.key_skill_title);
+  });
+}
+
+function splitPrimarySuggestions(suggestions: SkillSuggestion[]) {
+  const ordered = sortSuggestionsForReview(suggestions);
+  return {
+    primary: ordered.slice(0, PRIMARY_VISIBLE_SUGGESTIONS),
+    overflow: ordered.slice(PRIMARY_VISIBLE_SUGGESTIONS),
+  };
+}
 
 function StatusBadge({ status }: { status: SkillSuggestion["status"] }) {
   const colours: Record<SkillSuggestion["status"], string> = {
     suggested: "bg-surface-4 text-secondary border-subtle",
-    confirmed: "bg-accent-green/15 text-accent-green border-accent-green/40",
-    rejected: "bg-accent-red/10 text-accent-red border-accent-red/40",
+    confirmed: "bg-surface-4 text-primary border-subtle",
+    rejected: "bg-surface-3 text-secondary border-subtle",
   };
   return (
     <span
@@ -38,9 +65,9 @@ function ConfidencePill({ value }: { value: number }) {
   const pct = Math.round(value * 100);
   const { label, colour } =
     value >= 0.8
-      ? { label: "High confidence", colour: "bg-accent-green/20 text-accent-green" }
+      ? { label: "High confidence", colour: "bg-surface-4 text-primary" }
       : value >= 0.7
-        ? { label: "Medium confidence", colour: "bg-accent-amber/20 text-accent-amber" }
+        ? { label: "Medium confidence", colour: "bg-surface-4 text-secondary" }
         : { label: "Low confidence", colour: "bg-surface-4 text-muted" };
 
   return (
@@ -73,10 +100,11 @@ function SuggestionRow({
 }) {
   const actionId = suggestion.suggestion_id;
   const buttonDisabled = !actionId || rowDisabled;
+  const showReset = suggestion.status !== "suggested";
 
   return (
-    <li className="rounded-lg border border-subtle bg-surface-3 p-3 space-y-1.5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <li className="space-y-2.5 rounded-xl border border-subtle bg-surface-1 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
         <div className="space-y-0.5">
           <p className="text-xs font-medium text-primary">
             {suggestion.key_skill_title}
@@ -91,20 +119,20 @@ function SuggestionRow({
         </div>
       </div>
       {suggestion.rationale && (
-        <p className="text-[11px] leading-snug text-secondary">
+        <p className="rounded-lg border border-subtle bg-surface-2 px-2.5 py-2 text-[11px] leading-relaxed text-secondary">
           {suggestion.rationale}
         </p>
       )}
-      <div className="flex flex-wrap gap-2 pt-1.5">
+      <div className="flex flex-wrap items-center gap-2 pt-1">
         <button
           type="button"
           disabled={buttonDisabled}
           onClick={() =>
             actionId && onUpdate(entryId, actionId, source, "confirmed")
           }
-          className="inline-flex items-center rounded-md bg-accent-green/15 px-2.5 py-1 text-[11px] font-medium text-accent-green ring-1 ring-accent-green/40 transition hover:bg-accent-green/25 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-8 items-center rounded-lg border border-accent-blue/25 bg-surface-2 px-3 py-1.5 text-xs font-semibold text-accent-blue transition hover:bg-accent-blue/10 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Confirm
+          Confirm skill
         </button>
         <button
           type="button"
@@ -112,20 +140,22 @@ function SuggestionRow({
           onClick={() =>
             actionId && onUpdate(entryId, actionId, source, "rejected")
           }
-          className="inline-flex items-center rounded-md bg-accent-red/10 px-2.5 py-1 text-[11px] font-medium text-accent-red ring-1 ring-accent-red/40 transition hover:bg-accent-red/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-8 items-center rounded-lg border border-subtle bg-surface-2 px-3 py-1.5 text-xs font-medium text-secondary transition hover:bg-surface-3 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Reject
+          Not relevant
         </button>
-        <button
-          type="button"
-          disabled={buttonDisabled}
-          onClick={() =>
-            actionId && onUpdate(entryId, actionId, source, "suggested")
-          }
-          className="inline-flex items-center rounded-md bg-surface-4 px-2.5 py-1 text-[11px] font-medium text-secondary ring-1 ring-subtle transition hover:bg-surface-5 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Reset
-        </button>
+        {showReset && (
+          <button
+            type="button"
+            disabled={buttonDisabled}
+            onClick={() =>
+              actionId && onUpdate(entryId, actionId, source, "suggested")
+            }
+            className="text-[11px] font-medium text-muted underline-offset-2 transition hover:text-secondary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Undo decision
+          </button>
+        )}
       </div>
     </li>
   );
@@ -165,7 +195,7 @@ function DescriptorCoveragePanel({ coverage }: { coverage: KeySkillCoverage[] })
                   <li key={d.descriptor_id} className="flex items-start gap-2">
                     <span
                       className={`mt-0.5 shrink-0 text-[11px] font-bold leading-none ${
-                        d.covered ? "text-accent-green" : "text-muted"
+                        d.covered ? "text-accent-blue" : "text-muted"
                       }`}
                     >
                       {d.covered ? "✓" : "✗"}
@@ -187,7 +217,7 @@ function DescriptorCoveragePanel({ coverage }: { coverage: KeySkillCoverage[] })
                           )}
                           {d.evidence_quote && (
                             <span className="text-[10px] italic leading-snug text-muted line-clamp-1">
-                              "{d.evidence_quote}"
+                              &ldquo;{d.evidence_quote}&rdquo;
                             </span>
                           )}
                         </div>
@@ -224,11 +254,9 @@ export function ReviewCard({
   entry,
   onUpdateSuggestion,
   disabled,
+  expandedByDefault = false,
 }: ReviewCardProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  // Fix 7: progressive disclosure states
-  const [showEntryText, setShowEntryText] = useState(false);
-  const [showCrossCip, setShowCrossCip] = useState(false);
+  const [isOpen, setIsOpen] = useState(expandedByDefault);
 
   const hasCoverage =
     entry.descriptor_coverage != null && entry.descriptor_coverage.length > 0;
@@ -240,6 +268,8 @@ export function ReviewCard({
     entry.linked_cip_suggestions.filter((s) => s.status === "suggested").length +
     entry.cross_cip_suggestions.filter((s) => s.status === "suggested").length;
   const crossCipCount = entry.cross_cip_suggestions.length;
+  const linkedSplit = splitPrimarySuggestions(entry.linked_cip_suggestions);
+  const crossSplit = splitPrimarySuggestions(entry.cross_cip_suggestions);
 
   const metaLine =
     entry.linked_cip_number === 0 ? (
@@ -257,7 +287,7 @@ export function ReviewCard({
     );
 
   return (
-    <article className="card card-interactive p-4">
+    <article className="card card-interactive p-4 md:p-5">
       <button
         type="button"
         onClick={() => setIsOpen((o) => !o)}
@@ -275,7 +305,7 @@ export function ReviewCard({
         {/* Row 3 — status pills */}
         <div className="flex flex-wrap gap-1.5">
           {confirmedCount > 0 && (
-            <span className="rounded-full bg-accent-green/15 px-2 py-0.5 text-micro font-medium text-accent-green">
+            <span className="rounded-full bg-surface-4 px-2 py-0.5 text-micro font-medium text-secondary">
               ✓ {confirmedCount} confirmed
             </span>
           )}
@@ -285,7 +315,7 @@ export function ReviewCard({
             </span>
           )}
           {crossCipCount > 0 && (
-            <span className="rounded-full bg-accent-purple/15 px-2 py-0.5 text-micro font-medium text-accent-purple">
+            <span className="rounded-full bg-surface-4 px-2 py-0.5 text-micro font-medium text-secondary">
               {crossCipCount} cross-CiP
             </span>
           )}
@@ -293,106 +323,121 @@ export function ReviewCard({
       </button>
 
       {isOpen && (
-        <div className="mt-3 border-t border-subtle pt-3 space-y-4">
+        <div className="mt-3 space-y-4 border-t border-subtle pt-3">
+          <details className="rounded-xl border border-subtle bg-surface-1 p-3">
+            <summary className="cursor-pointer text-micro font-medium text-secondary">
+              View full entry text
+            </summary>
+            <p className="mt-2 text-micro leading-relaxed text-secondary">
+              {entry.raw_text}
+            </p>
+          </details>
 
-          {/* Fix 7: Collapsible entry text */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowEntryText((v) => !v)}
-              className="flex items-center gap-1.5 text-micro font-medium text-muted hover:text-secondary transition-colors"
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={`transition-transform duration-200 ${showEntryText ? "rotate-180" : ""}`}
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-              {showEntryText ? "Hide entry text" : "View entry text"}
-            </button>
-            {showEntryText && (
-              <div className="mt-2 rounded-lg bg-surface-3 p-3">
-                <p className="text-micro leading-relaxed text-secondary">
-                  {entry.raw_text}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Linked CiP suggestions — always visible */}
           <section>
-            <h4 className="mb-2 text-micro font-semibold uppercase tracking-wide text-muted">
-              Linked CiP suggestions
-            </h4>
+            <div className="mb-2">
+              <h4 className="text-micro font-semibold uppercase tracking-wide text-muted">
+                Linked CiP suggestions
+              </h4>
+              <p className="text-[11px] text-muted">
+                Best matches first. Additional items are collapsed below.
+              </p>
+            </div>
             {entry.linked_cip_suggestions.length === 0 ? (
               <p className="text-micro italic text-muted">
                 No linked CiP matches.
               </p>
             ) : (
-              <ul className="space-y-1.5">
-                {entry.linked_cip_suggestions.map((s) => (
-                  <SuggestionRow
-                    key={s.suggestion_id ?? `${s.key_skill_id}-${entry.id}`}
-                    suggestion={s}
-                    entryId={entry.id}
-                    source="linked_cip"
-                    onUpdate={onUpdateSuggestion}
-                    disabled={disabled}
-                  />
-                ))}
-              </ul>
-            )}
-          </section>
-
-          {/* Fix 7: Cross-CiP behind a secondary toggle */}
-          {crossCipCount > 0 && (
-            <section>
-              <button
-                type="button"
-                onClick={() => setShowCrossCip((v) => !v)}
-                className="flex items-center gap-1.5 text-micro font-medium text-accent-purple hover:underline"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`transition-transform duration-200 ${showCrossCip ? "rotate-180" : ""}`}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-                {showCrossCip ? "Hide" : "Show"} {crossCipCount} cross-CiP suggestion{crossCipCount !== 1 ? "s" : ""}
-              </button>
-              {showCrossCip && (
-                <ul className="mt-2 space-y-1.5">
-                  {entry.cross_cip_suggestions.map((s) => (
+              <>
+                <ul className="space-y-1.5">
+                  {linkedSplit.primary.map((s) => (
                     <SuggestionRow
                       key={s.suggestion_id ?? `${s.key_skill_id}-${entry.id}`}
                       suggestion={s}
                       entryId={entry.id}
-                      source="cross_cip"
+                      source="linked_cip"
                       onUpdate={onUpdateSuggestion}
                       disabled={disabled}
                     />
                   ))}
                 </ul>
+
+                {linkedSplit.overflow.length > 0 && (
+                  <details className="mt-2 rounded-xl border border-subtle bg-surface-2 p-3">
+                    <summary className="cursor-pointer text-[11px] font-medium text-secondary">
+                      More linked suggestions ({linkedSplit.overflow.length})
+                    </summary>
+                    <ul className="mt-2 space-y-1.5">
+                      {linkedSplit.overflow.map((s) => (
+                        <SuggestionRow
+                          key={s.suggestion_id ?? `${s.key_skill_id}-${entry.id}-more`}
+                          suggestion={s}
+                          entryId={entry.id}
+                          source="linked_cip"
+                          onUpdate={onUpdateSuggestion}
+                          disabled={disabled}
+                        />
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </>
+            )}
+          </section>
+
+          {crossCipCount > 0 && (
+            <section className="rounded-xl border border-subtle bg-surface-1 p-3">
+              <div className="mb-2">
+                <h4 className="text-micro font-semibold uppercase tracking-wide text-secondary">
+                  Cross-CiP opportunities
+                </h4>
+                <p className="text-[11px] text-muted">
+                  Suggested extra coverage from other CiPs, ranked by usefulness.
+                </p>
+              </div>
+              <ul className="space-y-1.5">
+                {crossSplit.primary.map((s) => (
+                  <SuggestionRow
+                    key={s.suggestion_id ?? `${s.key_skill_id}-${entry.id}`}
+                    suggestion={s}
+                    entryId={entry.id}
+                    source="cross_cip"
+                    onUpdate={onUpdateSuggestion}
+                    disabled={disabled}
+                  />
+                ))}
+              </ul>
+
+              {crossSplit.overflow.length > 0 && (
+                <details className="mt-2 rounded-xl border border-subtle bg-surface-2 p-3">
+                  <summary className="cursor-pointer text-[11px] font-medium text-secondary">
+                    More cross-CiP suggestions ({crossSplit.overflow.length})
+                  </summary>
+                  <ul className="mt-2 space-y-1.5">
+                    {crossSplit.overflow.map((s) => (
+                      <SuggestionRow
+                        key={s.suggestion_id ?? `${s.key_skill_id}-${entry.id}-cross-more`}
+                        suggestion={s}
+                        entryId={entry.id}
+                        source="cross_cip"
+                        onUpdate={onUpdateSuggestion}
+                        disabled={disabled}
+                      />
+                    ))}
+                  </ul>
+                </details>
               )}
             </section>
           )}
 
           {hasCoverage && (
-            <DescriptorCoveragePanel coverage={entry.descriptor_coverage!} />
+            <details className="rounded-xl border border-subtle bg-surface-1 p-3">
+              <summary className="cursor-pointer text-micro font-medium text-secondary">
+                View descriptor coverage
+              </summary>
+              <div className="mt-3">
+                <DescriptorCoveragePanel coverage={entry.descriptor_coverage!} />
+              </div>
+            </details>
           )}
         </div>
       )}

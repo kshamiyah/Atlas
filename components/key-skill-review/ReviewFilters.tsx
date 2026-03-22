@@ -58,13 +58,13 @@ export function ReviewFilters({
     );
 
   return (
-    <section className="rounded-lg border border-subtle bg-surface-2 p-4 space-y-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <section className="space-y-3">
+      <div className="flex flex-col gap-3 border-b border-subtle pb-3">
         <h2 className="text-small font-semibold text-primary">
           Review filters
         </h2>
-        <div className="flex-1">
-          <label className="block text-micro font-medium uppercase tracking-wide text-muted">
+        <div>
+          <label className="block text-xs font-medium uppercase tracking-wide text-muted">
             Search
           </label>
           <input
@@ -72,17 +72,17 @@ export function ReviewFilters({
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             placeholder="Search title, text, or key skill…"
-            className="mt-1 w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-micro text-primary placeholder:text-muted focus:border-accent-green focus:outline-none focus:ring-1 focus:ring-accent-green"
+            className="mt-1 w-full rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-xs text-primary placeholder:text-muted focus:border-accent-blue focus:outline-none focus:ring-1 focus:ring-accent-blue"
           />
         </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
-          <label className="block text-micro font-medium uppercase tracking-wide text-muted">
+          <label className="block text-xs font-medium uppercase tracking-wide text-muted">
             Status
           </label>
           <select
-            className="mt-1 block w-full rounded-md border border-subtle bg-surface-1 px-2 py-2 text-micro text-primary focus:border-accent-green focus:outline-none focus:ring-1 focus:ring-accent-green"
+            className="mt-1 block w-full rounded-lg border border-subtle bg-surface-1 px-2 py-2 text-xs text-primary focus:border-accent-blue focus:outline-none focus:ring-1 focus:ring-accent-blue"
             value={status}
             onChange={(e) => onStatusChange(e.target.value as StatusFilter)}
           >
@@ -94,11 +94,11 @@ export function ReviewFilters({
           </select>
         </div>
         <div>
-          <label className="block text-micro font-medium uppercase tracking-wide text-muted">
+          <label className="block text-xs font-medium uppercase tracking-wide text-muted">
             Source
           </label>
           <select
-            className="mt-1 block w-full rounded-md border border-subtle bg-surface-1 px-2 py-2 text-micro text-primary focus:border-accent-green focus:outline-none focus:ring-1 focus:ring-accent-green"
+            className="mt-1 block w-full rounded-lg border border-subtle bg-surface-1 px-2 py-2 text-xs text-primary focus:border-accent-blue focus:outline-none focus:ring-1 focus:ring-accent-blue"
             value={source}
             onChange={(e) => onSourceChange(e.target.value as SourceFilter)}
           >
@@ -110,11 +110,11 @@ export function ReviewFilters({
           </select>
         </div>
         <div>
-          <label className="block text-micro font-medium uppercase tracking-wide text-muted">
+          <label className="block text-xs font-medium uppercase tracking-wide text-muted">
             Confidence
           </label>
           <select
-            className="mt-1 block w-full rounded-md border border-subtle bg-surface-1 px-2 py-2 text-micro text-primary focus:border-accent-green focus:outline-none focus:ring-1 focus:ring-accent-green"
+            className="mt-1 block w-full rounded-lg border border-subtle bg-surface-1 px-2 py-2 text-xs text-primary focus:border-accent-blue focus:outline-none focus:ring-1 focus:ring-accent-blue"
             value={confidence}
             onChange={(e) =>
               onConfidenceChange(e.target.value as ConfidenceFilter)

@@ -10,6 +10,7 @@ import type {
 } from "./ReviewFilters";
 
 const PAGE_SIZE = 25;
+export type ReviewQueueMode = "focus" | "list";
 
 type ReviewQueueProps = {
   entries: ReviewEntry[];
@@ -17,6 +18,7 @@ type ReviewQueueProps = {
   sourceFilter: SourceFilter;
   confidenceFilter: ConfidenceFilter;
   query: string;
+  mode: ReviewQueueMode;
   onUpdateSuggestion: (
     entryId: string,
     suggestionId: string,
@@ -32,10 +34,12 @@ export function ReviewQueue({
   sourceFilter,
   confidenceFilter,
   query,
+  mode,
   onUpdateSuggestion,
   disabled,
 }: ReviewQueueProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [focusIndex, setFocusIndex] = useState(0);
 
   const visibleEntries = useMemo(() => {
     const normalisedQuery = query.trim().toLowerCase();
@@ -83,11 +87,6 @@ export function ReviewQueue({
       .filter((e): e is ReviewEntry => e !== null);
   }, [entries, statusFilter, sourceFilter, confidenceFilter, query]);
 
-  // Reset visible count when filters change
-  useMemo(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [statusFilter, sourceFilter, confidenceFilter, query]);
-
   if (visibleEntries.length === 0) {
     return (
       <section className="card p-5">
@@ -100,14 +99,103 @@ export function ReviewQueue({
     );
   }
 
-  const shownEntries = visibleEntries.slice(0, visibleCount);
+  if (mode === "focus") {
+    const activeIndex = Math.min(focusIndex, visibleEntries.length - 1);
+    const activeEntry = visibleEntries[activeIndex];
+    if (!activeEntry) return null;
+
+    const totalSuggestions =
+      activeEntry.linked_cip_suggestions.length +
+      activeEntry.cross_cip_suggestions.length;
+    const pendingSuggestions =
+      activeEntry.linked_cip_suggestions.filter((s) => s.status === "suggested")
+        .length +
+      activeEntry.cross_cip_suggestions.filter((s) => s.status === "suggested")
+        .length;
+    const reviewedPct =
+      totalSuggestions === 0
+        ? 0
+        : Math.round(((totalSuggestions - pendingSuggestions) / totalSuggestions) * 100);
+    const progressPct =
+      visibleEntries.length === 1
+        ? 100
+        : Math.round((activeIndex / (visibleEntries.length - 1)) * 100);
+
+    return (
+      <section className="space-y-3">
+        <div className="rounded-xl border border-subtle bg-surface-2 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                Focus Mode
+              </p>
+              <h2 className="text-small font-semibold text-primary">
+                Entry {activeIndex + 1} of {visibleEntries.length}
+              </h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setFocusIndex((i) => Math.max(i - 1, 0))}
+                disabled={activeIndex === 0}
+                className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setFocusIndex((i) => Math.min(i + 1, visibleEntries.length - 1))
+                }
+                disabled={activeIndex >= visibleEntries.length - 1}
+                className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <p className="rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[11px] text-secondary">
+              {pendingSuggestions} pending of {totalSuggestions} suggestions on this entry
+            </p>
+            <p className="rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[11px] text-secondary">
+              {reviewedPct}% reviewed for this entry
+            </p>
+          </div>
+
+          <div className="mt-3">
+            <div className="h-1.5 overflow-hidden rounded-full bg-surface-4">
+              <div
+                className="h-full rounded-full bg-surface-5 transition-all duration-300"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <ReviewCard
+          key={activeEntry.id}
+          entry={activeEntry}
+          onUpdateSuggestion={onUpdateSuggestion}
+          disabled={disabled}
+          expandedByDefault
+        />
+      </section>
+    );
+  }
+
+  const shownEntries = visibleEntries.slice(
+    0,
+    Math.min(visibleCount, visibleEntries.length),
+  );
   const remaining = visibleEntries.length - shownEntries.length;
 
   return (
     <section className="space-y-3">
-      <div className="flex items-center justify-between gap-2 px-0.5">
+      <div className="flex items-center justify-between gap-2 rounded-xl border border-subtle bg-surface-2 px-4 py-3">
         <h2 className="text-small font-semibold text-primary">Review queue</h2>
-        <p className="text-[11px] text-muted">
+        <p className="text-xs text-muted">
           Showing {shownEntries.length} of {visibleEntries.length} entries
         </p>
       </div>
@@ -119,6 +207,7 @@ export function ReviewQueue({
             entry={entry}
             onUpdateSuggestion={onUpdateSuggestion}
             disabled={disabled}
+            expandedByDefault={false}
           />
         ))}
       </div>
@@ -128,7 +217,7 @@ export function ReviewQueue({
           <button
             type="button"
             onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-            className="btn-secondary text-[11px]"
+            className="btn-secondary text-xs"
           >
             Load {Math.min(remaining, PAGE_SIZE)} more
             <span className="ml-1 text-muted">({remaining} remaining)</span>

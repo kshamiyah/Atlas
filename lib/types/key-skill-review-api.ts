@@ -33,3 +33,51 @@ export type SuggestCrossCipResponse = {
   skipped: number;
   total_suggestions: number;
 };
+
+export type PushQueueStatus = "pending" | "running" | "synced" | "failed";
+
+export type PushQueueSkill = {
+  suggestion_id: string;
+  key_skill_id: string;
+  key_skill_title: string;
+  cip_number: number;
+  kaizen_id: string | null;
+  display_value: string;
+};
+
+export type PushQueueEntry = {
+  review_entry_id: string;
+  title: string;
+  date: string;
+  entry_edit_url: string | null;
+  status: PushQueueStatus;
+  attempt_count: number;
+  last_error: string | null;
+  updated_at: string;
+  suggestion_ids: string[];
+  skills: PushQueueSkill[];
+};
+
+export type PushQueueSummary = {
+  total: number;
+  pending: number;
+  running: number;
+  synced: number;
+  failed: number;
+};
+
+export type PushQueueResponse = {
+  queue_available: boolean;
+  summary: PushQueueSummary;
+  entries: PushQueueEntry[];
+};
+
+export type PushQueueStatusItem = {
+  suggestion_id: string;
+  status: PushQueueStatus;
+  error?: string | null;
+};
+
+export type PushQueueStatusPatchBody = {
+  items: PushQueueStatusItem[];
+};

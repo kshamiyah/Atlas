@@ -19,8 +19,8 @@ export function CoverageSummary({ entries }: CoverageSummaryProps) {
     .filter((s) => s.status === "suggested").length;
 
   return (
-    <section className="rounded-lg border border-subtle bg-surface-2 p-4">
-      <h2 className="text-small font-semibold text-primary mb-3">
+    <section className="card p-4">
+      <h2 className="mb-3 text-small font-semibold text-primary">
         Coverage summary
       </h2>
       {total === 0 ? (
@@ -28,32 +28,32 @@ export function CoverageSummary({ entries }: CoverageSummaryProps) {
           No key skill suggestions available yet.
         </p>
       ) : (
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-lg bg-surface-1 p-3">
-            <dt className="text-micro text-muted">Total suggestions</dt>
+        <dl className="grid grid-cols-2 gap-2.5">
+          <div className="rounded-xl border border-subtle bg-surface-1 p-3">
+            <dt className="text-[11px] text-muted">Total</dt>
             <dd className="mt-1 text-heading-3 font-semibold text-primary">
               {total}
             </dd>
           </div>
-          <div className="rounded-lg bg-accent-green/10 p-3">
-            <dt className="text-micro text-accent-green">Confirmed</dt>
-            <dd className="mt-1 text-heading-3 font-semibold text-accent-green">
+          <div className="rounded-xl border border-accent-blue/30 bg-accent-blue/10 p-3">
+            <dt className="text-[11px] text-accent-blue">Confirmed</dt>
+            <dd className="mt-1 text-heading-3 font-semibold text-accent-blue">
               {confirmed}
             </dd>
           </div>
-          <div className="rounded-lg bg-accent-red/10 p-3">
-            <dt className="text-micro text-accent-red">Rejected</dt>
-            <dd className="mt-1 text-heading-3 font-semibold text-accent-red">
+          <div className="rounded-xl border border-subtle bg-surface-1 p-3">
+            <dt className="text-[11px] text-secondary">Rejected</dt>
+            <dd className="mt-1 text-heading-3 font-semibold text-secondary">
               {rejected}
             </dd>
           </div>
-          <div className="rounded-lg bg-accent-amber/10 p-3 sm:col-span-1 col-span-2">
-            <dt className="text-micro text-accent-amber">
-              Suggested pending / cross-CiP pending
+          <div className="col-span-2 rounded-xl border border-subtle bg-surface-1 p-3">
+            <dt className="text-[11px] text-secondary">
+              Pending / Cross-CiP
             </dt>
-            <dd className="mt-1 text-heading-3 font-semibold text-accent-amber">
+            <dd className="mt-1 text-heading-3 font-semibold text-primary">
               {suggested}{" "}
-              <span className="text-micro font-normal text-accent-amber/70">
+              <span className="text-micro font-normal text-muted">
                 ({crossPending} cross-CiP)
               </span>
             </dd>

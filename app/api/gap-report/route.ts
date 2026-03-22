@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import type {
   GapReport,
   GapReportCip,
@@ -21,19 +22,28 @@ type CoverageRow = {
 
 export async function GET(req: NextRequest) {
   const supabase = await getServerSupabaseClient();
+  const bypassAuth = isDevAuthBypassEnabled();
   const {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
 
-  if (authError) {
+  if (authError && !(bypassAuth && !user)) {
     return NextResponse.json(
       { error: authError.message },
       { status: 500 },
     );
   }
 
-  if (!user) {
+  if (!user && !bypassAuth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!user && bypassAuth) {
+    const body: GapReport = { cips: [] };
+    return NextResponse.json(body);
+  }
+  if (!user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

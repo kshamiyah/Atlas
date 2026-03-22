@@ -8,6 +8,17 @@ const VALID_STATUSES = new Set<UpdateSuggestionStatusBody["status"]>([
   "rejected",
 ]);
 
+function isQueueTableMissing(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { code?: string; message?: string; details?: string };
+  if (err.code === "42P01" || err.code === "PGRST205") return true;
+  const haystack = `${err.message ?? ""} ${err.details ?? ""}`.toLowerCase();
+  return (
+    haystack.includes("key_skill_review_push_queue") &&
+    (haystack.includes("does not exist") || haystack.includes("could not find"))
+  );
+}
+
 export async function PATCH(request: Request) {
   const supabase = await getServerSupabaseClient();
   const {
@@ -59,7 +70,8 @@ export async function PATCH(request: Request) {
     .update({ status })
     .eq("id", suggestionId)
     .eq("user_id", user.id)
-    .select("id");
+    .select("id, suggestion_source, review_entry_id, key_skill_id, status")
+    .maybeSingle();
 
   if (error) {
     return NextResponse.json(
@@ -68,11 +80,62 @@ export async function PATCH(request: Request) {
     );
   }
 
-  if (!data || data.length === 0) {
+  if (!data) {
     return NextResponse.json(
       { error: "Suggestion not found" },
       { status: 404 },
     );
+  }
+
+  const suggestionSource = String(data.suggestion_source ?? "");
+  const reviewEntryId = String(data.review_entry_id ?? "");
+  const keySkillId = String(data.key_skill_id ?? "");
+
+  if (
+    suggestionSource === "cross_cip" &&
+    reviewEntryId &&
+    keySkillId
+  ) {
+    if (status === "confirmed") {
+      const { error: queueError } = await supabase
+        .from("key_skill_review_push_queue")
+        .upsert(
+          {
+            user_id: user.id,
+            suggestion_id: suggestionId,
+            review_entry_id: reviewEntryId,
+            key_skill_id: keySkillId,
+            status: "pending",
+            last_error: null,
+            synced_at: null,
+          },
+          { onConflict: "suggestion_id" },
+        );
+
+      if (queueError && !isQueueTableMissing(queueError)) {
+        return NextResponse.json(
+          { error: "Suggestion updated, but failed to queue push-back: " + queueError.message },
+          { status: 500 },
+        );
+      }
+    } else {
+      const { error: queueDeleteError } = await supabase
+        .from("key_skill_review_push_queue")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("suggestion_id", suggestionId);
+
+      if (queueDeleteError && !isQueueTableMissing(queueDeleteError)) {
+        return NextResponse.json(
+          {
+            error:
+              "Suggestion updated, but failed to remove queue item: " +
+              queueDeleteError.message,
+          },
+          { status: 500 },
+        );
+      }
+    }
   }
 
   return NextResponse.json({ ok: true });

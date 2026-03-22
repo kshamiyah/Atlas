@@ -192,15 +192,16 @@ export async function analyzeDescriptors(
 
     for (const item of raw) {
       if (!item || typeof item !== "object") continue;
+      const parsedItem = item as Record<string, unknown>;
 
-      const descriptor_id = String((item as any).descriptor_id ?? "");
+      const descriptor_id = String(parsedItem.descriptor_id ?? "");
       if (!descriptor_id) continue;
 
       const meta = chunk.find((d) => d.descriptor_id === descriptor_id);
       if (!meta) continue;
 
-      const covered = Boolean((item as any).covered);
-      const confidenceRaw = Number((item as any).confidence ?? 0);
+      const covered = Boolean(parsedItem.covered);
+      const confidenceRaw = Number(parsedItem.confidence ?? 0);
       const confidence =
         Number.isFinite(confidenceRaw) && confidenceRaw >= 0 && confidenceRaw <= 1
           ? confidenceRaw

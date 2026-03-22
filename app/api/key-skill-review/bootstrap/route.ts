@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { buildKaizenSourceEntryKey } from "@/lib/key-skill-review/source-key";
 import { resolveKaizenDirectMatches } from "@/lib/key-skill-review/kaizen-key-skill-parser";
 import type { BootstrapResponse } from "@/lib/types/key-skill-review-api";
@@ -50,31 +51,69 @@ function normaliseText(value: string | null | undefined): string {
     .trim();
 }
 
+function isMissingColumn(error: unknown, columnName: string): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { message?: string; details?: string };
+  const haystack = `${err.message ?? ""} ${err.details ?? ""}`.toLowerCase();
+  return (
+    haystack.includes("does not exist") &&
+    haystack.includes(columnName.toLowerCase())
+  );
+}
+
 export async function POST() {
   const supabase = await getServerSupabaseClient();
+  const bypassAuth = isDevAuthBypassEnabled();
   const {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
 
-  if (authError) {
+  if (authError && !(bypassAuth && !user)) {
     return NextResponse.json(
       { error: authError.message },
       { status: 500 },
     );
   }
 
-  if (!user) {
+  if (!user && !bypassAuth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!user && bypassAuth) {
+    const body: BootstrapResponse = { ok: true, upserted_entries: 0 };
+    return NextResponse.json(body);
+  }
+  if (!user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const userId = user.id;
 
-  const { data: entries, error } = await supabase
+  const withSourceUrlSelect =
+    "id, source_entry_id, source_url, kaizen_date, assessment_type, detected_entry_type, title, category, training_year, status, linked_cip_number, entry_text, extraction_status, extracted_fields";
+  const fallbackSelect =
+    "id, source_entry_id, kaizen_date, assessment_type, detected_entry_type, title, category, training_year, status, linked_cip_number, entry_text, extraction_status, extracted_fields";
+
+  let entries: Array<Record<string, unknown>> | null = null;
+  let error: { message: string } | null = null;
+
+  const firstLoad = await supabase
     .from("kaizen_entries")
-    .select(
-      "id, source_entry_id, kaizen_date, assessment_type, detected_entry_type, title, category, training_year, status, linked_cip_number, entry_text, extraction_status, extracted_fields",
-    )
-    .eq("user_id", user.id)
+    .select(withSourceUrlSelect)
+    .eq("user_id", userId)
     .order("synced_at", { ascending: false });
+
+  if (firstLoad.error && isMissingColumn(firstLoad.error, "source_url")) {
+    const retryLoad = await supabase
+      .from("kaizen_entries")
+      .select(fallbackSelect)
+      .eq("user_id", userId)
+      .order("synced_at", { ascending: false });
+    entries = (retryLoad.data ?? null) as Array<Record<string, unknown>> | null;
+    error = retryLoad.error ? { message: retryLoad.error.message } : null;
+  } else {
+    entries = (firstLoad.data ?? null) as Array<Record<string, unknown>> | null;
+    error = firstLoad.error ? { message: firstLoad.error.message } : null;
+  }
 
   if (error) {
     return NextResponse.json(
@@ -89,7 +128,7 @@ export async function POST() {
   }
 
   const [{ data: profile }, { data: stages }] = await Promise.all([
-    supabase.from("profiles").select("post_history").eq("id", user.id).single(),
+    supabase.from("profiles").select("post_history").eq("id", userId).single(),
     supabase.from("stages").select("id, name"),
   ]);
 
@@ -175,7 +214,7 @@ export async function POST() {
         e.kaizen_date ? String(e.kaizen_date) : null,
       );
       return {
-        user_id: user.id,
+        user_id: userId,
         source_system: "kaizen" as const,
         source_entry_key: sourceEntryKey,
         title,
@@ -185,7 +224,10 @@ export async function POST() {
         stage_id: resolveStageId(isoDate),
         entry_text: narrativeText || title,
         metadata: {
-          source_entry_id: e.source_entry_id ?? null,
+          source_entry_id:
+            typeof e.source_entry_id === "string" ? e.source_entry_id : null,
+          source_url:
+            typeof e.source_url === "string" ? e.source_url : null,
           detected_entry_type:
             typeof e.detected_entry_type === "string"
               ? e.detected_entry_type
@@ -243,11 +285,11 @@ export async function POST() {
         supabase.from("key_skills").select("id, title, cip_id, kaizen_ids"),
         supabase.from("cips").select("id, number"),
         supabase
-          .from("key_skill_review_entries")
-          .select("id, entry_text, linked_cip_number, metadata")
-          .eq("user_id", user.id)
-          .eq("source_system", "kaizen")
-          .in("source_entry_key", dedupedRows.map((r) => r.source_entry_key)),
+                .from("key_skill_review_entries")
+                .select("id, entry_text, linked_cip_number, metadata")
+                .eq("user_id", userId)
+                .eq("source_system", "kaizen")
+                .in("source_entry_key", dedupedRows.map((r) => r.source_entry_key)),
       ]);
 
     if (keySkillRows && cipRows && reviewEntries?.length) {
@@ -287,7 +329,7 @@ export async function POST() {
 
         for (const m of kaizenDirectMatches) {
           allSuggestionRows.push({
-            user_id: user.id,
+            user_id: userId,
             review_entry_id: entry.id,
             key_skill_id: m.key_skill_id,
             suggestion_source: "linked_cip",

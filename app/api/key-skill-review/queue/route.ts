@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import type {
   ReviewEntry,
   SkillSuggestion,
@@ -55,28 +56,37 @@ type DescriptorDetailRow = {
 
 export async function GET() {
   const supabase = await getServerSupabaseClient();
+  const bypassAuth = isDevAuthBypassEnabled();
   const {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
 
-  if (authError) {
+  if (authError && !(bypassAuth && !user)) {
     return NextResponse.json(
       { error: authError.message },
       { status: 500 },
     );
   }
 
-  if (!user) {
+  if (!user && !bypassAuth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!user && bypassAuth) {
+    const body: QueueResponse = { entries: [], total: 0 };
+    return NextResponse.json(body);
+  }
+  if (!user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const userId = user.id;
 
   const { data: entryRows, error: entriesError } = await supabase
     .from("key_skill_review_entries")
     .select(
       "id, title, entry_type, linked_cip_number, event_date, entry_text",
     )
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("last_seen_at", { ascending: false });
 
   if (entriesError) {
@@ -101,7 +111,7 @@ export async function GET() {
       "id, review_entry_id, key_skill_id, suggestion_source, status, confidence, rationale",
     )
     .in("review_entry_id", entryIds)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (suggestionsError) {
     return NextResponse.json(
@@ -127,7 +137,7 @@ export async function GET() {
       "review_entry_id, key_skill_id, descriptor_id, covered, confidence, evidence_quote",
     )
     .in("review_entry_id", entryIds)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (coverageError) {
     return NextResponse.json(
