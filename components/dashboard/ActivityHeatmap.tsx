@@ -42,7 +42,7 @@ export function ActivityHeatmap() {
       .finally(() => setIsLoading(false));
   }, []);
 
-  const { grid, countByDate, totalDays, startDate } = useMemo(() => {
+  const { grid, totalDays } = useMemo(() => {
     const startDate = getStartDate();
     const countByDate = new Map<string, number>();
 
@@ -66,7 +66,7 @@ export function ActivityHeatmap() {
     }
 
     const totalDays = countByDate.size;
-    return { grid, countByDate, totalDays, startDate };
+    return { grid, totalDays };
   }, [dates]);
 
   // Month labels: figure out which week each month starts
@@ -92,7 +92,7 @@ export function ActivityHeatmap() {
 
   if (isLoading) {
     return (
-      <section className="card p-5">
+      <section className="card p-6">
         <div className="h-4 w-32 animate-pulse rounded bg-surface-3" />
         <div className="mt-4 h-24 w-full animate-pulse rounded bg-surface-3" />
       </section>
@@ -101,7 +101,7 @@ export function ActivityHeatmap() {
 
   if (dates.length === 0) {
     return (
-      <section className="card p-5">
+      <section className="card p-6">
         <h2 className="text-small font-semibold text-primary">Evidence Activity</h2>
         <p className="mt-1 text-micro text-muted">
           No entry dates yet — sync your portfolio to see activity.
@@ -119,8 +119,8 @@ export function ActivityHeatmap() {
   const totalH = topPad + DAYS * (cellH + gap);
 
   return (
-    <section className="card p-5">
-      <div className="mb-3 flex items-baseline justify-between">
+    <section className="card p-6">
+      <div className="mb-4 flex items-baseline justify-between border-b border-subtle pb-3">
         <h2 className="text-small font-semibold text-primary">Evidence Activity</h2>
         <span className="text-micro text-muted">
           {totalEntries} entr{totalEntries !== 1 ? "ies" : "y"} logged ·{" "}
@@ -128,7 +128,7 @@ export function ActivityHeatmap() {
         </span>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-xl border border-subtle bg-surface-1 p-3">
         <svg
           width={totalW}
           height={totalH}

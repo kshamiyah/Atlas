@@ -25,21 +25,21 @@ export function useTheme() {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") return "light";
+    const stored = localStorage.getItem("theme");
+    if (stored === "light" || stored === "dark") return stored;
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return prefersDark ? "dark" : "light";
+  });
 
-  // On first mount: read stored preference or fall back to system preference
   useEffect(() => {
-    const stored = localStorage.getItem("theme") as Theme | null;
-    const prefersDark = window.matchMedia(
-      "(prefers-color-scheme: dark)",
-    ).matches;
-    const initial: Theme = stored ?? (prefersDark ? "dark" : "light");
+    applyTheme(theme);
+  }, [theme]);
 
-    setTheme(initial);
-    applyTheme(initial);
-
-    // Enable colour transitions only after first paint — prevents
-    // a flash of transition on page load
+  // Enable colour transitions only after first paint — prevents
+  // a flash of transition on page load.
+  useEffect(() => {
     requestAnimationFrame(() => {
       document.documentElement.classList.add("theme-ready");
     });
