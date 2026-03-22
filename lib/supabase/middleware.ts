@@ -1,7 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 
 export async function handleAuthMiddleware(request: NextRequest) {
+  if (isDevAuthBypassEnabled()) {
+    return NextResponse.next({
+      request: {
+        headers: request.headers,
+      },
+    });
+  }
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -71,4 +80,3 @@ export async function handleAuthMiddleware(request: NextRequest) {
 
   return response;
 }
-

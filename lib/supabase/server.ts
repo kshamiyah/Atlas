@@ -22,10 +22,20 @@ export async function getServerSupabaseClient(): Promise<TypedSupabaseClient> {
         return cookieStore.get(name)?.value;
       },
       set(name: string, value: string, options: CookieOptions) {
-        cookieStore.set({ name, value, ...options });
+        // In Server Components, cookie mutation is disallowed.
+        // Middleware/Route Handlers handle refresh writes safely.
+        try {
+          cookieStore.set({ name, value, ...options });
+        } catch {
+          // no-op
+        }
       },
       remove(name: string, options: CookieOptions) {
-        cookieStore.set({ name, value: "", ...options });
+        try {
+          cookieStore.set({ name, value: "", ...options });
+        } catch {
+          // no-op
+        }
       },
     },
   });
@@ -35,4 +45,3 @@ export async function getServerSupabaseClient(): Promise<TypedSupabaseClient> {
 export async function createClient() {
   return getServerSupabaseClient();
 }
-

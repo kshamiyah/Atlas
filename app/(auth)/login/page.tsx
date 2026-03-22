@@ -122,14 +122,27 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           {/* Feature list */}
           <ul className="space-y-3">
             {[
-              { icon: "⚡", text: "Syncs directly from Kaizen — no manual entry" },
-              { icon: "🎯", text: "AI matches entries to key skills & descriptors" },
-              { icon: "📊", text: "Gap report by training stage, ready in seconds" },
-            ].map((f) => (
-              <li key={f.text} className="flex items-start gap-3">
-                <span className="mt-0.5 text-base">{f.icon}</span>
+              "Syncs directly from Kaizen — no manual entry",
+              "AI matches entries to key skills & descriptors",
+              "Gap report by training stage, ready in seconds",
+            ].map((text) => (
+              <li key={text} className="flex items-start gap-3">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="mt-0.5 shrink-0"
+                  style={{ color: "rgba(255,255,255,0.45)" }}
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
                 <span className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.65)" }}>
-                  {f.text}
+                  {text}
                 </span>
               </li>
             ))}
@@ -171,44 +184,35 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
         <div className="w-full max-w-sm animate-fade-up space-y-7">
           {/* Heading */}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <h1
-              className="text-2xl font-bold tracking-tight"
-              style={{ color: "var(--text-primary)" }}
+              className="text-[34px] font-bold leading-tight"
+              style={{ color: "var(--text-primary)", letterSpacing: "-0.022em" }}
             >
               Welcome back
             </h1>
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            <p className="text-[15px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
               Enter your email and we&apos;ll send you a sign-in link instantly.
             </p>
           </div>
 
           {/* Form */}
-          <form action={sendMagicLink} className="space-y-4">
+          <form action={sendMagicLink} className="space-y-3">
             {isExtension && (
               <input type="hidden" name="source" value="extension" />
             )}
 
-            <div className="space-y-1.5">
-              <label
-                htmlFor="email"
-                className="block text-xs font-semibold uppercase tracking-wide"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                autoComplete="email"
-                className="login-input w-full rounded-xl px-4 py-3 text-sm outline-none transition"
-                placeholder="you@nhs.net"
-              />
-            </div>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              className="login-input w-full rounded-xl px-4 py-3.5 text-[15px] outline-none transition"
+              placeholder="you@nhs.net"
+            />
 
-            <button type="submit" className="btn-primary w-full py-3 text-sm">
+            <button type="submit" className="btn-primary w-full py-3.5 text-[15px]">
               Send magic link →
             </button>
           </form>
