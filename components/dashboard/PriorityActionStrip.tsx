@@ -9,33 +9,15 @@ type Action = {
 };
 
 const PRIORITY_STYLES = {
-  high: {
-    dot: "bg-accent-red",
-    text: "text-accent-red",
-    border: "border-accent-red/20",
-    bg: "bg-accent-red/[0.05]",
-  },
-  medium: {
-    dot: "bg-accent-amber",
-    text: "text-accent-amber",
-    border: "border-accent-amber/20",
-    bg: "bg-accent-amber/[0.05]",
-  },
-  low: {
-    dot: "bg-accent-blue",
-    text: "text-accent-blue",
-    border: "border-accent-blue/20",
-    bg: "bg-accent-blue/[0.05]",
-  },
+  high: { color: "var(--accent-red)", bg: "rgba(239,68,68,0.10)" },
+  medium: { color: "var(--accent-amber)", bg: "rgba(245,158,11,0.10)" },
+  low: { color: "var(--accent-blue)", bg: "rgba(0,113,227,0.10)" },
 } as const;
 
 function buildActions(cips: GapReportCip[]): Action[] {
   const actions: Action[] = [];
-
-  // Sort by coverage ascending to find worst
   const sorted = [...cips].sort((a, b) => a.coverage_pct - b.coverage_pct);
 
-  // CiPs with 0% (not started)
   const notStarted = sorted.filter((c) => c.coverage_pct === 0);
   if (notStarted.length > 0) {
     const names = notStarted
@@ -45,13 +27,12 @@ function buildActions(cips: GapReportCip[]): Action[] {
     actions.push({
       priority: "high",
       title: `${names} ${notStarted.length === 1 ? "has" : "have"} no confirmed skills yet`,
-      sub: `${notStarted.length} CiP${notStarted.length > 1 ? "s" : ""} with 0% evidence — start here to move the needle fast.`,
+      sub: `${notStarted.length} CiP${notStarted.length > 1 ? "s" : ""} at 0% — start here to move the needle fast.`,
       href: "/dashboard/key-skill-review",
       cta: "Review Skills",
     });
   }
 
-  // CiPs below 50% (struggling)
   const struggling = sorted.filter((c) => c.coverage_pct > 0 && c.coverage_pct < 50);
   if (struggling.length > 0) {
     const worst = struggling[0];
@@ -65,7 +46,6 @@ function buildActions(cips: GapReportCip[]): Action[] {
     });
   }
 
-  // Anything with confirmed < total (suggest reviewing)
   const unconfirmedTotal = cips.reduce(
     (sum, c) => sum + (c.total_skills - c.confirmed_skills),
     0
@@ -89,52 +69,91 @@ type Props = {
 };
 
 export function PriorityActionStrip({ cips, isLoading }: Props) {
-  if (isLoading || cips.length === 0) return null;
-
-  const actions = buildActions(cips);
-  if (actions.length === 0) return null;
-
-  // All confirmed — nothing to do
-  const allDone = cips.every((c) => c.coverage_pct === 100);
-  if (allDone) {
+  if (isLoading) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-accent-green/25 bg-accent-green/[0.06] px-5 py-3.5">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-        <span className="text-small font-medium text-accent-green">
-          All key skills confirmed across every CiP — you're ready for ARCP.
-        </span>
+      <div className="card flex h-full flex-col gap-3 p-6">
+        <div className="h-4 w-28 animate-pulse rounded bg-surface-3" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex gap-3">
+            <div className="h-5 w-5 shrink-0 animate-pulse rounded-full bg-surface-3" />
+            <div className="flex-1 space-y-1.5">
+              <div className="h-3 w-full animate-pulse rounded bg-surface-3" />
+              <div className="h-3 w-4/5 animate-pulse rounded bg-surface-3" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
 
+  if (cips.length === 0) return null;
+
+  const allDone = cips.every((c) => c.coverage_pct === 100);
+  if (allDone) {
+    return (
+      <div className="card flex h-full items-center justify-center gap-3 p-6">
+        <div className="text-center">
+          <div
+            className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full"
+            style={{ background: "rgba(22,163,74,0.10)" }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <p className="text-small font-semibold text-primary">All done</p>
+          <p className="mt-1 text-micro text-muted">
+            All key skills confirmed — you&apos;re ready for ARCP.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const actions = buildActions(cips);
+  if (actions.length === 0) return null;
+
   return (
-    <div className="space-y-2">
-      <p className="text-micro font-semibold uppercase tracking-wider text-muted">
-        What to do next
-      </p>
-      <div className="flex flex-col gap-2">
+    <div className="card flex h-full flex-col p-6">
+      <div className="mb-4 space-y-1 border-b border-subtle pb-3">
+        <h3
+          className="text-small font-semibold text-primary"
+          style={{ letterSpacing: "-0.014em" }}
+        >
+          Next actions
+        </h3>
+        <p className="text-xs text-muted">
+          Highest-impact tasks to improve coverage this week.
+        </p>
+      </div>
+      <div className="flex flex-col gap-4">
         {actions.map((action, i) => {
           const style = PRIORITY_STYLES[action.priority];
           return (
-            <div
-              key={i}
-              className={`flex items-center gap-4 rounded-xl border px-4 py-3 ${style.bg} ${style.border}`}
-            >
-              <div className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`} />
-              <div className="flex flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <span className="text-small font-medium text-primary">
-                  {action.title}
-                </span>
-                <span className="text-micro text-secondary">{action.sub}</span>
-              </div>
-              <a
-                href={action.href}
-                className="btn-secondary shrink-0 px-3 py-1.5 text-micro"
+            <div key={i} className="rounded-xl border border-subtle bg-surface-1 p-3.5">
+              <div className="flex gap-3">
+              <span
+                className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold tabular-nums"
+                style={{ background: style.bg, color: style.color }}
               >
-                {action.cta} →
-              </a>
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium leading-snug text-primary">
+                  {action.title}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-snug text-muted">
+                  {action.sub}
+                </p>
+                <a
+                  href={action.href}
+                  className="mt-1.5 inline-block text-[11px] font-medium underline-offset-2 hover:underline"
+                  style={{ color: "var(--accent-blue)" }}
+                >
+                  {action.cta} →
+                </a>
+              </div>
+            </div>
             </div>
           );
         })}

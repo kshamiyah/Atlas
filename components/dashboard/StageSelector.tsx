@@ -55,88 +55,37 @@ export function StageSelector({ currentStageId, stages }: StageSelectorProps) {
     return acc;
   }, {});
 
-  // No stage yet — prompt to sync
-  if (!currentStageId) {
-    return (
-      <section className="card flex items-center justify-between gap-3 px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <div className="h-2 w-2 rounded-full bg-accent-amber" />
-          <p className="text-small text-secondary">
-            Sync your portfolio to detect your training stage automatically.
-          </p>
-        </div>
-      </section>
-    );
-  }
+  if (!currentStageId) return null;
 
   return (
-    <section className="card px-4 py-3">
-      {/* Top row — always visible */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          {/* Live dot */}
-          <div className="h-1.5 w-1.5 rounded-full bg-accent-green" />
-
-          {/* Stage info */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-micro text-muted">Training stage</span>
-            <span
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-micro font-semibold"
-              style={{
-                backgroundColor: "rgba(22,163,74,0.08)",
-                color: "var(--accent-green)",
-                border: "1px solid rgba(22,163,74,0.18)",
-              }}
-            >
-              {currentStage?.name ?? "—"}
-              <span style={{ color: "var(--accent-green)", opacity: 0.55 }}>
-                · {currentStage?.stage_group}
-              </span>
-            </span>
-            <span className="text-micro text-muted">synced from Kaizen</span>
-          </div>
-        </div>
-
-        {/* Change button — visible, not hidden */}
+    <div>
+      {/* Inline stage display */}
+      <div className="flex items-center gap-2">
+        <div className="h-1.5 w-1.5 rounded-full bg-accent-green" />
+        <span className="text-micro text-muted">
+          {currentStage?.name ?? "—"}
+          <span className="mx-1 opacity-40">·</span>
+          {currentStage?.stage_group}
+        </span>
         <button
           type="button"
           onClick={() => setShowPicker((v) => !v)}
           disabled={saving}
-          className="flex items-center gap-1 rounded-md px-2.5 py-1 text-micro font-medium transition-colors disabled:opacity-50"
-          style={{
-            backgroundColor: showPicker ? "var(--surface-4)" : "var(--surface-3)",
-            color: "var(--text-secondary)",
-            border: "1px solid var(--border-subtle)",
-          }}
+          className="text-micro text-muted underline-offset-2 hover:text-secondary transition-colors disabled:opacity-50"
         >
           {saving ? "Saving…" : "Change"}
-          {/* Chevron */}
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              transform: showPicker ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 150ms ease",
-            }}
-          >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
         </button>
       </div>
 
       {/* Stage picker — expands inline */}
       {showPicker && (
         <div
-          className="mt-3 space-y-3 border-t pt-3"
+          className="mt-3 pt-3 space-y-3 border-t"
           style={{ borderColor: "var(--border-subtle)" }}
         >
-          <p className="text-micro text-muted">Select your current training stage:</p>
+          <p className="text-micro text-muted">
+            Select your current training stage:
+          </p>
           <div className="flex flex-wrap gap-3">
             {Object.entries(groups).map(([groupName, groupStages]) => (
               <div key={groupName} className="space-y-1.5">
@@ -159,9 +108,9 @@ export function StageSelector({ currentStageId, stages }: StageSelectorProps) {
                         style={
                           isActive
                             ? {
-                                backgroundColor: "rgba(22,163,74,0.10)",
-                                color: "var(--accent-green)",
-                                border: "1px solid rgba(22,163,74,0.22)",
+                                backgroundColor: "var(--accent-primary)",
+                                color: "var(--surface-2)",
+                                border: "1px solid transparent",
                               }
                             : {
                                 backgroundColor: "var(--surface-3)",
@@ -188,6 +137,6 @@ export function StageSelector({ currentStageId, stages }: StageSelectorProps) {
           </button>
         </div>
       )}
-    </section>
+    </div>
   );
 }

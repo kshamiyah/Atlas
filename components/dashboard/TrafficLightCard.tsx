@@ -74,13 +74,13 @@ export function TrafficLightCard({ cips, isLoading }: Props) {
 
   return (
     <div
-      className={`relative flex items-center gap-4 overflow-hidden rounded-xl border px-5 py-3.5 ${cfg.bg} ${cfg.border}`}
+      className={`relative flex flex-col gap-3 overflow-hidden rounded-2xl border px-5 py-4 sm:flex-row sm:items-center sm:gap-4 ${cfg.bg} ${cfg.border}`}
     >
       {/* Left accent bar */}
       <div className={`absolute left-0 top-0 h-full w-1 ${cfg.bar}`} />
 
       {/* Status dot */}
-      <div className={`ml-2 h-2.5 w-2.5 shrink-0 rounded-full ${cfg.dot}`} />
+      <div className={`ml-1 mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full sm:ml-2 sm:mt-0 ${cfg.dot}`} />
 
       {/* Message */}
       <div className="flex flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -95,7 +95,7 @@ export function TrafficLightCard({ cips, isLoading }: Props) {
       {/* CTA */}
       <a
         href="/dashboard/gap-report"
-        className="btn-secondary shrink-0 px-3 py-1.5 text-micro"
+        className="btn-secondary w-fit shrink-0 px-3 py-1.5 text-micro"
       >
         View Gap Report →
       </a>

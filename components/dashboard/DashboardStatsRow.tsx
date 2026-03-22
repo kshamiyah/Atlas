@@ -10,24 +10,42 @@ type Stat = {
 };
 
 function StatCard({ label, value, sub, accent = "default" }: Stat) {
-  const valueClass =
+  const valueColor =
     accent === "green"
-      ? "text-accent-green"
+      ? "var(--accent-green)"
       : accent === "amber"
-        ? "text-accent-amber"
+        ? "var(--accent-amber)"
         : accent === "blue"
-          ? "text-accent-blue"
-          : "text-primary";
+          ? "var(--accent-blue)"
+          : "var(--text-primary)";
+
+  const accentBar =
+    accent === "green"
+      ? "var(--accent-green)"
+      : accent === "amber"
+        ? "var(--accent-amber)"
+        : accent === "blue"
+          ? "var(--accent-blue)"
+          : "var(--border-subtle)";
 
   return (
-    <div className="card-interactive flex flex-col gap-0.5 rounded-xl border border-subtle bg-surface-2 px-4 py-3.5">
-      <span className="text-micro text-muted">{label}</span>
+    <div
+      className="card relative flex min-h-[132px] flex-col gap-1 overflow-hidden p-5"
+      style={{ boxShadow: "0 1px 0 rgba(0,0,0,0.03), 0 10px 28px rgba(0,0,0,0.06)" }}
+    >
+      <div
+        aria-hidden
+        className="absolute left-0 top-0 h-1 w-full"
+        style={{ background: accentBar }}
+      />
+      <span className="mt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{label}</span>
       <span
-        className={`text-heading-2 font-bold tabular-nums leading-tight ${valueClass}`}
+        className="text-[2.5rem] font-bold tabular-nums leading-none tracking-tight"
+        style={{ color: valueColor }}
       >
         {value}
       </span>
-      {sub && <span className="text-[10px] text-muted">{sub}</span>}
+      {sub && <span className="text-xs text-muted">{sub}</span>}
     </div>
   );
 }
@@ -78,19 +96,28 @@ export function DashboardStatsRow({
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="h-[78px] animate-pulse rounded-xl bg-surface-3"
+            className="h-[126px] animate-pulse rounded-[1.125rem] bg-surface-3"
           />
         ))}
       </div>
     );
   }
 
+  const arcpValueColor =
+    daysToArcp !== null
+      ? daysToArcp < 30
+        ? "var(--accent-red)"
+        : daysToArcp < 90
+          ? "var(--accent-amber)"
+          : "var(--text-primary)"
+      : "var(--text-muted)";
+
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <StatCard
         label="Total entries"
         value={totalEntries}
@@ -114,25 +141,36 @@ export function DashboardStatsRow({
               : "default"
         }
       />
+
       {/* Days to ARCP */}
-      <div className="card flex flex-col gap-1 p-4">
-        <p
-          className="text-xs font-medium"
-          style={{ color: "var(--text-muted)" }}
-        >
+      <div
+        className="card relative flex min-h-[132px] flex-col gap-1 overflow-hidden p-5"
+        style={{ boxShadow: "0 1px 0 rgba(0,0,0,0.03), 0 10px 28px rgba(0,0,0,0.06)" }}
+      >
+        <div
+          aria-hidden
+          className="absolute left-0 top-0 h-1 w-full"
+          style={{
+            background:
+              daysToArcp !== null && daysToArcp < 30
+                ? "var(--accent-red)"
+                : daysToArcp !== null && daysToArcp < 90
+                  ? "var(--accent-amber)"
+                  : "var(--border-subtle)",
+          }}
+        />
+        <span className="mt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
           Days to ARCP
-        </p>
+        </span>
+
         {editingArcp ? (
-          <form
-            onSubmit={saveArcpDate}
-            className="flex flex-col gap-2"
-          >
+          <form onSubmit={saveArcpDate} className="flex flex-col gap-2 mt-1">
             <input
               type="date"
               name="arcp_date"
               defaultValue={arcpDate ?? ""}
               required
-              className="login-input rounded-lg px-2 py-1 text-xs outline-none"
+              className="app-input rounded-lg px-2 py-1.5 text-xs outline-none"
             />
             <div className="flex gap-1.5">
               <button
@@ -152,30 +190,23 @@ export function DashboardStatsRow({
             </div>
           </form>
         ) : daysToArcp !== null ? (
-          <div className="flex items-start gap-1.5">
-            <p
-              className="text-2xl font-bold tabular-nums"
-              style={{
-                color:
-                  daysToArcp < 30
-                    ? "var(--accent-red)"
-                    : daysToArcp < 90
-                      ? "var(--accent-amber)"
-                      : "var(--text-primary)",
-              }}
+          <div className="flex items-end gap-1.5">
+            <span
+              className="text-[2.5rem] font-bold tabular-nums leading-none tracking-tight"
+              style={{ color: arcpValueColor }}
             >
               {daysToArcp < 0 ? "Past" : daysToArcp}
-            </p>
+            </span>
             <button
               type="button"
               onClick={() => setEditingArcp(true)}
-              className="mt-1 rounded p-0.5 transition hover:bg-surface-3"
+              className="mb-1 rounded p-0.5 transition hover:bg-surface-3"
               style={{ color: "var(--text-muted)" }}
               aria-label="Edit ARCP date"
             >
               <svg
-                width="14"
-                height="14"
+                width="13"
+                height="13"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -190,12 +221,12 @@ export function DashboardStatsRow({
           </div>
         ) : (
           <button
-            type="button"
-            onClick={() => setEditingArcp(true)}
-            className="text-left text-xs font-medium underline-offset-2 hover:underline"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Set ARCP date →
+              type="button"
+              onClick={() => setEditingArcp(true)}
+              className="mt-1 text-left text-xs font-medium underline-offset-2 hover:underline"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Set ARCP date →
           </button>
         )}
       </div>

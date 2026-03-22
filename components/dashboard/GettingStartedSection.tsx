@@ -46,12 +46,11 @@ export function GettingStartedSection({ hasSynced }: GettingStartedSectionProps)
   const progressPct = Math.round((completedCount / steps.length) * 100);
 
   return (
-    <div className="card p-6 space-y-5">
-      {/* Header */}
+    <div className="card space-y-5 p-6 md:p-7">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2
-            className="text-sm font-semibold"
+            className="text-heading-3 font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
             Getting started
@@ -76,9 +75,8 @@ export function GettingStartedSection({ hasSynced }: GettingStartedSectionProps)
         </span>
       </div>
 
-      {/* Progress bar */}
       <div
-        className="h-1 w-full overflow-hidden rounded-full"
+        className="h-1.5 w-full overflow-hidden rounded-full"
         style={{ backgroundColor: "var(--surface-4)" }}
       >
         <div
@@ -92,11 +90,9 @@ export function GettingStartedSection({ hasSynced }: GettingStartedSectionProps)
         />
       </div>
 
-      {/* Steps */}
       <ol className="space-y-3">
         {steps.map((step, i) => (
-          <li key={i} className="flex items-start gap-3">
-            {/* Step indicator */}
+          <li key={i} className="flex items-start gap-3 rounded-xl border border-subtle bg-surface-1 p-3">
             <span
               className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-micro font-bold"
               style={
@@ -115,13 +111,11 @@ export function GettingStartedSection({ hasSynced }: GettingStartedSectionProps)
               {step.done ? "✓" : i + 1}
             </span>
 
-            {/* Content */}
             <div className="min-w-0 flex-1">
               <p
                 className="text-xs font-medium"
                 style={{
                   color: step.done ? "var(--text-muted)" : "var(--text-primary)",
-                  textDecoration: step.done ? "line-through" : "none",
                 }}
               >
                 {step.label}
