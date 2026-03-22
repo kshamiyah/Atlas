@@ -20,6 +20,8 @@ export type EntriesSyncBody = {
     extracted_fields?: Record<string, unknown> | null;
     extraction_status?: "none" | "partial" | "full" | "failed" | null;
     key_skills_count?: number | null;
+    kaizen_procedure_id?: number | null;
+    assessor_role_id?: number | null;
   }>;
 };
 
@@ -159,6 +161,10 @@ export async function POST(request: Request) {
             : {},
         extraction_status: extractionStatus,
         key_skills_count: e.key_skills_count ?? null,
+        kaizen_procedure_id:
+          typeof e.kaizen_procedure_id === "number" ? e.kaizen_procedure_id : null,
+        assessor_role_id:
+          typeof e.assessor_role_id === "number" ? e.assessor_role_id : null,
       };
     });
 
