@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:ltft": "tsc -p tsconfig.tests.json && node --test .tmp-tests/tests/ltft/**/*.test.js .tmp-tests/tests/reconciliation/**/*.test.js && node -e \"require('fs').rmSync('.tmp-tests', { recursive: true, force: true })\"",
+    "test:e2e:seed": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' ts-node scripts/e2e/seed.ts",
+    "test:e2e:setup": "npm run test:e2e:seed && playwright test tests/e2e/setup.spec.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -18,6 +23,7 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -25,6 +31,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
     "typescript": "^5"
   }
 }

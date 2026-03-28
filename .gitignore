@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
+/tests/e2e/.auth/
 
 # next.js
 /.next/
@@ -19,6 +22,7 @@
 
 # production
 /build
+/.tmp-tests
 
 # misc
 .DS_Store

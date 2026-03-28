@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": ".tmp-tests",
+    "rootDir": ".",
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "lib/profile/ltft.ts",
+    "lib/profile/stage.ts",
+    "lib/profile/ltft-pro-rata.ts",
+    "lib/key-skill-review/progress-focus.ts",
+    "lib/types/key-skill-review.ts",
+    "lib/types/progress.ts",
+    "lib/progress/summary-metrics.ts",
+    "lib/progress/cip-metrics.ts",
+    "lib/progress/key-skill-metrics.ts",
+    "lib/progress/descriptor-metrics.ts",
+    "lib/progress/query-params.ts",
+    "tests/ltft/**/*.ts",
+    "tests/reconciliation/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}
+
