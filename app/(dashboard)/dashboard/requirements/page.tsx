@@ -45,6 +45,12 @@ type RequirementsData = {
     stage_group: string | null;
     sort_order: number | null;
   } | null;
+  profile_working_pattern?: {
+    working_percent: number;
+    is_ltft: boolean;
+    days_to_arcp_calendar: number | null;
+    days_to_arcp_wte: number | null;
+  } | null;
 };
 
 type TabId = "procedures" | "courses" | "exams";
@@ -57,6 +63,7 @@ type RequirementItem =
   | (Procedure & { kind: "procedures"; key: string })
   | (Course & { kind: "courses"; key: string })
   | (Exam & { kind: "exams"; key: string });
+type PriorityBucket = "Now" | "Next" | "Later";
 
 const STAGE_ORDER = ["ST1", "ST2", "ST3", "ST4", "ST5", "ST6", "ST7"] as const;
 type StageName = (typeof STAGE_ORDER)[number];
@@ -330,6 +337,20 @@ function statusPillStyles(tone: "done" | "warn" | "pending") {
   };
 }
 
+function proRataStatus(expectedByNowRaw: number | null, actualComplete: number): {
+  tone: "done" | "warn" | "pending";
+  label: string;
+} | null {
+  if (expectedByNowRaw === null) return null;
+  if (expectedByNowRaw <= 0) {
+    if (actualComplete > 0) return { tone: "done", label: "Ahead" };
+    return { tone: "pending", label: "Not due yet" };
+  }
+  return actualComplete >= expectedByNowRaw
+    ? { tone: "done", label: "On track" }
+    : { tone: "warn", label: "Below expected" };
+}
+
 function tabGuidanceLabel(kind: RequirementItem["kind"]) {
   if (kind === "procedures") return "How to log OSATS";
   if (kind === "courses") return "How to log course";
@@ -356,6 +377,97 @@ function getHelpText(item: RequirementItem): string {
   return `${item.name}: in Kaizen add MRCOG result as Other Evidence using the correct MRCOG evidence type.`;
 }
 
+function getDeadlineHint(requiredByStage: string, currentStageName: string | null): string {
+  const requiredRank = stageRank(requiredByStage);
+  const currentRank = currentStageName ? stageRank(currentStageName) : null;
+
+  if (currentRank === null || requiredRank === 99) {
+    return `Due by end of ${requiredByStage} year`;
+  }
+
+  if (requiredRank <= currentRank) {
+    return `Due by current ARCP (${requiredByStage})`;
+  }
+
+  return `Due by end of ${requiredByStage} year`;
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+function getDueByArcpLabel(requiredByStage: string): string {
+  if (isStageName(requiredByStage)) return `Due by ${requiredByStage} ARCP`;
+  return `Due by ${requiredByStage}`;
+}
+
+function priorityToneFromBucket(bucket: PriorityBucket): "done" | "warn" | "pending" {
+  if (bucket === "Now") return "warn";
+  if (bucket === "Next") return "pending";
+  return "done";
+}
+
+function priorityWindowLabel(bucket: PriorityBucket): string {
+  if (bucket === "Now") return "Current ARCP window";
+  if (bucket === "Next") return "Upcoming ARCP window";
+  return "Later ARCP window";
+}
+
+function requirementEffortUnits(item: RequirementItem): number {
+  if (item.kind !== "procedures") return item.complete ? 0 : 1;
+  const remainingOsats = Math.max(item.osats_target - item.total_osats, 0);
+  const consultantGap = item.consultant_osats < 1 ? 1 : 0;
+  return remainingOsats + consultantGap;
+}
+
+function priorityBucketRank(bucket: PriorityBucket): number {
+  if (bucket === "Now") return 0;
+  if (bucket === "Next") return 1;
+  return 2;
+}
+
+function estimateWteDaysToStageDeadline(params: {
+  item: RequirementItem;
+  currentStageRank: number;
+  wteDaysToArcp: number | null;
+}): number | null {
+  const { item, currentStageRank, wteDaysToArcp } = params;
+  if (wteDaysToArcp === null) return null;
+  const stageGap = Math.max(stageRank(item.required_by_stage) - currentStageRank, 0);
+  // Approximate one stage-year as 365 WTE days.
+  return wteDaysToArcp + stageGap * 365;
+}
+
+function resolvePriorityBucket(params: {
+  item: RequirementItem;
+  currentStageRank: number;
+  daysToStageDeadlineWte: number | null;
+}): PriorityBucket {
+  const { item, currentStageRank, daysToStageDeadlineWte } = params;
+  const stageGap = Math.max(stageRank(item.required_by_stage) - currentStageRank, 0);
+
+  if (daysToStageDeadlineWte === null) {
+    if (stageGap <= 0) return "Now";
+    if (stageGap <= 2) return "Next";
+    return "Later";
+  }
+
+  if (stageGap === 0) {
+    if (daysToStageDeadlineWte <= 120) return "Now";
+    if (daysToStageDeadlineWte <= 270) return "Next";
+    return "Later";
+  }
+
+  if (stageGap === 1) {
+    if (daysToStageDeadlineWte <= 90) return "Now";
+    if (daysToStageDeadlineWte <= 540) return "Next";
+    return "Later";
+  }
+
+  if (daysToStageDeadlineWte <= 540) return "Next";
+  return "Later";
+}
+
 export default function RequirementsPage() {
   const [data, setData] = useState<RequirementsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -364,6 +476,7 @@ export default function RequirementsPage() {
   const [prototypeId] = useState<PrototypeId>("P6");
   const [timelineStage, setTimelineStage] = useState<string | null>(null);
   const [showIncompleteOnly, setShowIncompleteOnly] = useState(true);
+  const [showDueThisWindowOnly, setShowDueThisWindowOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [helpText, setHelpText] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
@@ -384,6 +497,18 @@ export default function RequirementsPage() {
 
   const currentStageName = data?.profile_stage?.name ?? null;
   const currentBand = getBandForStage(currentStageName);
+  const workingPercent = data?.profile_working_pattern?.working_percent ?? 100;
+  const isLtft = data?.profile_working_pattern?.is_ltft ?? workingPercent < 100;
+  const calendarDaysToArcp = data?.profile_working_pattern?.days_to_arcp_calendar ?? null;
+  const wteDaysToArcp = data?.profile_working_pattern?.days_to_arcp_wte ?? null;
+  const currentStageRank = currentStageName ? stageRank(currentStageName) : 2;
+  const stageAwarePriorityActive = wteDaysToArcp !== null && wteDaysToArcp > 0;
+  const reviewYearElapsedFraction =
+    calendarDaysToArcp === null ? null : clamp((365 - calendarDaysToArcp) / 365, 0, 1);
+  const wteYearElapsedFraction =
+    reviewYearElapsedFraction === null
+      ? null
+      : clamp(reviewYearElapsedFraction * (workingPercent / 100), 0, 1);
 
   if (loading) {
     return (
@@ -427,6 +552,15 @@ export default function RequirementsPage() {
     exams_total: scopedExams.length,
   };
 
+  function expectedRequirementContributionByNow(item: RequirementItem): number | null {
+    if (wteYearElapsedFraction === null) return null;
+    const requiredRank = stageRank(item.required_by_stage);
+    if (requiredRank === 99) return null;
+    if (requiredRank < currentStageRank) return 1;
+    if (requiredRank === currentStageRank) return wteYearElapsedFraction;
+    return 0;
+  }
+
   const tabs = [
     {
       id: "procedures" as const,
@@ -453,21 +587,105 @@ export default function RequirementsPage() {
     scopedSummary.procedures_complete + scopedSummary.courses_complete + scopedSummary.exams_complete;
   const totalCount =
     scopedSummary.procedures_total + scopedSummary.courses_total + scopedSummary.exams_total;
+  const scopedAllItems = [
+    ...scopedProcedures.map((p) => ({ ...p, kind: "procedures" as const, key: `scope-proc-${p.id}` })),
+    ...scopedCourses.map((c) => ({ ...c, kind: "courses" as const, key: `scope-course-${c.id}` })),
+    ...scopedExams.map((e) => ({ ...e, kind: "exams" as const, key: `scope-exam-${e.evidence_type}` })),
+  ] satisfies RequirementItem[];
+
+  const overallExpectedByNowRaw =
+    wteYearElapsedFraction === null
+      ? null
+      : scopedAllItems.reduce((sum, item) => {
+          const expected = expectedRequirementContributionByNow(item);
+          return sum + (expected ?? 0);
+        }, 0);
+  const overallExpectedByNowThreshold =
+    overallExpectedByNowRaw === null ? null : Math.ceil(overallExpectedByNowRaw);
+  const overallOnTrack =
+    overallExpectedByNowRaw === null ? null : totalComplete >= overallExpectedByNowRaw;
+  const overallProRataStatus = proRataStatus(overallExpectedByNowRaw, totalComplete);
+
+  const scopedActiveItems = activeTab
+    ? scopedAllItems.filter((item) => item.kind === activeTab)
+    : scopedAllItems;
+  const activeCompleteCount = activeTabSummary ? activeTabSummary.complete : totalComplete;
+  const activeExpectedByNowRaw =
+    wteYearElapsedFraction === null
+      ? null
+      : scopedActiveItems.reduce((sum, item) => {
+          const expected = expectedRequirementContributionByNow(item);
+          return sum + (expected ?? 0);
+        }, 0);
+  const activeExpectedByNowThreshold =
+    activeExpectedByNowRaw === null ? null : Math.ceil(activeExpectedByNowRaw);
+  const activeOnTrack =
+    activeExpectedByNowRaw === null ? null : activeCompleteCount >= activeExpectedByNowRaw;
+  const activeProRataStatus = proRataStatus(activeExpectedByNowRaw, activeCompleteCount);
 
   const nextThree = [
     ...scopedProcedures
       .filter((p) => !p.complete)
-      .map((p) => ({ stage: p.required_by_stage, label: p.name, type: "OSATS" })),
+      .map((p) => ({
+        item: { ...p, kind: "procedures" as const, key: `next-proc-${p.id}` },
+        stage: p.required_by_stage,
+        label: p.name,
+        type: "OSATS",
+      })),
     ...scopedCourses
       .filter((c) => !c.complete)
-      .map((c) => ({ stage: c.required_by_stage, label: c.name, type: "Course" })),
+      .map((c) => ({
+        item: { ...c, kind: "courses" as const, key: `next-course-${c.id}` },
+        stage: c.required_by_stage,
+        label: c.name,
+        type: "Course",
+      })),
     ...scopedExams
       .filter((e) => !e.complete)
-      .map((e) => ({ stage: e.required_by_stage, label: e.name, type: "Exam" })),
+      .map((e) => ({
+        item: { ...e, kind: "exams" as const, key: `next-exam-${e.evidence_type}` },
+        stage: e.required_by_stage,
+        label: e.name,
+        type: "Exam",
+      })),
   ]
+    .map((entry) => {
+      const status = getStatus(entry.item);
+      const daysToStageDeadlineWte = stageAwarePriorityActive
+        ? estimateWteDaysToStageDeadline({
+            item: entry.item,
+            currentStageRank,
+            wteDaysToArcp,
+          })
+        : null;
+      const bucket = resolvePriorityBucket({
+        item: entry.item,
+        currentStageRank,
+        daysToStageDeadlineWte,
+      });
+      return {
+        ...entry,
+        status,
+        bucket,
+        effort: requirementEffortUnits(entry.item),
+        daysToStageDeadlineWte,
+        dueByLabel: getDueByArcpLabel(entry.stage),
+        deadlineHint: getDeadlineHint(entry.stage, currentStageName),
+      };
+    })
+    .filter((entry) => !showDueThisWindowOnly || entry.bucket === "Now")
     .sort((a, b) => {
-      const rankDiff = stageRank(a.stage) - stageRank(b.stage);
-      if (rankDiff !== 0) return rankDiff;
+      const bucketDiff = priorityBucketRank(a.bucket) - priorityBucketRank(b.bucket);
+      if (bucketDiff !== 0) return bucketDiff;
+      if (a.daysToStageDeadlineWte !== null && b.daysToStageDeadlineWte !== null) {
+        const deadlineDiff = a.daysToStageDeadlineWte - b.daysToStageDeadlineWte;
+        if (deadlineDiff !== 0) return deadlineDiff;
+      }
+      if (a.status.tone !== b.status.tone) return a.status.tone === "warn" ? -1 : 1;
+      const effortDiff = a.effort - b.effort;
+      if (effortDiff !== 0) return effortDiff;
+      const stageDiff = stageRank(a.stage) - stageRank(b.stage);
+      if (stageDiff !== 0) return stageDiff;
       return a.label.localeCompare(b.label);
     })
     .slice(0, 3);
@@ -477,6 +695,20 @@ export default function RequirementsPage() {
 
   const q = query.trim().toLowerCase();
   const filteredItems = scopedTabItems.filter((item) => {
+    const daysToStageDeadlineWte = stageAwarePriorityActive
+      ? estimateWteDaysToStageDeadline({
+          item,
+          currentStageRank,
+          wteDaysToArcp,
+        })
+      : null;
+    const bucket = resolvePriorityBucket({
+      item,
+      currentStageRank,
+      daysToStageDeadlineWte,
+    });
+
+    if (showDueThisWindowOnly && bucket !== "Now") return false;
     if (showIncompleteOnly && item.complete) return false;
     if (q && !item.name.toLowerCase().includes(q)) return false;
     return true;
@@ -491,47 +723,101 @@ export default function RequirementsPage() {
     })
     .filter((x) => x.total > 0);
 
-  const boardItems = filteredItems.map((item) => ({ item, status: getStatus(item) }));
-  const boardNeedAction = boardItems.filter((row) => !row.item.complete && row.status.tone === "pending");
-  const boardAlmostThere = boardItems.filter((row) => !row.item.complete && row.status.tone === "warn");
+  const boardItems = filteredItems.map((item) => {
+    const status = getStatus(item);
+    const daysToStageDeadlineWte = stageAwarePriorityActive
+      ? estimateWteDaysToStageDeadline({
+          item,
+          currentStageRank,
+          wteDaysToArcp,
+        })
+      : null;
+    const bucket = item.complete
+      ? null
+      : resolvePriorityBucket({
+          item,
+          currentStageRank,
+          daysToStageDeadlineWte,
+        });
+    return {
+      item,
+      status,
+      bucket,
+      effort: requirementEffortUnits(item),
+      daysToStageDeadlineWte,
+    };
+  });
+  const pendingRows = boardItems.filter((row) => !row.item.complete && row.bucket !== null);
+  const boardNeedAction = pendingRows.filter((row) => row.bucket === "Now");
+  const boardAlmostThere = pendingRows.filter((row) => row.bucket === "Next");
   const boardDone = boardItems.filter((row) => row.item.complete);
 
-  const currentStageRank = currentStageName ? stageRank(currentStageName) : 2;
-  const pendingRows = boardItems.filter((row) => !row.item.complete);
-  const missionNow = pendingRows.filter(
-    (row) => stageRank(row.item.required_by_stage) <= currentStageRank || row.status.tone === "warn",
-  );
-  const missionQuickWins = pendingRows.filter(
-    (row) =>
-      !missionNow.some((m) => m.item.key === row.item.key) &&
-      row.status.tone === "pending" &&
-      row.item.kind === "procedures" &&
-      row.item.osats_target - row.item.total_osats <= 1,
-  );
+  const missionNow = pendingRows.filter((row) => row.bucket === "Now");
+  const missionQuickWins = pendingRows.filter((row) => row.bucket === "Next" && row.effort <= 1);
   const missionCanWait = pendingRows.filter(
     (row) =>
-      !missionNow.some((m) => m.item.key === row.item.key) &&
-      !missionQuickWins.some((m) => m.item.key === row.item.key),
+      row.bucket === "Later" ||
+      (row.bucket === "Next" && row.effort > 1),
   );
 
-  const inboxNow = pendingRows.filter((row) => stageRank(row.item.required_by_stage) <= currentStageRank);
-  const inboxNext = pendingRows.filter((row) => {
-    const rank = stageRank(row.item.required_by_stage);
-    return rank > currentStageRank && rank <= currentStageRank + 2;
-  });
-  const inboxLater = pendingRows.filter((row) => stageRank(row.item.required_by_stage) > currentStageRank + 2);
-  const timelineFeed = [
-    ...inboxNow.map((row) => ({ bucket: "Now" as const, bucketRank: 0, ...row })),
-    ...inboxNext.map((row) => ({ bucket: "Next" as const, bucketRank: 1, ...row })),
-    ...inboxLater.map((row) => ({ bucket: "Later" as const, bucketRank: 2, ...row })),
-  ].sort((a, b) => {
-    if (a.bucketRank !== b.bucketRank) return a.bucketRank - b.bucketRank;
-    const stageDiff = stageRank(a.item.required_by_stage) - stageRank(b.item.required_by_stage);
-    if (stageDiff !== 0) return stageDiff;
-    return a.item.name.localeCompare(b.item.name);
-  });
+  const timelineFeed = pendingRows
+    .map((row) => ({
+      ...row,
+      bucket: row.bucket as PriorityBucket,
+      bucketRank: priorityBucketRank(row.bucket as PriorityBucket),
+    }))
+    .sort((a, b) => {
+      if (a.bucketRank !== b.bucketRank) return a.bucketRank - b.bucketRank;
+      if (a.daysToStageDeadlineWte !== null && b.daysToStageDeadlineWte !== null) {
+        const deadlineDiff = a.daysToStageDeadlineWte - b.daysToStageDeadlineWte;
+        if (deadlineDiff !== 0) return deadlineDiff;
+      }
+      if (a.status.tone !== b.status.tone) return a.status.tone === "warn" ? -1 : 1;
+      const stageDiff = stageRank(a.item.required_by_stage) - stageRank(b.item.required_by_stage);
+      if (stageDiff !== 0) return stageDiff;
+      const effortDiff = a.effort - b.effort;
+      if (effortDiff !== 0) return effortDiff;
+      return a.item.name.localeCompare(b.item.name);
+    });
 
   const tableRows = [...filteredItems].sort((a, b) => {
+    if (!a.complete && !b.complete) {
+      const statusA = getStatus(a);
+      const statusB = getStatus(b);
+      const daysToStageDeadlineA = stageAwarePriorityActive
+        ? estimateWteDaysToStageDeadline({
+            item: a,
+            currentStageRank,
+            wteDaysToArcp,
+          })
+        : null;
+      const daysToStageDeadlineB = stageAwarePriorityActive
+        ? estimateWteDaysToStageDeadline({
+            item: b,
+            currentStageRank,
+            wteDaysToArcp,
+          })
+        : null;
+      const bucketA = resolvePriorityBucket({
+        item: a,
+        currentStageRank,
+        daysToStageDeadlineWte: daysToStageDeadlineA,
+      });
+      const bucketB = resolvePriorityBucket({
+        item: b,
+        currentStageRank,
+        daysToStageDeadlineWte: daysToStageDeadlineB,
+      });
+      const bucketDiff = priorityBucketRank(bucketA) - priorityBucketRank(bucketB);
+      if (bucketDiff !== 0) return bucketDiff;
+      if (daysToStageDeadlineA !== null && daysToStageDeadlineB !== null) {
+        const deadlineDiff = daysToStageDeadlineA - daysToStageDeadlineB;
+        if (deadlineDiff !== 0) return deadlineDiff;
+      }
+      if (statusA.tone !== statusB.tone) return statusA.tone === "warn" ? -1 : 1;
+      const effortDiff = requirementEffortUnits(a) - requirementEffortUnits(b);
+      if (effortDiff !== 0) return effortDiff;
+    }
     const stageDiff = stageRank(a.required_by_stage) - stageRank(b.required_by_stage);
     if (stageDiff !== 0) return stageDiff;
     if (a.complete !== b.complete) return a.complete ? 1 : -1;
@@ -539,6 +825,20 @@ export default function RequirementsPage() {
   });
   const previewItem = tableRows.find((item) => item.key === previewKey) ?? tableRows[0] ?? null;
   const previewStatus = previewItem ? getStatus(previewItem) : null;
+  const previewPriorityBucket =
+    previewItem && !previewItem.complete
+      ? resolvePriorityBucket({
+          item: previewItem,
+          currentStageRank,
+          daysToStageDeadlineWte: stageAwarePriorityActive
+            ? estimateWteDaysToStageDeadline({
+                item: previewItem,
+                currentStageRank,
+                wteDaysToArcp,
+              })
+            : null,
+        })
+      : null;
 
   const timelineStages = STAGE_ORDER.filter((stage) => scopeSet.has(stage));
   const effectiveTimelineStage =
@@ -597,6 +897,37 @@ export default function RequirementsPage() {
               ? yearScopeLabel(yearScopeId, currentStageName)
               : bandScopeLabel(bandScopeId, currentBand?.label ?? null)}
           </span>
+          <span
+            className="px-2 py-1 rounded-full"
+            style={{
+              background: isLtft ? "rgba(245,158,11,0.15)" : "var(--surface-3)",
+              color: isLtft ? "var(--accent-amber)" : "var(--text-secondary)",
+            }}
+          >
+            {isLtft ? `LTFT: ${workingPercent}% WTE` : "Working pattern: 100%"}
+          </span>
+          {isLtft && stageAwarePriorityActive && (
+            <span
+              className="px-2 py-1 rounded-full"
+              style={{ background: "rgba(0,113,227,0.12)", color: "var(--accent-blue)" }}
+            >
+              Priority mode: LTFT + ARCP ({wteDaysToArcp} WTE days)
+            </span>
+          )}
+          <span
+            className="px-2 py-1 rounded-full"
+            style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}
+          >
+            Deadlines are ARCP-based (e.g. ST2 items due by ST2 ARCP)
+          </span>
+          {isLtft && !stageAwarePriorityActive && (
+            <span
+              className="px-2 py-1 rounded-full"
+              style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}
+            >
+              Add ARCP date to enable LTFT priority mode
+            </span>
+          )}
         </div>
       </div>
 
@@ -606,6 +937,32 @@ export default function RequirementsPage() {
             Overall progress
           </p>
           <ProgressBar value={totalComplete} total={totalCount} />
+          <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+            {overallExpectedByNowThreshold === null ? (
+              <span style={{ color: "var(--text-muted)" }}>
+                Add ARCP date to calculate pro-rata expected completion.
+              </span>
+            ) : (
+              <span>
+                Pro-rata expected by now:{" "}
+                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                  {overallExpectedByNowThreshold}
+                </span>{" "}
+                · Actual:{" "}
+                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                  {totalComplete}
+                </span>{" "}
+                <span
+                  className="ml-1 rounded-full px-1.5 py-0.5 text-[10px]"
+                  style={statusPillStyles(
+                    overallProRataStatus ? overallProRataStatus.tone : overallOnTrack ? "done" : "warn",
+                  )}
+                >
+                  {overallProRataStatus ? overallProRataStatus.label : overallOnTrack ? "On track" : "Below expected"}
+                </span>
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="card p-4 space-y-2">
@@ -619,6 +976,32 @@ export default function RequirementsPage() {
             value={activeTabSummary ? activeTabSummary.complete : totalComplete}
             total={activeTabSummary ? activeTabSummary.total : totalCount}
           />
+          <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+            {activeExpectedByNowThreshold === null ? (
+              <span style={{ color: "var(--text-muted)" }}>
+                Pro-rata checkpoint unavailable without ARCP date.
+              </span>
+            ) : (
+              <span>
+                Pro-rata expected by now:{" "}
+                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                  {activeExpectedByNowThreshold}
+                </span>{" "}
+                · Actual:{" "}
+                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                  {activeCompleteCount}
+                </span>{" "}
+                <span
+                  className="ml-1 rounded-full px-1.5 py-0.5 text-[10px]"
+                  style={statusPillStyles(
+                    activeProRataStatus ? activeProRataStatus.tone : activeOnTrack ? "done" : "warn",
+                  )}
+                >
+                  {activeProRataStatus ? activeProRataStatus.label : activeOnTrack ? "On track" : "Below expected"}
+                </span>
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="card p-4 space-y-2">
@@ -626,23 +1009,33 @@ export default function RequirementsPage() {
             Next 3 actions
           </p>
           {nextThree.length > 0 ? (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {nextThree.map((item) => (
                 <div
                   key={`${item.stage}-${item.type}-${item.label}`}
-                  className="text-[12px] leading-5"
-                  style={{ color: "var(--text-secondary)" }}
+                  className="rounded-lg border px-2.5 py-2"
+                  style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
                 >
-                  <span
-                    className="mr-1 rounded-full px-1.5 py-0.5 text-[10px]"
-                    style={{ background: "var(--surface-3)", color: "var(--text-muted)" }}
-                  >
-                    {item.stage}
-                  </span>
-                  <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[10px]"
+                      style={statusPillStyles(priorityToneFromBucket(item.bucket))}
+                    >
+                      {item.dueByLabel}
+                    </span>
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[10px]"
+                      style={{ background: "var(--surface-3)", color: "var(--text-muted)" }}
+                    >
+                      {item.type}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[12px] font-medium leading-5" style={{ color: "var(--text-primary)" }}>
                     {item.label}
-                  </span>
-                  <span className="ml-1">({item.type})</span>
+                  </p>
+                  <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    {item.status.label}
+                  </p>
                 </div>
               ))}
             </div>
@@ -730,6 +1123,26 @@ export default function RequirementsPage() {
             }
           >
             Incomplete only
+          </button>
+
+          <button
+            onClick={() => setShowDueThisWindowOnly((v) => !v)}
+            className="px-3 py-1.5 rounded-lg text-[12px] font-medium transition"
+            style={
+              showDueThisWindowOnly
+                ? {
+                    background: "rgba(245, 158, 11, 0.14)",
+                    color: "var(--accent-amber)",
+                    border: "1px solid rgba(245, 158, 11, 0.24)",
+                  }
+                : {
+                    background: "var(--surface-2)",
+                    color: "var(--text-secondary)",
+                    border: "1px solid var(--border-subtle)",
+                  }
+            }
+          >
+            Due this ARCP window
           </button>
 
           <div className="grid gap-2 md:grid-cols-2 flex-1">
@@ -1248,6 +1661,9 @@ export default function RequirementsPage() {
                         <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
                           {item.required_by_stage}
                         </p>
+                        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          {getDeadlineHint(item.required_by_stage, currentStageName)}
+                        </p>
                       </div>
                       <span className="px-2 py-0.5 text-[10px] rounded-full whitespace-nowrap" style={statusPillStyles(status.tone)}>
                         {status.label}
@@ -1299,20 +1715,16 @@ export default function RequirementsPage() {
               {timelineFeed.map(({ item, status, bucket }, index) => {
                 const prevBucket = index > 0 ? timelineFeed[index - 1]?.bucket : null;
                 const showBucketHeader = bucket !== prevBucket;
-                const bucketTone = bucket === "Now" ? "warn" : bucket === "Next" ? "pending" : "done";
+                const bucketTone = priorityToneFromBucket(bucket);
                 return (
                   <div key={item.key} className="relative pl-8 pb-4">
                     {showBucketHeader && (
                       <div className="mb-2 flex items-center gap-2">
                         <span className="px-2 py-0.5 text-[10px] rounded-full" style={statusPillStyles(bucketTone)}>
-                          {bucket}
+                          {priorityWindowLabel(bucket)}
                         </span>
                         <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                          {bucket === "Now"
-                            ? "Current-stage impact"
-                            : bucket === "Next"
-                              ? "Upcoming requirement"
-                              : "Lower urgency"}
+                          Stage-based urgency
                         </span>
                       </div>
                     )}
@@ -1393,6 +1805,18 @@ export default function RequirementsPage() {
                 const status = getStatus(item);
                 const active = previewItem?.key === item.key;
                 const genericPct = item.complete ? 100 : 0;
+                const itemDaysToStageDeadlineWte = stageAwarePriorityActive
+                  ? estimateWteDaysToStageDeadline({
+                      item,
+                      currentStageRank,
+                      wteDaysToArcp,
+                    })
+                  : null;
+                const itemPriorityBucket = resolvePriorityBucket({
+                  item,
+                  currentStageRank,
+                  daysToStageDeadlineWte: itemDaysToStageDeadlineWte,
+                });
                 return (
                   <button
                     key={item.key}
@@ -1407,11 +1831,24 @@ export default function RequirementsPage() {
                         <p className="text-[13px] font-medium truncate" style={{ color: "var(--text-primary)" }}>
                           {item.name}
                         </p>
-                        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                          {item.required_by_stage}
-                        </p>
+                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full"
+                            style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}
+                          >
+                            {getDueByArcpLabel(item.required_by_stage)}
+                          </span>
+                          {!item.complete && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-full"
+                              style={statusPillStyles(priorityToneFromBucket(itemPriorityBucket))}
+                            >
+                              {priorityWindowLabel(itemPriorityBucket)}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="w-[180px] shrink-0">
+                      <div className="w-[150px] shrink-0 sm:w-[180px]">
                         {item.kind === "procedures" ? (
                           <OsatsCompleteness
                             total={item.total_osats}
@@ -1461,11 +1898,16 @@ export default function RequirementsPage() {
                   </p>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}>
-                      {previewItem.required_by_stage}
+                      {getDueByArcpLabel(previewItem.required_by_stage)}
                     </span>
                     <span className="text-[11px] px-2 py-0.5 rounded-full" style={statusPillStyles(previewStatus.tone)}>
                       {previewStatus.label}
                     </span>
+                    {previewPriorityBucket && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full" style={statusPillStyles(priorityToneFromBucket(previewPriorityBucket))}>
+                        {priorityWindowLabel(previewPriorityBucket)}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {previewItem.kind === "procedures" && (
@@ -1505,7 +1947,10 @@ export default function RequirementsPage() {
       )}
 
       <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-        Data source: synced Kaizen entries. Percentages and task list follow the selected stage scope.
+        Data source: synced Kaizen entries. Percentages and task list follow the selected stage scope
+        {isLtft
+          ? ` with LTFT profile setting (${workingPercent}% WTE${calendarDaysToArcp != null && wteDaysToArcp != null ? `, ${wteDaysToArcp} WTE days / ${calendarDaysToArcp} calendar days to ARCP` : ""}).`
+          : "."}
       </div>
     </div>
   );

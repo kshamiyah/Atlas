@@ -47,7 +47,7 @@ export function CipListItem({
   isSelected,
   onSelect,
 }: CipListItemProps) {
-  const pct = Math.min(100, Math.max(0, cip.coverage_pct));
+  const pct = Math.round(Math.min(100, Math.max(0, cip.coverage_pct)));
   const badge = priorityTheme(priority);
 
   return (
@@ -74,7 +74,7 @@ export function CipListItem({
       <div className="mt-2.5 flex flex-col gap-1.5">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-4">
           <div
-            className={`h-full rounded-full transition-all duration-300 ${progressBarColour(cip.coverage_pct)}`}
+            className={`h-full rounded-full transition-all duration-300 ${progressBarColour(pct)}`}
             style={{ width: `${pct}%` }}
           />
         </div>

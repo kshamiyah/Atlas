@@ -1,12 +1,16 @@
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { DashboardReadinessSection } from "@/components/dashboard/DashboardReadinessSection";
+import { DashboardNextActionsSection } from "@/components/dashboard/DashboardNextActionsSection";
+import { DashboardProgressGateway } from "@/components/dashboard/DashboardProgressGateway";
+import { DashboardStatsRow } from "@/components/dashboard/DashboardStatsRow";
 import { ActivityHeatmap } from "@/components/dashboard/ActivityHeatmap";
 import { GettingStartedSection } from "@/components/dashboard/GettingStartedSection";
 import { StageSelector } from "@/components/dashboard/StageSelector";
-import { CipProgressSection } from "@/components/dashboard/CipProgressSection";
 import { RecentEntriesSection } from "@/components/dashboard/RecentEntriesSection";
+import { SyncStatusSection } from "@/components/dashboard/SyncStatusSection";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { calculateArcpCountdown } from "@/lib/profile/ltft";
 
 export default async function DashboardPage() {
   const supabase = await getServerSupabaseClient();
@@ -22,32 +26,33 @@ export default async function DashboardPage() {
   const profileRes = user
     ? await supabase
         .from("profiles")
-        .select("current_stage_id, arcp_date")
+        .select("current_stage_id, arcp_date, working_percent")
         .eq("id", user.id)
         .maybeSingle()
-    : { data: null as { current_stage_id: string | null; arcp_date: string | null } | null };
+    : {
+        data: null as {
+          current_stage_id: string | null;
+          arcp_date: string | null;
+          working_percent: number | null;
+        } | null,
+      };
 
-  const [
-    { data: stages },
-    { data: cipProgress },
-    { data: syncLog },
-    { data: entries },
-    { count: totalEntries },
-  ] = await Promise.all([
+  const [{ data: stages }, { data: syncLog }, { data: entries }, { count: totalEntries }] =
+    await Promise.all([
     supabase
       .from("stages")
       .select("id, name, stage_group")
       .order("sort_order", { ascending: true }),
     supabase
-      .from("kaizen_cip_progress")
-      .select("*")
-      .order("cip_number", { ascending: true }),
-    supabase
       .from("kaizen_sync_log")
       .select("sync_type, synced_at")
       .order("synced_at", { ascending: false })
       .limit(50),
-    supabase.from("kaizen_entries").select("*").limit(15),
+    supabase
+      .from("kaizen_entries")
+      .select("*")
+      .order("synced_at", { ascending: false })
+      .limit(15),
     supabase
       .from("kaizen_entries")
       .select("id", { count: "exact", head: true }),
@@ -63,12 +68,17 @@ export default async function DashboardPage() {
   });
   const nowMs = new Date().getTime();
 
-  const daysToArcp: number | null = profile?.arcp_date
-    ? Math.ceil(
-        (new Date(profile.arcp_date).getTime() - nowMs) /
-          (1000 * 60 * 60 * 24),
-      )
-    : null;
+  const arcpCountdown = calculateArcpCountdown(
+    profile?.arcp_date ?? null,
+    profile?.working_percent ?? 100,
+    nowMs,
+  );
+  const daysToArcp = arcpCountdown.calendarDaysToArcp;
+  const wteDaysToArcp = arcpCountdown.wteDaysToArcp;
+  const workingPercent = arcpCountdown.workingPercent;
+  const isLtft = arcpCountdown.isLtft;
+  const badgeDaysToArcp =
+    isLtft && wteDaysToArcp !== null ? wteDaysToArcp : daysToArcp;
 
   const currentStage = (stages ?? []).find(
     (s) => s.id === profile?.current_stage_id,
@@ -76,7 +86,7 @@ export default async function DashboardPage() {
 
   const hasNoData =
     !bypassAuth &&
-    (cipProgress ?? []).length === 0 &&
+    (totalEntries ?? 0) === 0 &&
     Object.keys(lastSyncByType).length === 0;
 
   if (hasNoData) {
@@ -152,8 +162,8 @@ export default async function DashboardPage() {
                     Portfolio Dashboard
                   </h1>
                   <p className="max-w-2xl text-small leading-relaxed text-secondary">
-                    Keep your ARCP prep organized with clear readiness signals,
-                    evidence coverage, and recent entries in one place.
+                    Your command centre for next actions, ARCP signals, and quick links — open Progress for full CiP, skill, and
+                    descriptor coverage.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -163,31 +173,45 @@ export default async function DashboardPage() {
                       stages={stages ?? []}
                     />
                   </div>
+                  <span
+                    className="rounded-full border px-3 py-1.5 text-xs font-medium"
+                    style={{
+                      borderColor: isLtft ? "rgba(245,158,11,0.35)" : "var(--border-subtle)",
+                      color: isLtft ? "var(--accent-amber)" : "var(--text-secondary)",
+                      background: isLtft ? "rgba(245,158,11,0.10)" : "var(--surface-1)",
+                    }}
+                  >
+                    {isLtft ? `LTFT ${workingPercent}% WTE` : "Working pattern 100%"}
+                  </span>
                   {daysToArcp !== null && (
                     <span
                       className="rounded-full border px-3 py-1.5 text-xs font-medium"
                       style={{
                         borderColor:
-                          daysToArcp < 30
+                          (badgeDaysToArcp ?? 0) < 30
                             ? "rgba(220,38,38,0.35)"
-                            : daysToArcp < 90
+                            : (badgeDaysToArcp ?? 0) < 90
                               ? "rgba(245,158,11,0.35)"
                               : "var(--border-subtle)",
                         color:
-                          daysToArcp < 30
+                          (badgeDaysToArcp ?? 0) < 30
                             ? "var(--accent-red)"
-                            : daysToArcp < 90
+                            : (badgeDaysToArcp ?? 0) < 90
                               ? "var(--accent-amber)"
                               : "var(--text-secondary)",
                         background:
-                          daysToArcp < 30
+                          (badgeDaysToArcp ?? 0) < 30
                             ? "rgba(220,38,38,0.08)"
-                            : daysToArcp < 90
+                            : (badgeDaysToArcp ?? 0) < 90
                               ? "rgba(245,158,11,0.10)"
                               : "var(--surface-1)",
                       }}
                     >
-                      {daysToArcp > 0 ? `${daysToArcp} days to ARCP` : "ARCP date passed"}
+                      {daysToArcp > 0
+                        ? isLtft
+                          ? `${wteDaysToArcp ?? daysToArcp} WTE days (${daysToArcp} calendar) to ARCP`
+                          : `${daysToArcp} days to ARCP`
+                        : "ARCP date passed"}
                     </span>
                   )}
                   {!currentStage && daysToArcp === null && (
@@ -198,17 +222,14 @@ export default async function DashboardPage() {
                 </div>
               </div>
 
-              <div className="flex shrink-0 gap-2">
-                <a
-                  href="/dashboard/key-skill-review"
-                  className="btn-secondary px-4 py-2 text-small"
-                >
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <a href="/dashboard/progress" className="btn-secondary px-4 py-2 text-small">
+                  Progress Hub
+                </a>
+                <a href="/dashboard/key-skill-review" className="btn-secondary px-4 py-2 text-small">
                   Review Skills
                 </a>
-                <a
-                  href="/dashboard/generate"
-                  className="btn-primary px-4 py-2 text-small"
-                >
+                <a href="/dashboard/generate" className="btn-primary px-4 py-2 text-small">
                   Generate Entry
                 </a>
               </div>
@@ -216,30 +237,45 @@ export default async function DashboardPage() {
           </header>
 
           <section className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h2 className="text-small font-semibold text-primary">ARCP Readiness</h2>
-              <span className="text-[11px] text-muted">Live from your synced portfolio</span>
+            <div className="px-1">
+              <h2 className="text-small font-semibold text-primary">What should I do now?</h2>
+              <p className="mt-0.5 text-[11px] text-muted">Highest-impact tasks and a snapshot of curriculum coverage.</p>
             </div>
-            <DashboardReadinessSection
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-stretch">
+              <DashboardNextActionsSection />
+              <DashboardProgressGateway />
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h2 className="text-small font-semibold text-primary">At a glance</h2>
+              <span className="text-[11px] text-muted">Entries &amp; ARCP</span>
+            </div>
+            <DashboardStatsRow
               totalEntries={totalEntries ?? 0}
-              daysToArcp={daysToArcp}
+              calendarDaysToArcp={daysToArcp}
+              wteDaysToArcp={wteDaysToArcp}
+              workingPercent={workingPercent}
               arcpDate={profile?.arcp_date ?? null}
             />
           </section>
 
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-5">
-            <div className="xl:col-span-3">
-              <CipProgressSection
-                cips={cipProgress ?? []}
-                lastSyncByType={lastSyncByType}
-              />
+          <section className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h2 className="text-small font-semibold text-primary">ARCP readiness</h2>
+              <span className="text-[11px] text-muted">Prediction from portfolio weighting</span>
             </div>
-            <div className="xl:col-span-2">
-              <RecentEntriesSection entries={entries ?? []} />
-            </div>
+            <DashboardReadinessSection />
           </section>
 
-          <ActivityHeatmap />
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <RecentEntriesSection entries={entries ?? []} />
+            <div className="flex flex-col gap-5">
+              <ActivityHeatmap />
+              <SyncStatusSection lastSyncByType={lastSyncByType} />
+            </div>
+          </section>
         </div>
       </main>
     </div>

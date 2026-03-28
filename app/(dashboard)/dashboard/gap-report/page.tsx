@@ -14,9 +14,9 @@ type RequirementsSummary = {
   exams_total: number;
 };
 
-async function fetchGapReport(stageGroup: string | null = null): Promise<GapReport> {
-  const url = stageGroup
-    ? `/api/gap-report?stage_group=${encodeURIComponent(stageGroup)}`
+async function fetchGapReport(stageScope: string | null = null): Promise<GapReport> {
+  const url = stageScope
+    ? `/api/gap-report?stage_scope=${encodeURIComponent(stageScope)}`
     : "/api/gap-report";
   const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
   const text = await res.text();
@@ -35,9 +35,9 @@ type MobileView = "list" | "detail";
 
 const STAGE_TABS = [
   { label: "All", sub: null as string | null, value: null as string | null },
-  { label: "Stage One", sub: "ST1-ST3", value: "Stage One" },
-  { label: "Stage Two", sub: "ST4-ST5", value: "Stage Two" },
-  { label: "Stage Three", sub: "ST6-ST7", value: "Stage Three" },
+  { label: "Stage One", sub: "ST1-ST2", value: "BAND_ST1_2" },
+  { label: "Stage Two", sub: "ST3-ST5", value: "BAND_ST3_5" },
+  { label: "Stage Three", sub: "ST6-ST7", value: "BAND_ST6_7" },
 ];
 
 function missingSkills(cip: GapReportCip): number {
@@ -65,12 +65,16 @@ function nextActionHint(cip: GapReportCip): string {
   return "Close remaining gaps before ARCP.";
 }
 
+function formatPct(value: number): string {
+  return `${Math.round(Math.min(100, Math.max(0, value)))}%`;
+}
+
 export default function GapReportPage() {
   const [report, setReport] = useState<GapReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reqSummary, setReqSummary] = useState<RequirementsSummary | null>(null);
-  const [selectedStageGroup, setSelectedStageGroup] = useState<string | null>(null);
+  const [selectedStageScope, setSelectedStageScope] = useState<string | null>(null);
   const [selectedCipNumber, setSelectedCipNumber] = useState<string | null>(null);
   const [expandedKeySkillIds, setExpandedKeySkillIds] = useState<Set<string>>(new Set());
   const [mobileView, setMobileView] = useState<MobileView>("list");
@@ -174,7 +178,7 @@ export default function GapReportPage() {
             </div>
             <button
               type="button"
-              onClick={() => void loadReport(selectedStageGroup)}
+              onClick={() => void loadReport(selectedStageScope)}
               disabled={isLoading}
               className="btn-secondary text-xs disabled:opacity-60"
             >
@@ -188,7 +192,7 @@ export default function GapReportPage() {
                 key={tab.label}
                 type="button"
                 onClick={() => {
-                  setSelectedStageGroup(tab.value);
+                  setSelectedStageScope(tab.value);
                   setSelectedCipNumber(null);
                   setExpandedKeySkillIds(new Set());
                   setMobileView("list");
@@ -196,7 +200,7 @@ export default function GapReportPage() {
                 }}
                 className={[
                   "rounded-full px-3 py-1 text-micro font-medium transition-all duration-150",
-                  selectedStageGroup === tab.value
+                  selectedStageScope === tab.value
                     ? "bg-surface-1 text-primary shadow-sm ring-1 ring-subtle"
                     : "text-muted hover:text-secondary",
                 ].join(" ")}
@@ -371,7 +375,7 @@ export default function GapReportPage() {
                     </h2>
                     <p className="mt-1 text-small text-secondary">
                       {selectedCip.confirmed_skills} of {selectedCip.total_skills} key skills confirmed (
-                      {selectedCip.coverage_pct}%)
+                      {formatPct(selectedCip.coverage_pct)})
                     </p>
 
                     <section className="mt-4 rounded-xl border border-accent-blue/25 bg-accent-blue/8 p-3.5">

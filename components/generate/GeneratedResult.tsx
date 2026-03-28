@@ -18,6 +18,7 @@ const KAIZEN_BASE = "https://kaizenep.com";
 const KAIZEN_NEW_ENTRY_PATHS: Record<string, string> = {
   reflection: "/node/add/log-entry-reflection",
   procedure: "/node/add/log-entry-procedure",
+  cip_assessment: "/node/add/assessment-type-cip-assessment",
   cbd: "/node/add/log-entry-assessment-cbd",
   minicex: "/node/add/log-entry-assessment-mini-cex",
   notss: "/node/add/log-entry-assessment-notss",

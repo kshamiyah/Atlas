@@ -16,37 +16,7 @@ export type CrossCipSuggestion = {
 const MAX_SKILLS_PER_CALL = 60;
 const MODEL_NAME = "claude-haiku-4-5-20251001";
 
-// Haiku 4.5 pricing (per million tokens) — https://www.anthropic.com/pricing
-const PRICE_INPUT_PER_MTOK = 1.0;
-const PRICE_OUTPUT_PER_MTOK = 5.0;
-
 type CallUsage = { input_tokens: number; output_tokens: number };
-
-function logUsage(
-  callIndex: number,
-  usage: CallUsage,
-  runningTotal: CallUsage,
-) {
-  const inputCost = (usage.input_tokens / 1_000_000) * PRICE_INPUT_PER_MTOK;
-  const outputCost = (usage.output_tokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK;
-  console.log(
-    `[cross-cip-suggester] call #${callIndex} — ` +
-      `in: ${usage.input_tokens} tok ($${inputCost.toFixed(5)}), ` +
-      `out: ${usage.output_tokens} tok ($${outputCost.toFixed(5)}) | ` +
-      `running total: ${runningTotal.input_tokens} in / ${runningTotal.output_tokens} out`,
-  );
-}
-
-function logSummary(totalCalls: number, total: CallUsage) {
-  const inputCost = (total.input_tokens / 1_000_000) * PRICE_INPUT_PER_MTOK;
-  const outputCost = (total.output_tokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK;
-  const totalCost = inputCost + outputCost;
-  console.log(
-    `[cross-cip-suggester] ✅ DONE — ${totalCalls} call(s) | ` +
-      `total tokens: ${total.input_tokens} in / ${total.output_tokens} out | ` +
-      `estimated cost: $${inputCost.toFixed(5)} in + $${outputCost.toFixed(5)} out = $${totalCost.toFixed(5)}`,
-  );
-}
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -176,11 +146,8 @@ export async function suggestCrossCipSkills(
   }
 
   const results: CrossCipSuggestion[] = [];
-  const totalUsage: CallUsage = { input_tokens: 0, output_tokens: 0 };
-  let callIndex = 0;
 
   for (const chunk of chunks) {
-    callIndex++;
     const prompt = buildPrompt(
       entryText,
       entryType,
@@ -188,11 +155,7 @@ export async function suggestCrossCipSkills(
       chunk,
       linkedSkillTitles,
     );
-    const { data: raw, usage } = await callAnthropic(prompt);
-
-    totalUsage.input_tokens += usage.input_tokens;
-    totalUsage.output_tokens += usage.output_tokens;
-    logUsage(callIndex, usage, totalUsage);
+    const { data: raw } = await callAnthropic(prompt);
 
     if (!Array.isArray(raw)) continue;
 
@@ -226,6 +189,5 @@ export async function suggestCrossCipSkills(
     }
   }
 
-  logSummary(callIndex, totalUsage);
   return results;
 }

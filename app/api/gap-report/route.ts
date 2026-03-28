@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { stagesForScope } from "@/lib/profile/stage";
 import type {
   GapReport,
   GapReportCip,
@@ -51,6 +52,8 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const stageGroup = url.searchParams.get("stage_group");
+  const stageScope = url.searchParams.get("stage_scope");
+  const scopedStageNames = stagesForScope(stageScope);
 
   // --- Query A: Curriculum structure (CiPs → key skills → descriptors), parallel ---
   const [cipsRes, keySkillsRes, descriptorsRes] = await Promise.all([
@@ -93,11 +96,15 @@ export async function GET(req: NextRequest) {
 
   // If a stage filter is active, resolve which entry IDs belong to that stage group
   let entryIdFilter: string[] | null = null;
-  if (stageGroup) {
-    const { data: stageRows } = await supabase
-      .from("stages")
-      .select("id")
-      .eq("stage_group", stageGroup);
+  if (stageGroup || scopedStageNames) {
+    let stageQuery = supabase.from("stages").select("id");
+    if (scopedStageNames) {
+      stageQuery = stageQuery.in("name", [...scopedStageNames]);
+    } else if (stageGroup) {
+      stageQuery = stageQuery.eq("stage_group", stageGroup);
+    }
+
+    const { data: stageRows } = await stageQuery;
 
     const stageIds = (stageRows ?? []).map((s: { id: string }) => s.id);
 

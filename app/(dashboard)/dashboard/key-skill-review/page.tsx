@@ -1,14 +1,17 @@
 "use client";
 
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ReviewFilters } from "@/components/key-skill-review/ReviewFilters";
 import { ReviewQueue } from "@/components/key-skill-review/ReviewQueue";
+import { ProgressFocusBanner } from "@/components/key-skill-review/ProgressFocusBanner";
 import type { ReviewQueueMode } from "@/components/key-skill-review/ReviewQueue";
 import { CoverageSummary } from "@/components/key-skill-review/CoverageSummary";
 import { ReviewSkeleton } from "@/components/key-skill-review/ReviewSkeleton";
@@ -31,6 +34,10 @@ import type {
   SourceFilter,
   StatusFilter,
 } from "@/components/key-skill-review/ReviewFilters";
+import {
+  findEntryForProgressFocus,
+  parseProgressFocusFromSearchParams,
+} from "@/lib/key-skill-review/progress-focus";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -177,7 +184,9 @@ function ToastContainer({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function KeySkillReviewPage() {
+function KeySkillReviewPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [entries, setEntries] = useState<ReviewEntry[]>([]);
   const [pushQueue, setPushQueue] = useState<PushQueueResponse>( {
     queue_available: true,
@@ -200,6 +209,29 @@ export default function KeySkillReviewPage() {
   const toastTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const queueAckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueProgressHeartbeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const filtersRelaxedForProgressFocusRef = useRef(false);
+
+  const searchParamsKey = searchParams.toString();
+  const progressFocusParsed = useMemo(
+    () => parseProgressFocusFromSearchParams(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey],
+  );
+
+  const progressFocusResolution = useMemo(() => {
+    if (!progressFocusParsed || entries.length === 0) return null;
+    return findEntryForProgressFocus(entries, progressFocusParsed);
+  }, [entries, progressFocusParsed]);
+
+  const clearProgressFocusFromUrl = useCallback(() => {
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete("focus_cip");
+    p.delete("focus_skill");
+    p.delete("focus_descriptor");
+    const q = p.toString();
+    router.replace(q ? `/dashboard/key-skill-review?${q}` : "/dashboard/key-skill-review", {
+      scroll: false,
+    });
+  }, [router, searchParams]);
 
   // ── Toast helpers ─────────────────────────────────────────────────────────
 
@@ -286,6 +318,23 @@ export default function KeySkillReviewPage() {
   useEffect(() => {
     void bootstrapAndLoad();
   }, [bootstrapAndLoad]);
+
+  useEffect(() => {
+    if (!progressFocusParsed) {
+      filtersRelaxedForProgressFocusRef.current = false;
+      return;
+    }
+    if (entries.length === 0 || filtersRelaxedForProgressFocusRef.current) return;
+    const res = findEntryForProgressFocus(entries, progressFocusParsed);
+    if (res.entryId) {
+      setStatusFilter("all");
+      setSourceFilter("all");
+      setConfidenceFilter("all");
+      setQuery("");
+      setQueueMode("focus");
+    }
+    filtersRelaxedForProgressFocusRef.current = true;
+  }, [entries, progressFocusParsed]);
 
   useEffect(() => {
     function onWindowMessage(event: MessageEvent) {
@@ -850,6 +899,15 @@ export default function KeySkillReviewPage() {
             </div>
           )}
 
+          {progressFocusParsed && (
+            <ProgressFocusBanner
+              parsed={progressFocusParsed}
+              resolution={progressFocusResolution}
+              loading={isLoading}
+              onClear={clearProgressFocusFromUrl}
+            />
+          )}
+
           {!isLoading && (
             <section className="card p-4 md:p-5">
               <div className="grid gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
@@ -1270,6 +1328,9 @@ export default function KeySkillReviewPage() {
                   mode={queueMode}
                   onUpdateSuggestion={handleUpdateSuggestion}
                   disabled={actionDisabled}
+                  progressFocusEntryId={progressFocusResolution?.entryId ?? null}
+                  progressFocusSkillId={progressFocusParsed?.skillId ?? null}
+                  progressFocusDescriptorId={progressFocusParsed?.descriptorId ?? null}
                 />
               </div>
             </div>
@@ -1277,5 +1338,13 @@ export default function KeySkillReviewPage() {
         </main>
       </div>
     </>
+  );
+}
+
+export default function KeySkillReviewPage() {
+  return (
+    <Suspense fallback={<ReviewSkeleton />}>
+      <KeySkillReviewPageContent />
+    </Suspense>
   );
 }

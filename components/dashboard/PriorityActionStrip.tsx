@@ -16,7 +16,11 @@ const PRIORITY_STYLES = {
 
 function buildActions(cips: GapReportCip[]): Action[] {
   const actions: Action[] = [];
-  const sorted = [...cips].sort((a, b) => a.coverage_pct - b.coverage_pct);
+  const normalized = cips.map((cip) => ({
+    ...cip,
+    coverage_pct: Math.round(Math.min(100, Math.max(0, cip.coverage_pct))),
+  }));
+  const sorted = [...normalized].sort((a, b) => a.coverage_pct - b.coverage_pct);
 
   const notStarted = sorted.filter((c) => c.coverage_pct === 0);
   if (notStarted.length > 0) {
@@ -88,7 +92,9 @@ export function PriorityActionStrip({ cips, isLoading }: Props) {
 
   if (cips.length === 0) return null;
 
-  const allDone = cips.every((c) => c.coverage_pct === 100);
+  const allDone = cips.every(
+    (c) => Math.round(Math.min(100, Math.max(0, c.coverage_pct))) === 100,
+  );
   if (allDone) {
     return (
       <div className="card flex h-full items-center justify-center gap-3 p-6">

@@ -29,7 +29,7 @@ export async function PATCH(request: Request) {
 
   const { data: stage } = await supabase
     .from("stages")
-    .select("id")
+    .select("id, name")
     .eq("id", stageId)
     .maybeSingle();
 
@@ -46,6 +46,7 @@ export async function PATCH(request: Request) {
       {
         id: user.id,
         current_stage_id: stageId,
+        current_grade: stage.name,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" }

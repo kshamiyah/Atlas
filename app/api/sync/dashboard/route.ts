@@ -40,6 +40,23 @@ export async function POST(request: Request) {
 
   const supabase = createSupabaseClientWithToken(accessToken);
 
+  // Guardrail: avoid wiping existing CiP progress when a scrape returns empty
+  // due to transient page/context failures.
+  if (cips.length === 0) {
+    await supabase.from("kaizen_sync_log").insert({
+      user_id: user.id,
+      sync_type: "dashboard",
+      data_hash: "[]",
+    });
+
+    return NextResponse.json({
+      error: "Dashboard scrape returned no CiP progress rows",
+      empty_payload: true,
+      synced: 0,
+      skipped_clear: true,
+    }, { status: 422 });
+  }
+
   const { error: deleteError } = await supabase
     .from("kaizen_cip_progress")
     .delete()

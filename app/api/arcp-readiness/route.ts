@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { calculateArcpCountdown } from "@/lib/profile/ltft";
+import { normalizeStageName, stagesUpTo } from "@/lib/profile/stage";
+import {
+  calculateKeySkillsProRataCheckpoint,
+  calculateProRataProgress,
+} from "@/lib/profile/ltft-pro-rata";
+import { buildOsatsCountsByProcedure } from "@/lib/requirements/osats-evidence";
 
 // Expected CiP entrustability level by stage (from RCOG Table 4)
 const EXPECTED_LEVEL_BY_STAGE: Record<string, number> = {
@@ -10,11 +17,6 @@ const EXPECTED_LEVEL_BY_STAGE: Record<string, number> = {
   ST5: 4,
   ST6: 5,
   ST7: 5,
-};
-
-// Stage rank for comparison (higher = later in training)
-const STAGE_RANK: Record<string, number> = {
-  ST1: 1, ST2: 2, ST3: 3, ST4: 4, ST5: 5, ST6: 6, ST7: 7,
 };
 
 const CONSULTANT_ROLE_ID = 597;
@@ -28,13 +30,79 @@ const EXAM_EVIDENCE_TYPES: Record<string, { name: string; required_by_stage: str
 // Waypoint hard gate requirements
 const WAYPOINT_STAGES = new Set(["ST2", "ST5"]);
 
-function stageRank(stage: string): number {
-  return STAGE_RANK[stage] ?? 0;
-}
+type ProjectionStatus = "done" | "on_track" | "watch" | "at_risk";
+type ProjectionPillarKey = "key_skills" | "osats" | "courses" | "exams";
 
-function stagesUpTo(currentStage: string): Set<string> {
-  const rank = stageRank(currentStage);
-  return new Set(Object.keys(STAGE_RANK).filter((s) => stageRank(s) <= rank));
+const BASE_CAPACITY_PER_MONTH: Record<ProjectionPillarKey, number> = {
+  key_skills: 8,
+  osats: 2.5,
+  courses: 1,
+  exams: 0.35,
+};
+
+function buildPillarProjection(params: {
+  key: ProjectionPillarKey;
+  label: string;
+  complete: number;
+  total: number;
+  monthsLeftWte: number | null;
+}) {
+  const { key, label, complete, total, monthsLeftWte } = params;
+  const remaining = Math.max(total - complete, 0);
+  // monthsLeftWte already accounts for LTFT percentage. Keep capacity at FTE
+  // to avoid applying LTFT scaling twice.
+  const capacityPerMonth = Number(BASE_CAPACITY_PER_MONTH[key].toFixed(2));
+
+  if (remaining === 0) {
+    return {
+      key,
+      label,
+      status: "done" as ProjectionStatus,
+      complete,
+      total,
+      remaining: 0,
+      required_per_month: 0,
+      capacity_per_month: capacityPerMonth,
+      eta_wte_days: 0,
+      on_track: true,
+    };
+  }
+
+  if (monthsLeftWte === null || monthsLeftWte <= 0 || capacityPerMonth <= 0) {
+    return {
+      key,
+      label,
+      status: "at_risk" as ProjectionStatus,
+      complete,
+      total,
+      remaining,
+      required_per_month: null,
+      capacity_per_month: capacityPerMonth,
+      eta_wte_days: null,
+      on_track: false,
+    };
+  }
+
+  const requiredPerMonth = remaining / monthsLeftWte;
+  const ratio = requiredPerMonth / capacityPerMonth;
+  const etaWteDays = Math.ceil((remaining / capacityPerMonth) * 30);
+
+  let status: ProjectionStatus = "on_track";
+  if (ratio > 1.15) status = "at_risk";
+  else if (ratio > 0.8) status = "watch";
+
+  return {
+    key,
+    label,
+    status,
+    complete,
+    total,
+    remaining,
+    required_per_month: Number(requiredPerMonth.toFixed(2)),
+    capacity_per_month: capacityPerMonth,
+    eta_wte_days: etaWteDays,
+    on_track: status === "on_track",
+  };
 }
 
 export async function GET(request: Request) {
@@ -61,65 +129,90 @@ export async function GET(request: Request) {
   // ── Profile ────────────────────────────────────────────────────────────────
   const { data: profile } = await supabase
     .from("profiles")
-    .select("current_grade, arcp_date")
+    .select("current_stage_id, current_grade, arcp_date, working_percent")
     .eq("id", userId)
     .maybeSingle();
 
-  const currentStage = profile?.current_grade ?? null;   // e.g. "ST1"
-  const arcpDate = profile?.arcp_date ?? null;
+  let stageFromProfileId: string | null = null;
+  if (profile?.current_stage_id) {
+    const { data: stage } = await supabase
+      .from("stages")
+      .select("name")
+      .eq("id", profile.current_stage_id)
+      .maybeSingle();
+    stageFromProfileId = stage?.name ?? null;
+  }
 
-  const daysToArcp = arcpDate
-    ? Math.ceil((new Date(arcpDate).getTime() - Date.now()) / 86_400_000)
-    : null;
+  const currentStage = normalizeStageName(stageFromProfileId ?? profile?.current_grade ?? null);
+  const arcpDate = profile?.arcp_date ?? null;
+  const arcp = calculateArcpCountdown(arcpDate, profile?.working_percent ?? 100);
 
   const relevantStages = currentStage ? stagesUpTo(currentStage) : null;
   const isWaypoint = currentStage ? WAYPOINT_STAGES.has(currentStage) : false;
   const expectedLevel = currentStage ? (EXPECTED_LEVEL_BY_STAGE[currentStage] ?? null) : null;
 
   // ── Key skills ─────────────────────────────────────────────────────────────
-  const { data: keySkillRows } = await supabase
-    .from("key_skill_review_entries")
-    .select("id")
-    .eq("user_id", userId);
+  const [{ data: keySkillsCatalog }, { data: confirmedSkillRows }] =
+    await Promise.all([
+      supabase.from("key_skills").select("id"),
+      supabase
+        .from("key_skill_review_suggestions")
+        .select("key_skill_id")
+        .eq("user_id", userId)
+        .eq("status", "confirmed"),
+    ]);
 
-  const reviewEntryIds = (keySkillRows ?? []).map((r: { id: string }) => r.id);
-
-  let confirmedSkills = 0;
-  let totalSkills = 0;
-
-  if (reviewEntryIds.length > 0) {
-    const { data: suggestions } = await supabase
-      .from("key_skill_review_suggestions")
-      .select("status")
-      .in("review_entry_id", reviewEntryIds);
-
-    const allSuggestions = suggestions ?? [];
-    confirmedSkills = allSuggestions.filter((s: { status: string }) => s.status === "confirmed").length;
-    totalSkills = allSuggestions.filter((s: { status: string }) => s.status !== "rejected").length;
+  const curriculumSkillIds = new Set(
+    (keySkillsCatalog ?? []).map((row: { id: string }) => String(row.id)),
+  );
+  const confirmedSkillIds = new Set<string>();
+  for (const row of confirmedSkillRows ?? []) {
+    const keySkillId = row.key_skill_id ? String(row.key_skill_id) : null;
+    if (!keySkillId) continue;
+    if (!curriculumSkillIds.has(keySkillId)) continue;
+    confirmedSkillIds.add(keySkillId);
   }
 
-  const keySkillsPct = totalSkills > 0 ? Math.round((confirmedSkills / totalSkills) * 100) : 0;
+  const totalSkills = curriculumSkillIds.size;
+  const confirmedSkills = confirmedSkillIds.size;
+
+  const keySkillsPct = totalSkills > 0 ? Math.round((confirmedSkills / totalSkills) * 100) : 100;
+
+  // ── LTFT pro-rata expectation by annual ARCP checkpoint ───────────────────
+  const keySkillsCheckpoint = calculateKeySkillsProRataCheckpoint({
+    totalSkills,
+    confirmedSkills,
+    currentStage,
+    daysToArcpCalendar: arcp.calendarDaysToArcp,
+    workingPercentInput: arcp.workingPercent,
+  });
 
   // ── OSATS ──────────────────────────────────────────────────────────────────
   const { data: proceduresCatalog } = await supabase
     .from("procedures_catalog")
-    .select("id, kaizen_id, required_by_stage, osats_target")
+    .select("id, name, kaizen_id, required_by_stage, osats_target")
     .not("kaizen_id", "is", null);
 
   const { data: osatsEntries } = await supabase
     .from("kaizen_entries")
-    .select("kaizen_procedure_id, assessor_role_id")
+    .select("detected_entry_type, title, extracted_fields, kaizen_procedure_id, assessor_role_id")
     .eq("user_id", userId)
-    .eq("detected_entry_type", "osats_summative")
-    .not("kaizen_procedure_id", "is", null);
+    .eq("detected_entry_type", "osats_summative");
 
-  const osatsByProcedure: Record<number, { total: number; consultant: number }> = {};
-  for (const e of osatsEntries ?? []) {
-    const pid = e.kaizen_procedure_id as number;
-    if (!osatsByProcedure[pid]) osatsByProcedure[pid] = { total: 0, consultant: 0 };
-    osatsByProcedure[pid].total += 1;
-    if (e.assessor_role_id === CONSULTANT_ROLE_ID) osatsByProcedure[pid].consultant += 1;
-  }
+  const osatsByProcedure = buildOsatsCountsByProcedure(
+    (osatsEntries ?? []) as Array<{
+      detected_entry_type: string | null;
+      title: string | null;
+      extracted_fields: Record<string, unknown> | null;
+      kaizen_procedure_id: number | null;
+      assessor_role_id: number | null;
+    }>,
+    (proceduresCatalog ?? []).map((p: { kaizen_id: number; name: string }) => ({
+      kaizen_id: p.kaizen_id,
+      name: p.name,
+    })),
+    CONSULTANT_ROLE_ID,
+  );
 
   const relevantProcedures = (proceduresCatalog ?? []).filter(
     (p: { required_by_stage: string }) => !relevantStages || relevantStages.has(p.required_by_stage)
@@ -130,7 +223,7 @@ export async function GET(request: Request) {
     return counts.total >= target && counts.consultant >= 1;
   }).length;
   const osatsTotal = relevantProcedures.length;
-  const osatsPct = osatsTotal > 0 ? Math.round((osatsComplete / osatsTotal) * 100) : 0;
+  const osatsPct = osatsTotal > 0 ? Math.round((osatsComplete / osatsTotal) * 100) : 100;
 
   // ── Courses ────────────────────────────────────────────────────────────────
   const { data: coursesCatalog } = await supabase
@@ -186,7 +279,7 @@ export async function GET(request: Request) {
   );
   const coursesComplete = relevantCourses.filter((c: { name: string }) => courseMatched(c.name)).length;
   const coursesTotal = relevantCourses.length;
-  const coursesPct = coursesTotal > 0 ? Math.round((coursesComplete / coursesTotal) * 100) : 0;
+  const coursesPct = coursesTotal > 0 ? Math.round((coursesComplete / coursesTotal) * 100) : 100;
 
   // ── Exams ──────────────────────────────────────────────────────────────────
   const completedExamTypes = new Set<string>();
@@ -205,7 +298,26 @@ export async function GET(request: Request) {
   );
   const examsComplete = relevantExamTypes.filter(([evType]) => completedExamTypes.has(evType)).length;
   const examsTotal = relevantExamTypes.length;
-  const examsPct = examsTotal > 0 ? Math.round((examsComplete / examsTotal) * 100) : 0;
+  const examsPct = examsTotal > 0 ? Math.round((examsComplete / examsTotal) * 100) : 100;
+
+  const osatsProRata = calculateProRataProgress({
+    total: osatsTotal,
+    actual: osatsComplete,
+    stageElapsedFraction: keySkillsCheckpoint.stageElapsedFraction,
+    workingPercentInput: arcp.workingPercent,
+  });
+  const coursesProRata = calculateProRataProgress({
+    total: coursesTotal,
+    actual: coursesComplete,
+    stageElapsedFraction: keySkillsCheckpoint.stageElapsedFraction,
+    workingPercentInput: arcp.workingPercent,
+  });
+  const examsProRata = calculateProRataProgress({
+    total: examsTotal,
+    actual: examsComplete,
+    stageElapsedFraction: keySkillsCheckpoint.stageElapsedFraction,
+    workingPercentInput: arcp.workingPercent,
+  });
 
   // ── CiP assessments ────────────────────────────────────────────────────────
   const { data: cipAssessments } = await supabase
@@ -287,10 +399,88 @@ export async function GET(request: Request) {
     }
   }
 
+  // ── LTFT-aware projection by ARCP (phase 3) ───────────────────────────────
+  const monthsLeftWte =
+    arcp.wteDaysToArcp !== null ? Math.max(arcp.wteDaysToArcp / 30, 0) : null;
+
+  const projectionPillars = {
+    key_skills: buildPillarProjection({
+      key: "key_skills",
+      label: "Key Skills",
+      complete: confirmedSkills,
+      total: totalSkills,
+      monthsLeftWte,
+    }),
+    osats: buildPillarProjection({
+      key: "osats",
+      label: "Summative OSATS",
+      complete: osatsComplete,
+      total: osatsTotal,
+      monthsLeftWte,
+    }),
+    courses: buildPillarProjection({
+      key: "courses",
+      label: "Courses",
+      complete: coursesComplete,
+      total: coursesTotal,
+      monthsLeftWte,
+    }),
+    exams: buildPillarProjection({
+      key: "exams",
+      label: "Exams",
+      complete: examsComplete,
+      total: examsTotal,
+      monthsLeftWte,
+    }),
+  };
+
+  const severity: Record<ProjectionStatus, number> = {
+    done: 0,
+    on_track: 1,
+    watch: 2,
+    at_risk: 3,
+  };
+
+  const projectionList = Object.values(projectionPillars);
+  const worstProjection = projectionList.reduce(
+    (worst, current) =>
+      severity[current.status] > severity[worst.status] ? current : worst,
+    projectionList[0],
+  );
+  const overallProjectionStatus = worstProjection?.status ?? "done";
+
+  const focusCandidates = projectionList
+    .filter(
+      (pillar) => pillar.remaining > 0 && pillar.required_per_month !== null,
+    )
+    .sort((a, b) => {
+      const sev = severity[b.status] - severity[a.status];
+      if (sev !== 0) return sev;
+      return (b.required_per_month ?? 0) - (a.required_per_month ?? 0);
+    });
+
+  const topFocus = focusCandidates[0] ?? null;
+  const focusTarget = topFocus
+    ? {
+        key: topFocus.key,
+        label: topFocus.label,
+        units_per_month: Math.max(
+          1,
+          Math.ceil(topFocus.required_per_month ?? 1),
+        ),
+        remaining: topFocus.remaining,
+        status: topFocus.status,
+      }
+    : null;
+
   return NextResponse.json({
     mode,
     current_stage: currentStage,
-    days_to_arcp: daysToArcp,
+    days_to_arcp: arcp.calendarDaysToArcp,
+    days_to_arcp_calendar: arcp.calendarDaysToArcp,
+    days_to_arcp_wte: arcp.wteDaysToArcp,
+    working_percent: arcp.workingPercent,
+    is_ltft: arcp.isLtft,
     portfolio_pct: portfolioPct,
     pillars: {
       key_skills: { pct: keySkillsPct, confirmed: confirmedSkills, total: totalSkills, weight: 0.5 },
@@ -303,6 +493,53 @@ export async function GET(request: Request) {
     is_waypoint: isWaypoint,
     expected_cip_level: expectedLevel,
     has_es_levels: hasEsLevels,
+    projection: {
+      months_left_wte: monthsLeftWte === null ? null : Number(monthsLeftWte.toFixed(2)),
+      days_left_wte: arcp.wteDaysToArcp,
+      overall_status: overallProjectionStatus,
+      pillars: projectionPillars,
+      focus_target: focusTarget,
+    },
+    ltft_pro_rata: {
+      stage_window: keySkillsCheckpoint.stageWindowLabel,
+      stage_elapsed_fraction: keySkillsCheckpoint.stageElapsedFraction,
+      working_percent: keySkillsCheckpoint.workingPercent,
+      expected_key_skills_by_now: keySkillsCheckpoint.expectedByNowRounded,
+      expected_key_skills_threshold: keySkillsCheckpoint.expectedByNowThreshold,
+      expected_key_skills_pct_by_now: keySkillsCheckpoint.expectedPctByNow,
+      actual_key_skills_confirmed: keySkillsCheckpoint.actualConfirmed,
+      delta_to_expected: keySkillsCheckpoint.deltaToExpected,
+      on_track: keySkillsCheckpoint.onTrack,
+      pillars: {
+        osats: {
+          expected_by_now: osatsProRata.expectedRounded,
+          expected_threshold: osatsProRata.expectedThreshold,
+          expected_pct_by_now: osatsProRata.expectedPct,
+          actual_complete: osatsComplete,
+          total: osatsTotal,
+          delta_to_expected: osatsProRata.deltaToExpected,
+          on_track: osatsProRata.onTrack,
+        },
+        courses: {
+          expected_by_now: coursesProRata.expectedRounded,
+          expected_threshold: coursesProRata.expectedThreshold,
+          expected_pct_by_now: coursesProRata.expectedPct,
+          actual_complete: coursesComplete,
+          total: coursesTotal,
+          delta_to_expected: coursesProRata.deltaToExpected,
+          on_track: coursesProRata.onTrack,
+        },
+        exams: {
+          expected_by_now: examsProRata.expectedRounded,
+          expected_threshold: examsProRata.expectedThreshold,
+          expected_pct_by_now: examsProRata.expectedPct,
+          actual_complete: examsComplete,
+          total: examsTotal,
+          delta_to_expected: examsProRata.deltaToExpected,
+          on_track: examsProRata.onTrack,
+        },
+      },
+    },
     cip_assessments: (cipAssessments ?? []).map((a: {
       cip_number: number | null;
       trainee_level: number | null;

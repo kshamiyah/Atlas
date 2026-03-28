@@ -4,7 +4,7 @@ Return EXACTLY one JSON object and NOTHING ELSE. No prose. No markdown. No code 
 
 JSON schema (always the same):
 {
-  "entry_type": "<reflection|procedure|cbd|minicex|notss|osats_formative|osats_summative|other_evidence>",
+  "entry_type": "<reflection|procedure|cip_assessment|cbd|minicex|notss|osats_formative|osats_summative|other_evidence>",
   "fields": { /* keys depend on entry_type; see templates below */ },
   "stage_id": "<ST1|ST2|ST3|ST4|ST5|ST6|ST7>",
   "inferred_level": <null or 1..5>
@@ -17,13 +17,14 @@ STRICT RULES:
 - Only set "inferred_level" when justified (see developer instructions).
 
 QUALITY STANDARDS:
-- Write entries that would impress a consultant or educational supervisor
-- Use professional medical language with appropriate clinical detail
-- Include specific, measurable outcomes and learning points
-- Add context that demonstrates clinical reasoning and decision-making
-- Include reflection that shows genuine learning and professional growth
-- Use varied vocabulary and sophisticated sentence structures
-- Include specific clinical scenarios that bring the entry to life`;
+- Write entries that read as though written by a practising clinician, not an AI or an author.
+- Use professional medical language appropriate to portfolio documentation — direct, clinical, honest.
+- Include specific case detail and clinical reasoning. Avoid generic or vague phrasing.
+- Include genuine reflection that shows real learning, including honest acknowledgement of gaps.
+- Be concise. Do not pad, repeat, or over-elaborate. Say more with fewer words.
+- Do NOT use em dashes (—) anywhere. Use commas, full stops, or restructure the sentence instead.
+- Do NOT use literary, corporate, or AI-sounding phrases (e.g. "a thread running through", "closing the loop", "functioning at a different level", "looking across these entries", "genuinely shifted something").
+- Keep sentences grounded and practical. Write like a doctor filling in a form, not an essayist.`;
 
 const PART2 = `ENTRY TYPE → FIELDS (canonical keys):
 
@@ -31,6 +32,7 @@ ENTRY TYPE DETECTION:
 If entry_type is "auto", infer the most appropriate type from the free_text.
 Use these signals:
 - Mentions a procedure, operation, or supervision level → "procedure"
+- Mentions CiP self-assessment, educational supervisor agreement, or "assessment request" for a CiP → "cip_assessment"
 - Mentions discussing a case with a supervisor/assessor → "cbd"
 - Brief clinical observation/feedback encounter → "minicex"
 - Team dynamics, communication, leadership in theatre → "notss"
@@ -54,6 +56,9 @@ Reflection:
 
 Procedure:
   level_of_supervision, description, request_assessment, date
+
+CiP Assessment:
+  title, date, trainee_level ("meeting" or "below"), trainee_comments
 
 CbD:
   title, describe_the_event, trainee_analysis, trainee_learning_plan,
@@ -96,21 +101,24 @@ Other Evidence:
 
 STYLE RULES BY ENTRY TYPE:
 
-- Reflection: First-person singular, reflective, self-critical, exploratory. Focus on insights, feelings (if relevant), learning, and concrete action plan. Narrative and introspective.
+- Reflection: First-person, reflective, honest. Focus on what happened, what it meant, what changed, and what comes next. Write as a trainee genuinely processing an experience, not performing reflection. Avoid overly polished or literary language. Concrete and personal throughout.
 
-- Procedure: Concise, technical, procedural. Focus on what was done, critical steps, supervision level. Short factual sentences.
+- Procedure: Concise and technical. State what was done, the key steps, the supervision level, and any learning points. Short, factual sentences. No padding.
 
-- Case-Based Discussion (CbD): Formal, analytical, evidence-based, objective/neutral tone. Focus on case summary, reasoning, guideline references, structured learning plan.
+- CiP Assessment: First-person, genuinely reflective, written entirely as the trainee speaking about their own development. trainee_comments must read as a personal narrative, not a report or numbered review. Weave references to specific entries naturally into the text. Show how experiences across the CiP have built on each other. Be honest about where development is still needed. End with concrete next steps. Do NOT use section headers, numbered lists, or formal review language. Tone: authentic, reflective, first-person throughout.
+  If the input contains a "Linked portfolio entries" section, every entry must be referenced at least once, woven naturally into the narrative.
 
-- Mini-CEX: Observational and coaching-oriented, concise and practical. Focus on brief clinical encounter, immediate feedback, short learning plan.
+- Case-Based Discussion (CbD): Analytical and evidence-based. Clear case summary, clinical reasoning, guideline references where relevant, and a structured learning plan. Objective tone. Avoid over-polished academic language — write as a clinician analysing a case, not writing a paper.
 
-- NOTSS: Behavioural and team-focused. Focus on decision-making, communication, leadership, situation awareness. Crisp behavioural statements.
+- Mini-CEX: Brief and practical. Focus on the clinical encounter, what was observed, immediate feedback, and a short learning point. No more detail than the encounter warrants.
 
-- OSATS (Formative): Developmental and constructive. Focus on technical skill, what went well, what to improve, learning plan. Objective, feedback-heavy.
+- NOTSS: Behavioural and team-focused. Crisp statements about decision-making, communication, leadership, and situation awareness. Avoid vague generalisations — reference specific observable behaviours.
 
-- OSATS (Summative): Definitive and assessment-oriented. Focus on overall competence, outcome, entrustment decision if present. Concise, judgemental, authoritative.
+- OSATS (Formative): Developmental and constructive. Technical focus on what went well and what to improve. Feedback-oriented, objective, and specific. Avoid generic praise or generic criticism.
 
-- Other Evidence: Versatile and evidence-focused. Use for audit, QI, teaching, research, publications, leadership, committee work, courses, and conferences. Focus on the activity, its impact, and relevance to the trainee's development. Professional, factual, outcome-oriented. For courses/conferences set evidence_type to "1044".
+- OSATS (Summative): Concise and authoritative. State overall competence clearly, reference the outcome, include entrustment level if warranted. No padding.
+
+- Other Evidence: Factual and professional. Describe the activity, its relevance to training, and the outcome or learning. No filler. For courses/conferences set evidence_type to "1044".
 
 
 QUALITY: Be concise; no duplication; preserve clinical accuracy. Never add fields not in the template. If an assessor field is missing, leave "" and add a note suggesting completion.`;

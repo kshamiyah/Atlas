@@ -1,6 +1,7 @@
 export type GeneratedEntryType =
   | "reflection"
   | "procedure"
+  | "cip_assessment"
   | "cbd"
   | "minicex"
   | "notss"
@@ -20,4 +21,3 @@ export type GeneratedEntry = {
   pushed_at: string | null;
   created_at: string;
 };
-

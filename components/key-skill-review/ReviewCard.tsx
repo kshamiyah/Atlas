@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   KeySkillCoverage,
   ReviewEntry,
@@ -17,6 +17,12 @@ type ReviewCardProps = {
   ) => void;
   disabled?: boolean;
   expandedByDefault?: boolean;
+  /** Highlight matching skill rows (Progress deep-link). */
+  highlightSkillId?: string | null;
+  /** Highlight descriptor row + scroll into view when card is open. */
+  highlightDescriptorId?: string | null;
+  /** Open descriptor coverage `<details>` by default (e.g. descriptor deep-link). */
+  descriptorPanelInitialOpen?: boolean;
 };
 
 const PRIMARY_VISIBLE_SUGGESTIONS = 3;
@@ -86,6 +92,7 @@ function SuggestionRow({
   source,
   onUpdate,
   disabled: rowDisabled,
+  isHighlighted,
 }: {
   suggestion: SkillSuggestion;
   entryId: string;
@@ -97,13 +104,20 @@ function SuggestionRow({
     nextStatus: SkillSuggestion["status"],
   ) => void;
   disabled?: boolean;
+  isHighlighted?: boolean;
 }) {
   const actionId = suggestion.suggestion_id;
   const buttonDisabled = !actionId || rowDisabled;
   const showReset = suggestion.status !== "suggested";
 
   return (
-    <li className="space-y-2.5 rounded-xl border border-subtle bg-surface-1 p-4">
+    <li
+      className={[
+        "space-y-2.5 rounded-xl border bg-surface-1 p-4",
+        isHighlighted ? "border-accent-blue ring-2 ring-accent-blue/35" : "border-subtle",
+      ].join(" ")}
+      data-key-skill-id={suggestion.key_skill_id}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2.5">
         <div className="space-y-0.5">
           <p className="text-xs font-medium text-primary">
@@ -161,7 +175,15 @@ function SuggestionRow({
   );
 }
 
-function DescriptorCoveragePanel({ coverage }: { coverage: KeySkillCoverage[] }) {
+function DescriptorCoveragePanel({
+  coverage,
+  highlightSkillId,
+  highlightDescriptorId,
+}: {
+  coverage: KeySkillCoverage[];
+  highlightSkillId?: string | null;
+  highlightDescriptorId?: string | null;
+}) {
   const nonEmpty = coverage.filter((ks) => ks.descriptors.length > 0);
   if (nonEmpty.length === 0) return null;
 
@@ -174,10 +196,14 @@ function DescriptorCoveragePanel({ coverage }: { coverage: KeySkillCoverage[] })
         {nonEmpty.map((ks) => {
           const coveredCount = ks.descriptors.filter((d) => d.covered).length;
           const total = ks.descriptors.length;
+          const skillHighlighted = highlightSkillId != null && ks.key_skill_id === highlightSkillId;
           return (
             <div
               key={ks.key_skill_id}
-              className="rounded-lg border border-subtle bg-surface-3 p-3 space-y-2"
+              className={[
+                "space-y-2 rounded-lg border p-3",
+                skillHighlighted ? "border-accent-blue/50 bg-surface-2" : "border-subtle bg-surface-3",
+              ].join(" ")}
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div className="space-y-0.5">
@@ -191,8 +217,18 @@ function DescriptorCoveragePanel({ coverage }: { coverage: KeySkillCoverage[] })
                 </span>
               </div>
               <ul className="space-y-1.5">
-                {ks.descriptors.map((d) => (
-                  <li key={d.descriptor_id} className="flex items-start gap-2">
+                {ks.descriptors.map((d) => {
+                  const descHi =
+                    highlightDescriptorId != null && d.descriptor_id === highlightDescriptorId;
+                  return (
+                  <li
+                    key={d.descriptor_id}
+                    id={`ksr-desc-${d.descriptor_id}`}
+                    className={[
+                      "flex items-start gap-2 rounded-md",
+                      descHi ? "bg-accent-blue/10 p-1.5 ring-1 ring-accent-blue/30" : "",
+                    ].join(" ")}
+                  >
                     <span
                       className={`mt-0.5 shrink-0 text-[11px] font-bold leading-none ${
                         d.covered ? "text-accent-blue" : "text-muted"
@@ -224,7 +260,8 @@ function DescriptorCoveragePanel({ coverage }: { coverage: KeySkillCoverage[] })
                       )}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
           );
@@ -255,8 +292,34 @@ export function ReviewCard({
   onUpdateSuggestion,
   disabled,
   expandedByDefault = false,
+  highlightSkillId = null,
+  highlightDescriptorId = null,
+  descriptorPanelInitialOpen = false,
 }: ReviewCardProps) {
   const [isOpen, setIsOpen] = useState(expandedByDefault);
+  const [descriptorPanelOpen, setDescriptorPanelOpen] = useState(descriptorPanelInitialOpen);
+  const scrolledDescriptor = useRef(false);
+
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => {
+      setDescriptorPanelOpen(descriptorPanelInitialOpen);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [descriptorPanelInitialOpen, entry.id]);
+
+  useEffect(() => {
+    scrolledDescriptor.current = false;
+  }, [entry.id, highlightDescriptorId]);
+
+  useEffect(() => {
+    if (!isOpen || !highlightDescriptorId || scrolledDescriptor.current) return;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(`ksr-desc-${highlightDescriptorId}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      scrolledDescriptor.current = true;
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [isOpen, highlightDescriptorId]);
 
   const hasCoverage =
     entry.descriptor_coverage != null && entry.descriptor_coverage.length > 0;
@@ -357,6 +420,7 @@ export function ReviewCard({
                       source="linked_cip"
                       onUpdate={onUpdateSuggestion}
                       disabled={disabled}
+                      isHighlighted={highlightSkillId != null && s.key_skill_id === highlightSkillId}
                     />
                   ))}
                 </ul>
@@ -375,6 +439,7 @@ export function ReviewCard({
                           source="linked_cip"
                           onUpdate={onUpdateSuggestion}
                           disabled={disabled}
+                          isHighlighted={highlightSkillId != null && s.key_skill_id === highlightSkillId}
                         />
                       ))}
                     </ul>
@@ -403,6 +468,7 @@ export function ReviewCard({
                     source="cross_cip"
                     onUpdate={onUpdateSuggestion}
                     disabled={disabled}
+                    isHighlighted={highlightSkillId != null && s.key_skill_id === highlightSkillId}
                   />
                 ))}
               </ul>
@@ -421,6 +487,7 @@ export function ReviewCard({
                         source="cross_cip"
                         onUpdate={onUpdateSuggestion}
                         disabled={disabled}
+                        isHighlighted={highlightSkillId != null && s.key_skill_id === highlightSkillId}
                       />
                     ))}
                   </ul>
@@ -430,12 +497,20 @@ export function ReviewCard({
           )}
 
           {hasCoverage && (
-            <details className="rounded-xl border border-subtle bg-surface-1 p-3">
+            <details
+              className="rounded-xl border border-subtle bg-surface-1 p-3"
+              open={descriptorPanelOpen}
+              onToggle={(e) => setDescriptorPanelOpen((e.target as HTMLDetailsElement).open)}
+            >
               <summary className="cursor-pointer text-micro font-medium text-secondary">
                 View descriptor coverage
               </summary>
               <div className="mt-3">
-                <DescriptorCoveragePanel coverage={entry.descriptor_coverage!} />
+                <DescriptorCoveragePanel
+                  coverage={entry.descriptor_coverage!}
+                  highlightSkillId={highlightSkillId}
+                  highlightDescriptorId={highlightDescriptorId}
+                />
               </div>
             </details>
           )}

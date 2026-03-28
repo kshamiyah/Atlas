@@ -72,6 +72,34 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
     ],
   },
 
+  cip_assessment: {
+    type: "cip_assessment",
+    title: "CiP Assessment Request",
+    fields: [
+      { id: "title", label: "Title", type: "string", required: true },
+      { id: "date", label: "Date", type: "date", required: true },
+      {
+        id: "trainee_level",
+        label: "Trainee self-assessment level",
+        type: "integer",
+        required: true,
+        options: [
+          { value: "1", label: "Level 1" },
+          { value: "2", label: "Level 2" },
+          { value: "3", label: "Level 3" },
+          { value: "4", label: "Level 4" },
+          { value: "5", label: "Level 5" },
+        ],
+      },
+      {
+        id: "trainee_comments",
+        label: "Trainee comments",
+        type: "text",
+        required: true,
+      },
+    ],
+  },
+
   cbd: {
     type: "cbd",
     title: "Case-based Discussion",
@@ -322,6 +350,12 @@ export const KAIZEN_FORM_FIELDS: Partial<
     description: "edit-description-0-value",
     date: "edit-event-date-0-value-date",
   },
+  cip_assessment: {
+    title: "edit-name-0-value",
+    date: "edit-event-date-0-value-date",
+    trainee_level: "radio:field_cip_self_assessment_clinic",
+    trainee_comments: "edit-field-cip-trainee-comments-0-value",
+  },
   // 'other_evidence' field IDs verified via inspect script
   other_evidence: {
     title: "edit-name-0-value",
@@ -330,4 +364,3 @@ export const KAIZEN_FORM_FIELDS: Partial<
     evidence_type: "edit-field-logentry-evidence-type",
   },
 };
-

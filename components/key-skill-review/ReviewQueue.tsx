@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReviewEntry } from "@/lib/types/key-skill-review";
 import { ReviewCard } from "./ReviewCard";
 import type {
@@ -26,6 +26,10 @@ type ReviewQueueProps = {
     nextStatus: "suggested" | "confirmed" | "rejected",
   ) => void;
   disabled?: boolean;
+  /** Progress hub deep-link: scroll focus mode to this entry when it appears in the filtered list. */
+  progressFocusEntryId?: string | null;
+  progressFocusSkillId?: string | null;
+  progressFocusDescriptorId?: string | null;
 };
 
 export function ReviewQueue({
@@ -37,6 +41,9 @@ export function ReviewQueue({
   mode,
   onUpdateSuggestion,
   disabled,
+  progressFocusEntryId = null,
+  progressFocusSkillId = null,
+  progressFocusDescriptorId = null,
 }: ReviewQueueProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [focusIndex, setFocusIndex] = useState(0);
@@ -86,6 +93,33 @@ export function ReviewQueue({
       })
       .filter((e): e is ReviewEntry => e !== null);
   }, [entries, statusFilter, sourceFilter, confidenceFilter, query]);
+
+  useEffect(() => {
+    if (!progressFocusEntryId || mode !== "focus") return;
+    const idx = visibleEntries.findIndex((e) => e.id === progressFocusEntryId);
+    if (idx < 0) return;
+    const id = window.requestAnimationFrame(() => {
+      setFocusIndex(idx);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [progressFocusEntryId, mode, visibleEntries]);
+
+  const cardFocusProps = (entryId: string) => {
+    if (!progressFocusEntryId || entryId !== progressFocusEntryId) {
+      return {
+        highlightSkillId: null as string | null,
+        highlightDescriptorId: null as string | null,
+        descriptorPanelInitialOpen: false,
+        expandedByDefault: false,
+      };
+    }
+    return {
+      highlightSkillId: progressFocusSkillId,
+      highlightDescriptorId: progressFocusDescriptorId,
+      descriptorPanelInitialOpen: Boolean(progressFocusDescriptorId && progressFocusSkillId),
+      expandedByDefault: true,
+    };
+  };
 
   if (visibleEntries.length === 0) {
     return (
@@ -180,6 +214,9 @@ export function ReviewQueue({
           onUpdateSuggestion={onUpdateSuggestion}
           disabled={disabled}
           expandedByDefault
+          highlightSkillId={cardFocusProps(activeEntry.id).highlightSkillId}
+          highlightDescriptorId={cardFocusProps(activeEntry.id).highlightDescriptorId}
+          descriptorPanelInitialOpen={cardFocusProps(activeEntry.id).descriptorPanelInitialOpen}
         />
       </section>
     );
@@ -201,15 +238,21 @@ export function ReviewQueue({
       </div>
 
       <div className="space-y-3">
-        {shownEntries.map((entry) => (
-          <ReviewCard
-            key={entry.id}
-            entry={entry}
-            onUpdateSuggestion={onUpdateSuggestion}
-            disabled={disabled}
-            expandedByDefault={false}
-          />
-        ))}
+        {shownEntries.map((entry) => {
+          const fp = cardFocusProps(entry.id);
+          return (
+            <ReviewCard
+              key={entry.id}
+              entry={entry}
+              onUpdateSuggestion={onUpdateSuggestion}
+              disabled={disabled}
+              expandedByDefault={fp.expandedByDefault}
+              highlightSkillId={fp.highlightSkillId}
+              highlightDescriptorId={fp.highlightDescriptorId}
+              descriptorPanelInitialOpen={fp.descriptorPanelInitialOpen}
+            />
+          );
+        })}
       </div>
 
       {remaining > 0 && (

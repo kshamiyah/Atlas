@@ -13,8 +13,14 @@ export async function PATCH(req: Request) {
 
   const { error } = await supabase
     .from("profiles")
-    .update({ arcp_date: arcp_date ?? null })
-    .eq("id", user.id);
+    .upsert(
+      {
+        id: user.id,
+        arcp_date: arcp_date ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 500 });

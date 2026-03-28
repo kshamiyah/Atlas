@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
+import {
+  calculateArcpCountdown,
+  isLtftWorkingPattern,
+  sanitizeWorkingPercent,
+} from "@/lib/profile/ltft";
+import { normalizeStageName } from "@/lib/profile/stage";
+import { buildOsatsCountsByProcedure } from "@/lib/requirements/osats-evidence";
 
 // Kaizen evidence_type values for exams
 const EXAM_EVIDENCE_TYPES: Record<string, { name: string; required_by_stage: string }> = {
@@ -40,7 +47,7 @@ export async function GET(request: Request) {
   // Resolve user's current training stage for scoped progress views
   const { data: profile } = await supabase
     .from("profiles")
-    .select("current_stage_id")
+    .select("current_stage_id, current_grade, working_percent, arcp_date")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -50,6 +57,14 @@ export async function GET(request: Request) {
     stage_group: string | null;
     sort_order: number | null;
   } | null = null;
+
+  const normalizedStageFromGrade = normalizeStageName(profile?.current_grade ?? null);
+  const workingPercent = sanitizeWorkingPercent(profile?.working_percent ?? 100);
+  const isLtft = isLtftWorkingPattern(workingPercent);
+  const arcpCountdown = calculateArcpCountdown(
+    profile?.arcp_date ?? null,
+    workingPercent,
+  );
 
   if (profile?.current_stage_id) {
     const { data: stage } = await supabase
@@ -61,6 +76,14 @@ export async function GET(request: Request) {
     if (stage) {
       profileStage = stage;
     }
+  } else if (normalizedStageFromGrade) {
+    const { data: stage } = await supabase
+      .from("stages")
+      .select("id, name, stage_group, sort_order")
+      .eq("name", normalizedStageFromGrade)
+      .maybeSingle();
+
+    if (stage) profileStage = stage;
   }
 
   // ── 1. Summative OSATS sign-offs ─────────────────────────────────────────────
@@ -73,24 +96,26 @@ export async function GET(request: Request) {
 
   const { data: osatsEntries } = await supabase
     .from("kaizen_entries")
-    .select("kaizen_procedure_id, assessor_role_id")
+    .select("detected_entry_type, title, extracted_fields, kaizen_procedure_id, assessor_role_id")
     .eq("user_id", user.id)
-    .eq("detected_entry_type", "osats_summative")
-    .not("kaizen_procedure_id", "is", null);
+    .eq("detected_entry_type", "osats_summative");
 
-  // Aggregate per procedure
-  const osatsByProcedure: Record<
-    number,
-    { total: number; consultant: number }
-  > = {};
-  for (const entry of osatsEntries ?? []) {
-    const pid = entry.kaizen_procedure_id as number;
-    if (!osatsByProcedure[pid]) osatsByProcedure[pid] = { total: 0, consultant: 0 };
-    osatsByProcedure[pid].total += 1;
-    if (entry.assessor_role_id === CONSULTANT_ROLE_ID) {
-      osatsByProcedure[pid].consultant += 1;
-    }
-  }
+  // Aggregate per procedure using strict numeric codes only
+  // (stored DB IDs first, then extracted field numeric codes).
+  const osatsByProcedure = buildOsatsCountsByProcedure(
+    (osatsEntries ?? []) as Array<{
+      detected_entry_type: string | null;
+      title: string | null;
+      extracted_fields: Record<string, unknown> | null;
+      kaizen_procedure_id: number | null;
+      assessor_role_id: number | null;
+    }>,
+    (proceduresCatalog ?? []).map((p: { kaizen_id: number; name: string }) => ({
+      kaizen_id: p.kaizen_id,
+      name: p.name,
+    })),
+    CONSULTANT_ROLE_ID,
+  );
 
   const procedures = (proceduresCatalog ?? []).map((p: {
     id: string;
@@ -234,5 +259,11 @@ export async function GET(request: Request) {
     exams,
     summary,
     profile_stage: profileStage,
+    profile_working_pattern: {
+      working_percent: workingPercent,
+      is_ltft: isLtft,
+      days_to_arcp_calendar: arcpCountdown.calendarDaysToArcp,
+      days_to_arcp_wte: arcpCountdown.wteDaysToArcp,
+    },
   });
 }

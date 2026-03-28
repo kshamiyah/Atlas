@@ -52,22 +52,18 @@ function StatCard({ label, value, sub, accent = "default" }: Stat) {
 
 type DashboardStatsRowProps = {
   totalEntries: number;
-  confirmedSkills: number;
-  cipsInProgress: number;
-  totalCips: number;
-  daysToArcp: number | null;
+  calendarDaysToArcp: number | null;
+  wteDaysToArcp: number | null;
+  workingPercent: number;
   arcpDate: string | null;
-  isLoading?: boolean;
 };
 
 export function DashboardStatsRow({
   totalEntries,
-  confirmedSkills,
-  cipsInProgress,
-  totalCips,
-  daysToArcp,
+  calendarDaysToArcp,
+  wteDaysToArcp,
+  workingPercent,
   arcpDate,
-  isLoading,
 }: DashboardStatsRowProps) {
   const [editingArcp, setEditingArcp] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -94,53 +90,22 @@ export function DashboardStatsRow({
     }
   }
 
-  if (isLoading) {
-    return (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-[126px] animate-pulse rounded-[1.125rem] bg-surface-3"
-          />
-        ))}
-      </div>
-    );
-  }
+  const isLtft = workingPercent < 100;
+  const focusDaysToArcp =
+    isLtft && wteDaysToArcp !== null ? wteDaysToArcp : calendarDaysToArcp;
 
   const arcpValueColor =
-    daysToArcp !== null
-      ? daysToArcp < 30
+    focusDaysToArcp !== null
+      ? focusDaysToArcp < 30
         ? "var(--accent-red)"
-        : daysToArcp < 90
+        : focusDaysToArcp < 90
           ? "var(--accent-amber)"
           : "var(--text-primary)"
       : "var(--text-muted)";
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <StatCard
-        label="Total entries"
-        value={totalEntries}
-        sub="synced from Kaizen"
-      />
-      <StatCard
-        label="Confirmed skills"
-        value={confirmedSkills}
-        sub="key skills with evidence"
-        accent="green"
-      />
-      <StatCard
-        label="CiPs in progress"
-        value={totalCips > 0 ? `${cipsInProgress}/${totalCips}` : "—"}
-        sub="at least 1 confirmed skill"
-        accent={
-          cipsInProgress === totalCips && totalCips > 0
-            ? "green"
-            : cipsInProgress > 0
-              ? "blue"
-              : "default"
-        }
-      />
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <StatCard label="Total entries" value={totalEntries} sub="synced from Kaizen" />
 
       {/* Days to ARCP */}
       <div
@@ -152,9 +117,9 @@ export function DashboardStatsRow({
           className="absolute left-0 top-0 h-1 w-full"
           style={{
             background:
-              daysToArcp !== null && daysToArcp < 30
+              focusDaysToArcp !== null && focusDaysToArcp < 30
                 ? "var(--accent-red)"
-                : daysToArcp !== null && daysToArcp < 90
+                : focusDaysToArcp !== null && focusDaysToArcp < 90
                   ? "var(--accent-amber)"
                   : "var(--border-subtle)",
           }}
@@ -189,14 +154,19 @@ export function DashboardStatsRow({
               </button>
             </div>
           </form>
-        ) : daysToArcp !== null ? (
+        ) : focusDaysToArcp !== null ? (
           <div className="flex items-end gap-1.5">
             <span
               className="text-[2.5rem] font-bold tabular-nums leading-none tracking-tight"
               style={{ color: arcpValueColor }}
             >
-              {daysToArcp < 0 ? "Past" : daysToArcp}
+              {focusDaysToArcp < 0 ? "Past" : focusDaysToArcp}
             </span>
+            {isLtft && (
+              <span className="mb-1 text-[11px] text-muted">
+                WTE
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setEditingArcp(true)}
@@ -228,6 +198,17 @@ export function DashboardStatsRow({
             >
               Set ARCP date →
           </button>
+        )}
+        {focusDaysToArcp !== null && isLtft && (
+          <span className="text-[11px] text-muted">
+            {workingPercent}% LTFT · {calendarDaysToArcp ?? "—"} calendar day
+            {(calendarDaysToArcp ?? 0) === 1 ? "" : "s"}
+          </span>
+        )}
+        {focusDaysToArcp === null && isLtft && (
+          <span className="text-[11px] text-muted">
+            LTFT mode active ({workingPercent}% WTE). Add ARCP date to show adjusted countdown.
+          </span>
         )}
       </div>
     </div>

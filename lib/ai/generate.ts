@@ -71,6 +71,7 @@ export async function generatePortfolioEntry(params: {
   const ENTRY_TYPE_MAP: Record<string, string> = {
     reflection: "reflection", Reflection: "reflection",
     procedure: "procedure", Procedure: "procedure",
+    cip_assessment: "cip_assessment", Cip_Assessment: "cip_assessment", "CiP Assessment": "cip_assessment",
     cbd: "cbd", CbD: "cbd", CBD: "cbd",
     minicex: "minicex", "Mini-CEX": "minicex", MiniCEX: "minicex",
     notss: "notss", NOTSS: "notss",
