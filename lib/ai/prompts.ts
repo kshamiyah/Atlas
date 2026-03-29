@@ -49,6 +49,11 @@ Adjust the depth of each narrative field based on the requested length:
 - "detailed": 450–600 words per narrative field. Comprehensive — include full clinical
   context, detailed reasoning, specific learning points, and concrete action plan.
 Non-narrative fields (title, date, level_of_supervision) are unaffected by length.
+CiP Assessment override:
+- "short": trainee_comments about 220–300 words total
+- "standard": trainee_comments about 320–420 words total
+- "detailed": trainee_comments about 500–650 words total
+For CiP assessment, treat these as hard targets and self-edit before returning JSON.
 
 Reflection:
   title, what_happened, important_points, reflection,
@@ -105,8 +110,8 @@ STYLE RULES BY ENTRY TYPE:
 
 - Procedure: Concise and technical. State what was done, the key steps, the supervision level, and any learning points. Short, factual sentences. No padding.
 
-- CiP Assessment: First-person, genuinely reflective, written entirely as the trainee speaking about their own development. trainee_comments must read as a personal narrative, not a report or numbered review. Weave references to specific entries naturally into the text. Show how experiences across the CiP have built on each other. Be honest about where development is still needed. End with concrete next steps. Do NOT use section headers, numbered lists, or formal review language. Tone: authentic, reflective, first-person throughout.
-  If the input contains a "Linked portfolio entries" section, every entry must be referenced at least once, woven naturally into the narrative.
+- CiP Assessment: First-person, genuinely reflective, written entirely as the trainee speaking about their own development. trainee_comments must read as a personal narrative, not a report or numbered review. Use only the strongest supporting entries and reference them naturally by clinical detail, do not force mention of every linked entry. Show how key experiences have shaped current practice and judgment. Be honest about where development is still needed. End with concrete next steps. Do NOT use section headers, numbered lists, or formal review language. Avoid formulaic review phrasing (for example "looking at the evidence gathered", "areas least well evidenced", or "my immediate next steps are"). Use this paragraph flow: paragraph 1 opening reflection arc only (no case narrative), paragraph 2 key experience 1 and what changed, paragraph 3 key experience 2 and what changed, paragraph 4 current gaps, paragraph 5 specific next steps. Keep language plain and direct, with shorter sentences and no polished or academic tone. Include at least one candid uncertainty line in simple language (for example: "I wasn't sure...", "I hesitated...", "I realised I had missed..."). Vary wording and sentence openings across outputs; avoid repeating stock openers such as "Over this period", "This taught me", "I recognise", and "My next steps". For standard length, keep trainee_comments within 320–420 words and self-edit to fit. Tone: authentic, reflective, first-person throughout.
+  If the input contains a "Linked portfolio entries" section, prioritise the most relevant entries (typically 2) and ignore weaker or repetitive ones.
 
 - Case-Based Discussion (CbD): Analytical and evidence-based. Clear case summary, clinical reasoning, guideline references where relevant, and a structured learning plan. Objective tone. Avoid over-polished academic language — write as a clinician analysing a case, not writing a paper.
 
