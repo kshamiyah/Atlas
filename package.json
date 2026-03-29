@@ -10,7 +10,9 @@
     "test:ltft": "tsc -p tsconfig.tests.json && node --test .tmp-tests/tests/ltft/**/*.test.js .tmp-tests/tests/reconciliation/**/*.test.js && node -e \"require('fs').rmSync('.tmp-tests', { recursive: true, force: true })\"",
     "test:e2e:seed": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' ts-node scripts/e2e/seed.ts",
     "test:e2e:setup": "npm run test:e2e:seed && playwright test tests/e2e/setup.spec.ts",
-    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test tests/e2e/dashboard-and-progress.spec.ts tests/e2e/sync-progress-review-journey.spec.ts",
+    "test:e2e:a11y": "playwright test tests/e2e/a11y.spec.ts",
+    "test:e2e": "npm run test:e2e:smoke && npm run test:e2e:a11y",
     "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
@@ -23,6 +25,7 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",

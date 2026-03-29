@@ -47,9 +47,10 @@ If **production** numbers disagree:
 ## Accessibility checks (Progress hub)
 
 - Progress tabs expose `role="tablist"` / `role="tab"` / `aria-selected` and a `tabpanel` linked with `aria-labelledby`.
-- **Tooling:** no automated axe job in CI yet; spot-check with keyboard (Tab / Enter) on `/dashboard/progress` and a screen reader smoke on tab changes.
+- **Tooling:** automated axe checks run in CI via Playwright (`npm run test:e2e:a11y`).
+- Keep manual keyboard (Tab / Enter) and screen-reader smoke checks for regression triage on `/dashboard/progress`.
 
 ## Known limitations
 
 - E2E setup uses seeded Supabase data + Playwright `storageState` via magic-link auth; it no longer depends on `DEV_BYPASS_AUTH`.
-- Full “sync → progress → CTA → review” journey needs extension/fixtures not included in CI smoke.
+- Full journey coverage now includes seeded “sync → progress → CTA → review” in Playwright (`tests/e2e/sync-progress-review-journey.spec.ts`), but browser-extension wiring itself remains integration-tested outside this repo.

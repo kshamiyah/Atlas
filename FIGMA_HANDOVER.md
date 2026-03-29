@@ -326,39 +326,33 @@ Centered message: "Sync your portfolio to see CiP progress" with extension CTA
 
 | Page | Route | Status |
 |------|-------|--------|
-| Login | `/login` | Needs redesign (current: old dark slate style) |
-| Dashboard | `/dashboard` | Implemented, needs polish |
-| Evidence Review | `/dashboard/key-skill-review` | Needs token cleanup |
-| Gap Report | `/dashboard/gap-report` | Stage filter implemented |
-| Generate Entry | TBD | Not built yet |
+| Login | `/login` | Implemented (branded split layout). Optional token-only refresh if we want stricter parity with dashboard cards. |
+| Dashboard | `/dashboard` | Implemented command centre with next actions + Progress gateway. |
+| Progress Hub | `/dashboard/progress` | Implemented (CiP / key-skill / descriptor tabs, scope bar, message centre). |
+| Evidence Review | `/dashboard/key-skill-review` | Implemented (queue, push flow, Progress deep-link focus). |
+| Gap Report | `/dashboard/gap-report` | Implemented with stage-aware filtering. |
+| Generate Entry | `/dashboard/generate` | Implemented end-to-end with API-backed generation. |
+| Profile | `/dashboard/profile` | Implemented (photo, working pattern, stage/ARCP context). |
 
 ---
 
 ## 8. What We Want to Build / Improve
 
-### Priority 1 — Login Page Redesign
-Bring login page to match dashboard tokens (see §5.8 above). Currently jarring contrast between the old dark-slate login and the clean new dashboard.
+### Priority 1 — Mobile-first navigation
+- Design and implement a mobile navigation pattern (bottom tab bar or compact drawer) for dashboard/progress/review.
+- Validate common iPad breakpoints with real content density.
 
-### Priority 2 — Dashboard Polish
-- Better information hierarchy on the hero section
-- The ARCP ring + CiP tiles could feel more "product-y" — see Linear/Vercel for inspiration
-- Stage selector card could be more subtle — it dominates the page currently
-- Consider a 2-column grid on wider screens (ring left, CiP tiles right, stats below)
+### Priority 2 — Dashboard visual polish
+- Refine hero hierarchy and spacing so stage selector + ARCP badges read as secondary metadata.
+- Tighten KPI card rhythm and CTA prominence for faster scanning.
 
-### Priority 3 — Evidence Review Page
-Currently uses old raw Tailwind classes, not the new token system. Needs:
-- `ReviewCard` redesigned as a proper `.card` with consistent padding
-- Filter bar redesigned as a clean horizontal segmented control
-- Coverage summary as small stat pills at the top
+### Priority 3 — Review ergonomics
+- Add batch triage shortcuts and clearer “what changed” cues after sync/push.
+- Continue token cleanup where legacy raw utility clusters remain.
 
-### Priority 4 — Mobile Responsiveness
-App currently desktop-first. Trainees may check on iPad between cases. Need:
-- Sidebar collapses to bottom tab bar on mobile
-- Cards stack single column below 768px
-- Ring resizes gracefully
-
-### Priority 5 — Empty / Loading States
-Skeleton loaders for cards while data fetches. Currently shows nothing or "—" text.
+### Priority 4 — Advanced loading + empty states
+- Expand skeleton/empty treatments for deep tabs and edge filters to avoid blank-state ambiguity.
+- Add “why empty” hints tied to active scope/filter params.
 
 ---
 
@@ -375,15 +369,12 @@ All icons rendered at 16px for nav/UI, 14px for inline/buttons.
 
 ## 10. Assets Needed from Figma
 
-1. **Login page frame** — light + dark variants
-2. **Dashboard frame** — light + dark, with real data populated
-3. **Sidebar component** — expanded state only (no mobile collapse yet)
-4. **ARCPReadinessHero component** — 3 states: loading, loaded (all stages), loaded (stage filtered)
-5. **CiP tile** — all 4 color states (gray, amber, blue, green)
-6. **Evidence Review card** — suggested, confirmed, rejected states
-7. **Button components** — primary, secondary, hover, active states
-8. **Stage selector** — synced state + override expanded state
-9. **Mobile dashboard** — single column layout
+1. **Mobile navigation system** — bottom tab bar + compact drawer variants.
+2. **Dashboard command-centre frame** — polished hero hierarchy and CTA emphasis.
+3. **Progress hub frame** — all three tabs with realistic dense data.
+4. **Evidence review interaction states** — queue focus mode, bulk actions, focused-from-progress banner.
+5. **Profile frame** — photo/editor, working-pattern controls, ARCP context.
+6. **Design token board** — button, badge, input, empty/loading patterns in one canonical library.
 
 ---
 
