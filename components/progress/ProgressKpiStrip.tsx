@@ -1,17 +1,34 @@
 import type { ProgressSummaryResponse } from "@/lib/types/progress";
 
 type Kpis = ProgressSummaryResponse["kpis"];
+type Checkpoint = ProgressSummaryResponse["checkpoint"];
 
 function formatPct(pct: number): string {
   return `${Math.min(100, Math.max(0, Math.round(pct)))}%`;
 }
 
-export function ProgressKpiStrip({ kpis }: { kpis: Kpis }) {
+export function ProgressKpiStrip({
+  kpis,
+  checkpoint,
+}: {
+  kpis: Kpis;
+  checkpoint: Checkpoint;
+}) {
   const items = [
     {
+      key: "cips_checkpoint",
+      label: "CiP checkpoint readiness",
+      sub:
+        checkpoint.type === "annual"
+          ? "CiPs currently on annual ARCP trajectory"
+          : "CiPs meeting current checkpoint standard",
+      block: kpis.cips_checkpoint,
+      accent: "var(--accent-blue)",
+    },
+    {
       key: "cips",
-      label: "CiP coverage",
-      sub: "CiPs with every key skill confirmed",
+      label: "CiPs fully complete",
+      sub: "Strict stage standard (all key skills confirmed)",
       block: kpis.cips,
       accent: "var(--accent-primary)",
     },
@@ -32,7 +49,7 @@ export function ProgressKpiStrip({ kpis }: { kpis: Kpis }) {
   ] as const;
 
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {items.map((item) => (
         <div
           key={item.key}

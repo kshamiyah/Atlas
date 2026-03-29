@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -9,7 +9,60 @@ import { useTheme } from "@/components/ThemeProvider";
 type AppSidebarProps = {
   userEmail: string | undefined;
   lastSyncAt: string | null;
+  /** From `profiles.profile_photo_url` (server); optional localStorage fallback for same-tab UX */
+  profilePhotoUrl?: string | null;
 };
+
+function sanitizeProfilePhotoUrl(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  if (
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("data:image/")
+  ) {
+    return trimmed;
+  }
+  return null;
+}
+
+function SidebarAvatar({
+  photoUrl,
+  email,
+  size,
+}: {
+  photoUrl: string | null;
+  email: string;
+  size: "sm" | "md";
+}) {
+  const initial = email.trim()[0]?.toUpperCase() ?? "?";
+  const sizeClass = size === "sm" ? "h-7 w-7" : "h-8 w-8";
+  const textSize = size === "sm" ? "text-[10px]" : "text-[11px]";
+  const [failedPhotoUrl, setFailedPhotoUrl] = useState<string | null>(null);
+  const normalizedPhotoUrl = photoUrl ?? null;
+  const showPhoto =
+    Boolean(normalizedPhotoUrl) && failedPhotoUrl !== normalizedPhotoUrl;
+
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-4 ${sizeClass}`}
+    >
+      {showPhoto && normalizedPhotoUrl ? (
+        <img
+          src={normalizedPhotoUrl}
+          alt=""
+          className="h-full w-full object-cover"
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailedPhotoUrl(normalizedPhotoUrl)}
+        />
+      ) : (
+        <span className={`font-semibold text-secondary ${textSize}`}>{initial}</span>
+      )}
+    </div>
+  );
+}
 
 function formatSyncTime(iso: string | null): string {
   if (!iso) return "Never synced";
@@ -39,28 +92,6 @@ const NAV = [
     ),
   },
   {
-    href: "/dashboard/progress",
-    label: "Progress",
-    exact: false,
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 3v18h18" />
-        <path d="M7 16l4-4 4 4 6-7" />
-      </svg>
-    ),
-  },
-  {
-    href: "/dashboard/profile",
-    label: "Profile",
-    exact: false,
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M20 21a8 8 0 0 0-16 0" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    ),
-  },
-  {
     href: "/dashboard/key-skill-review",
     label: "My Entries",
     exact: false,
@@ -68,6 +99,17 @@ const NAV = [
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="9 11 12 14 22 4" />
         <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+      </svg>
+    ),
+  },
+  {
+    href: "/dashboard/progress",
+    label: "Progress",
+    exact: false,
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 3v18h18" />
+        <path d="M7 16l4-4 4 4 6-7" />
       </svg>
     ),
   },
@@ -96,10 +138,67 @@ const NAV = [
   },
 ];
 
-export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
+/** Profile lives in the sidebar footer user card on desktop; mobile still needs a chip. */
+const PROFILE_NAV_ITEM = {
+  href: "/dashboard/profile",
+  label: "Profile",
+  exact: false,
+  icon: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21a8 8 0 0 0-16 0" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  ),
+} as const;
+
+const MOBILE_NAV = [...NAV, PROFILE_NAV_ITEM];
+
+export function AppSidebar({
+  userEmail,
+  lastSyncAt,
+  profilePhotoUrl: profilePhotoUrlProp,
+}: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, toggle } = useTheme();
+  const [localAvatarUrl, setLocalAvatarUrl] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const local = window.localStorage.getItem("piq.profile.photo");
+      return sanitizeProfilePhotoUrl(local);
+    } catch {
+      return null;
+    }
+  });
+  const avatarUrl =
+    sanitizeProfilePhotoUrl(profilePhotoUrlProp ?? null) ?? localAvatarUrl;
+
+  useEffect(() => {
+    function syncFromLocalStorage() {
+      try {
+        const local = window.localStorage.getItem("piq.profile.photo");
+        setLocalAvatarUrl(sanitizeProfilePhotoUrl(local));
+      } catch {
+        setLocalAvatarUrl(null);
+      }
+    }
+
+    function onStorage(event: StorageEvent) {
+      if (event.key && event.key !== "piq.profile.photo") return;
+      syncFromLocalStorage();
+    }
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("piq:profile-photo-updated", syncFromLocalStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(
+        "piq:profile-photo-updated",
+        syncFromLocalStorage,
+      );
+    };
+  }, []);
+
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -111,6 +210,7 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
 
   const syncStatus = syncState(lastSyncAt);
   const syncText = formatSyncTime(lastSyncAt);
+  const isProfileActive = pathname.startsWith("/dashboard/profile");
 
   function toggleSidebarCollapse() {
     setIsCollapsed((prev) => {
@@ -207,7 +307,7 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
           </div>
         </div>
         <nav className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
-          {NAV.map((item) => {
+          {MOBILE_NAV.map((item) => {
             const isActive = item.exact
               ? pathname === item.href
               : pathname.startsWith(item.href);
@@ -341,13 +441,20 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
                     : "max-h-24 translate-y-0 opacity-100",
                 ].join(" ")}
               >
-                <div className="rounded-xl border border-subtle bg-surface-1 p-3">
+                <Link
+                  href="/dashboard/profile"
+                  title="Profile"
+                  aria-label="Profile and account settings"
+                  aria-current={isProfileActive ? "page" : undefined}
+                  className={[
+                    "block rounded-xl border border-subtle bg-surface-1 p-3 transition-colors",
+                    isProfileActive
+                      ? "border-accent-primary shadow-sm ring-1 ring-accent-primary/30"
+                      : "hover:border-subtle hover:bg-surface-3",
+                  ].join(" ")}
+                >
                   <div className="flex items-center gap-2">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-4">
-                      <span className="text-[10px] font-semibold text-secondary">
-                        {userEmail[0].toUpperCase()}
-                      </span>
-                    </div>
+                    <SidebarAvatar photoUrl={avatarUrl} email={userEmail} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-micro text-secondary">
                         {userEmail}
@@ -371,7 +478,7 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
                       )}
                     </div>
                   </div>
-                </div>
+                </Link>
               </div>
 
               <div
@@ -383,14 +490,20 @@ export function AppSidebar({ userEmail, lastSyncAt }: AppSidebarProps) {
                 ].join(" ")}
               >
                 <div className="flex justify-center">
-                  <div
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-4"
-                    title={`${userEmail} • ${syncText}`}
+                  <Link
+                    href="/dashboard/profile"
+                    title={`Profile • ${userEmail} • ${syncText}`}
+                    aria-label="Profile and account settings"
+                    aria-current={isProfileActive ? "page" : undefined}
+                    className={[
+                      "overflow-hidden rounded-full transition-colors",
+                      isProfileActive
+                        ? "ring-2 ring-accent-primary ring-offset-2 ring-offset-surface-2"
+                        : "hover:ring-1 hover:ring-subtle",
+                    ].join(" ")}
                   >
-                    <span className="text-[10px] font-semibold text-secondary">
-                      {userEmail[0].toUpperCase()}
-                    </span>
-                  </div>
+                    <SidebarAvatar photoUrl={avatarUrl} email={userEmail} size="md" />
+                  </Link>
                 </div>
               </div>
             </>

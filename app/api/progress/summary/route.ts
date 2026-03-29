@@ -3,6 +3,10 @@ import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { buildProgressMessages } from "@/lib/progress/message-centre";
 import {
+  checkpointTypeLabel,
+  resolveProgressCheckpointType,
+} from "@/lib/progress/checkpoint-readiness";
+import {
   parseProgressScopeFromUrl,
   validateStageIdInCatalog,
 } from "@/lib/progress/query-params";
@@ -11,6 +15,9 @@ import {
   filterEntriesInScope,
   stageIdsForParams,
 } from "@/lib/progress/summary-metrics";
+import { calculateArcpCountdown } from "@/lib/profile/ltft";
+import { calculateKeySkillsProRataCheckpoint } from "@/lib/profile/ltft-pro-rata";
+import { normalizeStageName } from "@/lib/profile/stage";
 import type { ProgressSummaryResponse, ProgressSummaryScope } from "@/lib/types/progress";
 
 type CipRow = { id: string; number: number };
@@ -34,7 +41,15 @@ type CoverageRow = {
 function emptySummary(scope: ProgressSummaryScope): ProgressSummaryResponse {
   return {
     scope,
+    checkpoint: {
+      type: "annual",
+      label: "Annual ARCP",
+      current_stage: null,
+      stage_elapsed_fraction: null,
+      working_percent: 100,
+    },
     kpis: {
+      cips_checkpoint: { covered: 0, total: 0, pct: 0 },
       cips: { covered: 0, total: 0, pct: 0 },
       key_skills: { covered: 0, total: 0, pct: 0 },
       descriptors: { covered: 0, total: 0, pct: 0 },
@@ -82,6 +97,7 @@ export async function GET(req: NextRequest) {
 
   const [
     stagesRes,
+    profileRes,
     cipsRes,
     keySkillsRes,
     descriptorsRes,
@@ -90,6 +106,11 @@ export async function GET(req: NextRequest) {
     coverageRes,
   ] = await Promise.all([
     supabase.from("stages").select("id, name, stage_group").order("sort_order", { ascending: true }),
+    supabase
+      .from("profiles")
+      .select("current_stage_id, current_grade, arcp_date, working_percent")
+      .eq("id", userId)
+      .maybeSingle(),
     supabase.from("cips").select("id, number").order("number", { ascending: true }),
     supabase.from("key_skills").select("id, cip_id").order("skill_number", { ascending: true }),
     supabase.from("descriptors").select("id, key_skill_id").order("sort_order", { ascending: true }),
@@ -110,6 +131,7 @@ export async function GET(req: NextRequest) {
 
   for (const res of [
     stagesRes,
+    profileRes,
     cipsRes,
     keySkillsRes,
     descriptorsRes,
@@ -130,6 +152,13 @@ export async function GET(req: NextRequest) {
     name: string;
     stage_group: string;
   }>;
+
+  const profile = (profileRes.data ?? null) as {
+    current_stage_id: string | null;
+    current_grade: string | null;
+    arcp_date: string | null;
+    working_percent: number | null;
+  } | null;
 
   const stageIdError = validateStageIdInCatalog(scopeEcho.stage_id, stageRows);
   if (stageIdError) {
@@ -175,6 +204,33 @@ export async function GET(req: NextRequest) {
   const confirmedRows = (confirmedRes.data ?? []) as ConfirmedRow[];
   const coverageRows = (coverageRes.data ?? []) as CoverageRow[];
 
+  const stageFromProfileId =
+    profile?.current_stage_id
+      ? stageRows.find((row) => row.id === profile.current_stage_id)?.name ?? null
+      : null;
+  const currentStage = normalizeStageName(
+    stageFromProfileId ?? profile?.current_grade ?? null,
+  );
+  const arcpCountdown = calculateArcpCountdown(
+    profile?.arcp_date ?? null,
+    profile?.working_percent ?? 100,
+  );
+  const stageCheckpoint = calculateKeySkillsProRataCheckpoint({
+    totalSkills: 0,
+    confirmedSkills: 0,
+    currentStage,
+    daysToArcpCalendar: arcpCountdown.calendarDaysToArcp,
+    workingPercentInput: arcpCountdown.workingPercent,
+  });
+  const checkpointType = resolveProgressCheckpointType(currentStage);
+  const checkpoint = {
+    type: checkpointType,
+    label: checkpointTypeLabel(checkpointType),
+    current_stage: currentStage,
+    stage_elapsed_fraction: stageCheckpoint.stageElapsedFraction,
+    working_percent: arcpCountdown.workingPercent,
+  } as const;
+
   const { kpis } = computeProgressKpis({
     scopedEntryIds,
     cips,
@@ -182,6 +238,7 @@ export async function GET(req: NextRequest) {
     descriptors,
     confirmedRows,
     coverageRows,
+    checkpoint,
   });
 
   const messages = buildProgressMessages({
@@ -204,6 +261,7 @@ export async function GET(req: NextRequest) {
 
   const body: ProgressSummaryResponse = {
     scope: scopeEcho,
+    checkpoint,
     kpis,
     messages,
     updated_at: new Date().toISOString(),

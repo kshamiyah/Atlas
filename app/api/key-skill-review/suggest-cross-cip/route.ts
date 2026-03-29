@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import {
   suggestCrossCipSkills,
   type CrossCipSkillInput,
 } from "@/lib/key-skill-review/cross-cip-suggester";
-import type { SuggestCrossCipResponse } from "@/lib/types/key-skill-review-api";
+import type {
+  SuggestCrossCipBody,
+  SuggestCrossCipResponse,
+} from "@/lib/types/key-skill-review-api";
 
 type EntryRow = {
   id: string;
@@ -13,6 +17,7 @@ type EntryRow = {
   entry_text: string;
   linked_cip_number: number;
   metadata: Record<string, unknown> | null;
+  updated_at: string;
 };
 
 type KeySkillRow = {
@@ -33,6 +38,7 @@ type SuggestionRow = {
   suggestion_source: "linked_cip" | "cross_cip";
   method: string | null;
   status: string;
+  updated_at: string;
 };
 
 type RankedCrossSuggestion = CrossCipSkillInput & {
@@ -45,6 +51,58 @@ type RankedCrossSuggestion = CrossCipSkillInput & {
 const MIN_CONFIDENCE_FOR_NOVEL = 0.62;
 const MIN_CONFIDENCE_FOR_OVERLAP = 0.9;
 const MIN_USEFULNESS_SCORE = 0.55;
+const CROSS_CIP_LAST_RUN_AT_KEY = "cross_cip_ai_last_run_at";
+const CROSS_CIP_LAST_FINGERPRINT_KEY = "cross_cip_ai_last_input_fingerprint";
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  if (!metadata) return null;
+  const value = metadata[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function toEpochMillis(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function buildCrossCipInputFingerprint(input: {
+  entry_text: string;
+  entry_type: string | null;
+  linked_cip_number: number;
+  linked_skill_ids: string[];
+  candidate_skill_ids: string[];
+}): string {
+  const payload = JSON.stringify({
+    entry_text: input.entry_text,
+    entry_type: input.entry_type ?? "",
+    linked_cip_number: input.linked_cip_number,
+    linked_skill_ids: input.linked_skill_ids.slice().sort(),
+    candidate_skill_ids: input.candidate_skill_ids.slice().sort(),
+  });
+  return createHash("sha1").update(payload).digest("hex");
+}
+
+function setMaxTimestamp(
+  target: Map<string, number>,
+  key: string,
+  timestamp: number,
+) {
+  const current = target.get(key) ?? 0;
+  if (timestamp > current) {
+    target.set(key, timestamp);
+  }
+}
 
 function countWords(value: string): number {
   return value
@@ -148,7 +206,7 @@ function rankByUsefulness(
   return prelim;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const supabase = await getServerSupabaseClient();
   const {
     data: { user },
@@ -162,12 +220,35 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  let body: SuggestCrossCipBody | null = null;
+  try {
+    body = (await request.json()) as SuggestCrossCipBody;
+  } catch {
+    body = null;
+  }
+
+  const forceFullRefresh = body?.force_full_refresh === true;
+  const requestedEntryIds =
+    Array.isArray(body?.entry_ids) && body.entry_ids.length > 0
+      ? body.entry_ids.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : null;
+
   // 1. Load all review entries for this user
-  const { data: entryRows, error: entriesError } = await supabase
+  let entryQuery = supabase
     .from("key_skill_review_entries")
-    .select("id, user_id, entry_type, entry_text, linked_cip_number, metadata")
-    .eq("user_id", user.id)
-    .order("last_seen_at", { ascending: false });
+    .select(
+      "id, user_id, entry_type, entry_text, linked_cip_number, metadata, updated_at",
+    )
+    .eq("user_id", user.id);
+
+  if (requestedEntryIds) {
+    entryQuery = entryQuery.in("id", requestedEntryIds);
+  }
+
+  const { data: entryRows, error: entriesError } = await entryQuery.order(
+    "last_seen_at",
+    { ascending: false },
+  );
 
   if (entriesError) {
     return NextResponse.json(
@@ -191,7 +272,9 @@ export async function POST() {
   // 2. Load existing suggestions to know which entries already have AI cross-CiP
   const { data: suggestionRows, error: suggestionsError } = await supabase
     .from("key_skill_review_suggestions")
-    .select("id, review_entry_id, key_skill_id, suggestion_source, method, status")
+    .select(
+      "id, review_entry_id, key_skill_id, suggestion_source, method, status, updated_at",
+    )
     .in("review_entry_id", entryIds)
     .eq("user_id", user.id);
 
@@ -206,7 +289,17 @@ export async function POST() {
 
   // Confirmed cross-CiP per entry — don't overwrite these
   const lockedCrossCipByEntry = new Map<string, Set<string>>();
+  const latestCrossAiUpdatedAtByEntry = new Map<string, number>();
+  const latestLinkedUpdatedAtByEntry = new Map<string, number>();
   for (const s of suggestions) {
+    const ts = toEpochMillis(s.updated_at);
+    if (s.suggestion_source === "cross_cip" && s.method === "ai") {
+      setMaxTimestamp(latestCrossAiUpdatedAtByEntry, s.review_entry_id, ts);
+    }
+    if (s.suggestion_source === "linked_cip") {
+      setMaxTimestamp(latestLinkedUpdatedAtByEntry, s.review_entry_id, ts);
+    }
+
     if (
       s.suggestion_source === "cross_cip" &&
       (s.status === "confirmed" || s.status === "rejected")
@@ -264,6 +357,34 @@ export async function POST() {
 
   try {
     for (const entry of entries) {
+      const linkedSkillIds = new Set(
+        suggestions
+          .filter(
+            (s) =>
+              s.review_entry_id === entry.id &&
+              s.suggestion_source === "linked_cip" &&
+              s.status !== "rejected",
+          )
+          .map((s) => s.key_skill_id),
+      );
+
+      if (!forceFullRefresh) {
+        const crossCipRunAtFromMetadata = toEpochMillis(
+          metadataString(entry.metadata, CROSS_CIP_LAST_RUN_AT_KEY),
+        );
+        const lastCrossAiAt = latestCrossAiUpdatedAtByEntry.get(entry.id);
+        const lastKnownCrossRunAt = Math.max(lastCrossAiAt ?? 0, crossCipRunAtFromMetadata);
+        if (lastCrossAiAt != null) {
+          const entryUpdatedAt = toEpochMillis(entry.updated_at);
+          const linkedUpdatedAt = latestLinkedUpdatedAtByEntry.get(entry.id) ?? 0;
+          const latestInputUpdate = Math.max(entryUpdatedAt, linkedUpdatedAt);
+          if (latestInputUpdate <= lastKnownCrossRunAt) {
+            skipped++;
+            continue;
+          }
+        }
+      }
+
       const linkedCipNumber = entry.linked_cip_number;
 
       // When linked_cip_number === 0 (no CiP in source data), treat ALL skills
@@ -285,16 +406,26 @@ export async function POST() {
           ? (entry.metadata.detected_entry_type as string | null)
           : (entry.entry_type ?? null);
 
-      const linkedSkillIds = new Set(
-        suggestions
-          .filter(
-            (s) =>
-              s.review_entry_id === entry.id &&
-              s.suggestion_source === "linked_cip" &&
-              s.status !== "rejected",
-          )
-          .map((s) => s.key_skill_id),
-      );
+      const inputFingerprint = buildCrossCipInputFingerprint({
+        entry_text: entry.entry_text ?? "",
+        entry_type: detectedEntryType,
+        linked_cip_number: linkedCipNumber,
+        linked_skill_ids: [...linkedSkillIds],
+        candidate_skill_ids: crossCipSkills.map((s) => s.key_skill_id),
+      });
+
+      if (!forceFullRefresh) {
+        const existingFingerprint = metadataString(
+          entry.metadata,
+          CROSS_CIP_LAST_FINGERPRINT_KEY,
+        );
+        const existingRunAt = metadataString(entry.metadata, CROSS_CIP_LAST_RUN_AT_KEY);
+        if (existingRunAt && existingFingerprint === inputFingerprint) {
+          skipped++;
+          continue;
+        }
+      }
+
       const linkedSkillTitles = [...linkedSkillIds]
         .map((id) => skillTitleById.get(id))
         .filter((t): t is string => Boolean(t));
@@ -312,7 +443,30 @@ export async function POST() {
       if (aiSuggestions.length === 0) continue;
 
       const ranked = rankByUsefulness(aiSuggestions, crossCipSkills, linkedSkillIds);
-      if (ranked.length === 0) continue;
+      if (ranked.length === 0) {
+        const { error: stampError } = await supabase
+          .from("key_skill_review_entries")
+          .update({
+            metadata: {
+              ...asRecord(entry.metadata),
+              [CROSS_CIP_LAST_RUN_AT_KEY]: new Date().toISOString(),
+              [CROSS_CIP_LAST_FINGERPRINT_KEY]: inputFingerprint,
+            },
+          })
+          .eq("id", entry.id)
+          .eq("user_id", user.id);
+
+        if (stampError) {
+          return NextResponse.json(
+            {
+              error:
+                "Failed to store cross-CiP run marker: " + stampError.message,
+            },
+            { status: 500 },
+          );
+        }
+        continue;
+      }
 
       const lockedSkills = lockedCrossCipByEntry.get(entry.id) ?? new Set();
 
@@ -330,7 +484,30 @@ export async function POST() {
           rationale: s.rationale.slice(0, 200),
         }));
 
-      if (toUpsert.length === 0) continue;
+      if (toUpsert.length === 0) {
+        const { error: stampError } = await supabase
+          .from("key_skill_review_entries")
+          .update({
+            metadata: {
+              ...asRecord(entry.metadata),
+              [CROSS_CIP_LAST_RUN_AT_KEY]: new Date().toISOString(),
+              [CROSS_CIP_LAST_FINGERPRINT_KEY]: inputFingerprint,
+            },
+          })
+          .eq("id", entry.id)
+          .eq("user_id", user.id);
+
+        if (stampError) {
+          return NextResponse.json(
+            {
+              error:
+                "Failed to store cross-CiP run marker: " + stampError.message,
+            },
+            { status: 500 },
+          );
+        }
+        continue;
+      }
 
       // Refresh prior AI-suggested (pending) cross-CiP rows so reruns apply new ranking.
       const { error: cleanupError } = await supabase
@@ -370,6 +547,28 @@ export async function POST() {
       }
 
       totalSuggestions += toUpsert.length;
+
+      const { error: stampError } = await supabase
+        .from("key_skill_review_entries")
+        .update({
+          metadata: {
+            ...asRecord(entry.metadata),
+            [CROSS_CIP_LAST_RUN_AT_KEY]: new Date().toISOString(),
+            [CROSS_CIP_LAST_FINGERPRINT_KEY]: inputFingerprint,
+          },
+        })
+        .eq("id", entry.id)
+        .eq("user_id", user.id);
+
+      if (stampError) {
+        return NextResponse.json(
+          {
+            error:
+              "Failed to store cross-CiP run marker: " + stampError.message,
+          },
+          { status: 500 },
+        );
+      }
     }
   } catch (err) {
     const message =

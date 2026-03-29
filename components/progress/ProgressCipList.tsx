@@ -1,22 +1,23 @@
 "use client";
 
-import type { ProgressCipRow, ProgressRagStatus } from "@/lib/types/progress";
+import type { ProgressCipRow } from "@/lib/types/progress";
 
-function statusChip(status: ProgressRagStatus): { label: string; className: string } {
+function statusChip(row: ProgressCipRow): { label: string; className: string } {
+  const { status, checkpoint_type: checkpointType } = row;
   if (status === "green") {
     return {
-      label: "On track",
+      label: checkpointType === "annual" ? "On trajectory" : "On track",
       className: "border-accent-green/40 bg-accent-green/12 text-accent-green",
     };
   }
   if (status === "amber") {
     return {
-      label: "Needs work",
+      label: checkpointType === "annual" ? "Near trajectory" : "Needs work",
       className: "border-accent-amber/40 bg-accent-amber/14 text-accent-amber",
     };
   }
   return {
-    label: "At risk",
+    label: checkpointType === "annual" ? "Off trajectory" : "At risk",
     className: "border-accent-red/40 bg-accent-red/12 text-accent-red",
   };
 }
@@ -36,7 +37,7 @@ export function ProgressCipList({ rows, selectedCipNumber, onSelect }: ProgressC
     <ul className="space-y-1" role="listbox" aria-label="CiPs">
       {rows.map((row) => {
         const selected = row.cip_number === selectedCipNumber;
-        const chip = statusChip(row.status);
+        const chip = statusChip(row);
         return (
           <li key={row.cip_number}>
             <button

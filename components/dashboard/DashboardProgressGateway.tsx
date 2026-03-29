@@ -105,13 +105,19 @@ export function DashboardProgressGateway() {
           Progress overview
         </h2>
         <p className="mt-1 text-[11px] text-muted">
-          Curriculum coverage from your synced entries — open the hub for CiP, key skill, and descriptor detail.
+          Checkpoint trajectory and strict completion from synced entries.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
         <KpiChip
-          label="CiPs"
+          label="CiP checkpoint"
+          pct={kpis.cips_checkpoint.pct}
+          covered={kpis.cips_checkpoint.covered}
+          total={kpis.cips_checkpoint.total}
+        />
+        <KpiChip
+          label="CiPs complete"
           pct={kpis.cips.pct}
           covered={kpis.cips.covered}
           total={kpis.cips.total}

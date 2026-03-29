@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   KeySkillCoverage,
   ReviewEntry,
@@ -23,6 +23,8 @@ type ReviewCardProps = {
   highlightDescriptorId?: string | null;
   /** Open descriptor coverage `<details>` by default (e.g. descriptor deep-link). */
   descriptorPanelInitialOpen?: boolean;
+  /** Focus-mode optimization: hide already reviewed suggestions. */
+  suggestedOnly?: boolean;
 };
 
 const PRIMARY_VISIBLE_SUGGESTIONS = 3;
@@ -31,6 +33,113 @@ const STATUS_PRIORITY: Record<SkillSuggestion["status"], number> = {
   confirmed: 1,
   rejected: 2,
 };
+
+type StructuredEntrySection = {
+  title: string;
+  paragraphs: string[];
+};
+
+const PARAGRAPH_STARTERS = [
+  "Patient",
+  "Compared",
+  "My consultant",
+  "Outpatient management",
+  "The discussion reinforced",
+  "I plan",
+  "This discussion was invaluable",
+  "I feel",
+];
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function cleanEntryNarrative(rawText: string, title: string): string {
+  let text = rawText.replace(/\s+/g, " ").trim();
+  const cleanTitle = title.trim();
+  if (!text || !cleanTitle) return text;
+
+  const escapedTitle = escapeRegex(cleanTitle);
+  const duplicatedTitlePrefix = new RegExp(
+    `^${escapedTitle}\\s+Edit\\s+${escapedTitle}\\s*`,
+    "i",
+  );
+  text = text.replace(duplicatedTitlePrefix, "");
+
+  const singleTitlePrefix = new RegExp(`^${escapedTitle}\\s+`, "i");
+  text = text.replace(singleTitlePrefix, "");
+
+  return text.trim();
+}
+
+function sectionTitleForParagraph(paragraph: string): string {
+  const p = paragraph.toLowerCase();
+  if (
+    p.includes("i plan") ||
+    p.includes("further study") ||
+    p.includes("guideline") ||
+    p.includes("observe cases")
+  ) {
+    return "Learning plan";
+  }
+  if (
+    p.includes("i feel") ||
+    p.includes("invaluable") ||
+    p.includes("reinforcing my understanding") ||
+    p.includes("shared decision-making")
+  ) {
+    return "Reflection";
+  }
+  if (
+    p.includes("inpatient") ||
+    p.includes("outpatient") ||
+    p.includes("monitoring") ||
+    p.includes("discharged") ||
+    p.includes("consultant") ||
+    p.includes("individualised") ||
+    p.includes("risk")
+  ) {
+    return "Decision-making and risk balance";
+  }
+  if (
+    p.includes("patient") ||
+    p.includes("diagnosed") ||
+    p.includes("admitted") ||
+    p.includes("commenced") ||
+    p.includes("stabilised")
+  ) {
+    return "Clinical summary";
+  }
+  return "Entry notes";
+}
+
+function structureEntryNarrative(rawText: string, title: string): StructuredEntrySection[] {
+  const cleaned = cleanEntryNarrative(rawText, title);
+  if (!cleaned) return [];
+
+  const starterPattern = new RegExp(
+    `\\s+(?=(?:${PARAGRAPH_STARTERS.map(escapeRegex).join("|")}))`,
+    "g",
+  );
+  const paragraphs = cleaned
+    .replace(starterPattern, "\n\n")
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const sections: StructuredEntrySection[] = [];
+  for (const paragraph of paragraphs) {
+    const sectionTitle = sectionTitleForParagraph(paragraph);
+    const previous = sections[sections.length - 1];
+    if (previous && previous.title === sectionTitle) {
+      previous.paragraphs.push(paragraph);
+      continue;
+    }
+    sections.push({ title: sectionTitle, paragraphs: [paragraph] });
+  }
+
+  return sections;
+}
 
 function sortSuggestionsForReview(
   suggestions: SkillSuggestion[],
@@ -52,16 +161,21 @@ function splitPrimarySuggestions(suggestions: SkillSuggestion[]) {
 }
 
 function StatusBadge({ status }: { status: SkillSuggestion["status"] }) {
+  const labels: Record<SkillSuggestion["status"], string> = {
+    suggested: "Pending",
+    confirmed: "Confirmed",
+    rejected: "Rejected",
+  };
   const colours: Record<SkillSuggestion["status"], string> = {
-    suggested: "bg-surface-4 text-secondary border-subtle",
-    confirmed: "bg-surface-4 text-primary border-subtle",
-    rejected: "bg-surface-3 text-secondary border-subtle",
+    suggested: "bg-surface-3 text-secondary border-subtle",
+    confirmed: "bg-surface-3 text-primary border-subtle",
+    rejected: "bg-surface-3 text-muted border-subtle",
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${colours[status]}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${colours[status]}`}
     >
-      {status}
+      {labels[status]}
     </span>
   );
 }
@@ -71,17 +185,17 @@ function ConfidencePill({ value }: { value: number }) {
   const pct = Math.round(value * 100);
   const { label, colour } =
     value >= 0.8
-      ? { label: "High confidence", colour: "bg-surface-4 text-primary" }
+      ? { label: "High", colour: "bg-surface-3 text-primary" }
       : value >= 0.7
-        ? { label: "Medium confidence", colour: "bg-surface-4 text-secondary" }
-        : { label: "Low confidence", colour: "bg-surface-4 text-muted" };
+        ? { label: "Medium", colour: "bg-surface-3 text-secondary" }
+        : { label: "Low", colour: "bg-surface-3 text-muted" };
 
   return (
     <span
       title={`Confidence score: ${pct}%`}
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium cursor-default ${colour}`}
     >
-      {label}
+      {label} {pct}%
     </span>
   );
 }
@@ -113,18 +227,18 @@ function SuggestionRow({
   return (
     <li
       className={[
-        "space-y-2.5 rounded-xl border bg-surface-1 p-4",
+        "space-y-2 rounded-xl border bg-surface-1 p-3",
         isHighlighted ? "border-accent-blue ring-2 ring-accent-blue/35" : "border-subtle",
       ].join(" ")}
       data-key-skill-id={suggestion.key_skill_id}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="space-y-0.5">
           <p className="text-xs font-medium text-primary">
             {suggestion.key_skill_title}
           </p>
           <p className="text-[11px] text-muted">
-            CiP {suggestion.cip_number} · {suggestion.key_skill_id}
+            CiP {suggestion.cip_number}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -133,7 +247,7 @@ function SuggestionRow({
         </div>
       </div>
       {suggestion.rationale && (
-        <p className="rounded-lg border border-subtle bg-surface-2 px-2.5 py-2 text-[11px] leading-relaxed text-secondary">
+        <p className="text-[11px] leading-relaxed text-secondary">
           {suggestion.rationale}
         </p>
       )}
@@ -144,9 +258,9 @@ function SuggestionRow({
           onClick={() =>
             actionId && onUpdate(entryId, actionId, source, "confirmed")
           }
-          className="inline-flex min-h-8 items-center rounded-lg border border-accent-blue/25 bg-surface-2 px-3 py-1.5 text-xs font-semibold text-accent-blue transition hover:bg-accent-blue/10 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-8 items-center rounded-lg border border-accent-blue/25 bg-surface-2 px-2.5 py-1 text-xs font-semibold text-accent-blue transition hover:bg-accent-blue/10 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Confirm skill
+          Confirm
         </button>
         <button
           type="button"
@@ -154,9 +268,9 @@ function SuggestionRow({
           onClick={() =>
             actionId && onUpdate(entryId, actionId, source, "rejected")
           }
-          className="inline-flex min-h-8 items-center rounded-lg border border-subtle bg-surface-2 px-3 py-1.5 text-xs font-medium text-secondary transition hover:bg-surface-3 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-8 items-center rounded-lg border border-subtle bg-surface-2 px-2.5 py-1 text-xs font-medium text-secondary transition hover:bg-surface-3 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Not relevant
+          Reject
         </button>
         {showReset && (
           <button
@@ -187,37 +301,77 @@ function DescriptorCoveragePanel({
   const nonEmpty = coverage.filter((ks) => ks.descriptors.length > 0);
   if (nonEmpty.length === 0) return null;
 
+  const sortedSkills = [...nonEmpty].sort((a, b) => {
+    const aGap = a.descriptors.filter((d) => !d.covered).length;
+    const bGap = b.descriptors.filter((d) => !d.covered).length;
+    if (bGap !== aGap) return bGap - aGap;
+    return a.key_skill_title.localeCompare(b.key_skill_title);
+  });
+  const totalDescriptors = sortedSkills.reduce((acc, ks) => acc + ks.descriptors.length, 0);
+  const coveredDescriptors = sortedSkills.reduce(
+    (acc, ks) => acc + ks.descriptors.filter((d) => d.covered).length,
+    0,
+  );
+  const fullyEvidencedSkills = sortedSkills.filter((ks) =>
+    ks.descriptors.every((d) => d.covered),
+  ).length;
+  const topGaps = sortedSkills
+    .map((ks) => ({
+      title: ks.key_skill_title,
+      missing: ks.descriptors.filter((d) => !d.covered).length,
+    }))
+    .filter((x) => x.missing > 0)
+    .slice(0, 3);
+
   return (
-    <section>
-      <h4 className="mb-2 text-xs font-semibold text-primary">
-        Descriptor coverage
-      </h4>
+    <section className="space-y-2.5">
+      <div className="rounded-lg border border-subtle bg-surface-2 px-3 py-2.5">
+        <p className="text-[11px] text-secondary">
+          {coveredDescriptors}/{totalDescriptors} descriptors evidenced ·{" "}
+          {fullyEvidencedSkills}/{sortedSkills.length} skills fully evidenced
+        </p>
+        {topGaps.length > 0 && (
+          <p className="mt-1 text-[11px] text-muted">
+            Top gaps: {topGaps.map((x) => `${x.title} (${x.missing})`).join(" · ")}
+          </p>
+        )}
+      </div>
       <div className="space-y-2">
-        {nonEmpty.map((ks) => {
+        {sortedSkills.map((ks) => {
           const coveredCount = ks.descriptors.filter((d) => d.covered).length;
           const total = ks.descriptors.length;
           const skillHighlighted = highlightSkillId != null && ks.key_skill_id === highlightSkillId;
+          const hasHighlightedDescriptor =
+            highlightDescriptorId != null &&
+            ks.descriptors.some((d) => d.descriptor_id === highlightDescriptorId);
+          const sortedDescriptors = [...ks.descriptors].sort((a, b) => {
+            if (a.covered !== b.covered) return a.covered ? 1 : -1;
+            return a.sort_order - b.sort_order;
+          });
           return (
-            <div
+            <details
               key={ks.key_skill_id}
               className={[
-                "space-y-2 rounded-lg border p-3",
+                "rounded-lg border bg-surface-3 p-3",
                 skillHighlighted ? "border-accent-blue/50 bg-surface-2" : "border-subtle bg-surface-3",
               ].join(" ")}
+              open={skillHighlighted || hasHighlightedDescriptor ? true : undefined}
             >
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-primary">
-                    {ks.key_skill_title}
-                  </p>
-                  <p className="text-[11px] text-muted">CiP {ks.cip_number}</p>
+              <summary className="cursor-pointer">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-medium text-primary">
+                      {ks.key_skill_title}
+                    </p>
+                    <p className="text-[11px] text-muted">CiP {ks.cip_number}</p>
+                  </div>
+                  <span className="text-[11px] tabular-nums text-secondary">
+                    {coveredCount}/{total}
+                  </span>
                 </div>
-                <span className="text-[11px] tabular-nums text-secondary">
-                  {coveredCount}/{total} descriptors evidenced
-                </span>
-              </div>
-              <ul className="space-y-1.5">
-                {ks.descriptors.map((d) => {
+              </summary>
+              <ul className="mt-2 space-y-1.5">
+                {sortedDescriptors.map((d) => {
                   const descHi =
                     highlightDescriptorId != null && d.descriptor_id === highlightDescriptorId;
                   return (
@@ -237,9 +391,9 @@ function DescriptorCoveragePanel({
                       {d.covered ? "✓" : "✗"}
                     </span>
                     <div className="min-w-0 space-y-0.5">
-                      <p
-                        className={`text-[11px] leading-snug ${
-                          d.covered ? "text-primary" : "text-muted"
+                        <p
+                          className={`text-[11px] leading-snug ${
+                            d.covered ? "text-primary" : "text-muted"
                         }`}
                       >
                         {d.descriptor_text}
@@ -263,7 +417,7 @@ function DescriptorCoveragePanel({
                   );
                 })}
               </ul>
-            </div>
+            </details>
           );
         })}
       </div>
@@ -295,6 +449,7 @@ export function ReviewCard({
   highlightSkillId = null,
   highlightDescriptorId = null,
   descriptorPanelInitialOpen = false,
+  suggestedOnly = false,
 }: ReviewCardProps) {
   const [isOpen, setIsOpen] = useState(expandedByDefault);
   const [descriptorPanelOpen, setDescriptorPanelOpen] = useState(descriptorPanelInitialOpen);
@@ -330,9 +485,19 @@ export function ReviewCard({
   const pendingCount =
     entry.linked_cip_suggestions.filter((s) => s.status === "suggested").length +
     entry.cross_cip_suggestions.filter((s) => s.status === "suggested").length;
-  const crossCipCount = entry.cross_cip_suggestions.length;
-  const linkedSplit = splitPrimarySuggestions(entry.linked_cip_suggestions);
-  const crossSplit = splitPrimarySuggestions(entry.cross_cip_suggestions);
+  const visibleLinkedSuggestions = suggestedOnly
+    ? entry.linked_cip_suggestions.filter((s) => s.status === "suggested")
+    : entry.linked_cip_suggestions;
+  const visibleCrossSuggestions = suggestedOnly
+    ? entry.cross_cip_suggestions.filter((s) => s.status === "suggested")
+    : entry.cross_cip_suggestions;
+  const crossCipCount = visibleCrossSuggestions.length;
+  const linkedSplit = splitPrimarySuggestions(visibleLinkedSuggestions);
+  const crossSplit = splitPrimarySuggestions(visibleCrossSuggestions);
+  const structuredEntrySections = useMemo(
+    () => structureEntryNarrative(entry.raw_text, entry.title),
+    [entry.raw_text, entry.title],
+  );
 
   const metaLine =
     entry.linked_cip_number === 0 ? (
@@ -391,23 +556,50 @@ export function ReviewCard({
             <summary className="cursor-pointer text-micro font-medium text-secondary">
               View full entry text
             </summary>
-            <p className="mt-2 text-micro leading-relaxed text-secondary">
-              {entry.raw_text}
-            </p>
+            {structuredEntrySections.length === 0 ? (
+              <p className="mt-2 text-micro leading-relaxed text-secondary">
+                {entry.raw_text}
+              </p>
+            ) : (
+              <div className="mt-3 space-y-2.5">
+                {structuredEntrySections.map((section, index) => (
+                  <section
+                    key={`${section.title}-${index}`}
+                    className="rounded-lg border border-subtle bg-surface-2 px-3 py-2.5"
+                  >
+                    <h5 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                      {section.title}
+                    </h5>
+                    <div className="mt-1.5 space-y-1.5">
+                      {section.paragraphs.map((paragraph, paragraphIndex) => (
+                        <p
+                          key={`${section.title}-${index}-${paragraphIndex}`}
+                          className="text-micro leading-relaxed text-secondary"
+                        >
+                          {paragraph}
+                        </p>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
           </details>
 
           <section>
             <div className="mb-2">
-              <h4 className="text-micro font-semibold uppercase tracking-wide text-muted">
-                Linked CiP suggestions
+              <h4 className="text-xs font-semibold text-primary">
+                Linked suggestions
               </h4>
-              <p className="text-[11px] text-muted">
-                Best matches first. Additional items are collapsed below.
-              </p>
+              {suggestedOnly && (
+                <p className="text-[11px] text-muted">
+                  Pending only in focus mode.
+                </p>
+              )}
             </div>
-            {entry.linked_cip_suggestions.length === 0 ? (
+            {visibleLinkedSuggestions.length === 0 ? (
               <p className="text-micro italic text-muted">
-                No linked CiP matches.
+                No linked suggestions.
               </p>
             ) : (
               <>
@@ -428,7 +620,7 @@ export function ReviewCard({
                 {linkedSplit.overflow.length > 0 && (
                   <details className="mt-2 rounded-xl border border-subtle bg-surface-2 p-3">
                     <summary className="cursor-pointer text-[11px] font-medium text-secondary">
-                      More linked suggestions ({linkedSplit.overflow.length})
+                      Show more linked suggestions ({linkedSplit.overflow.length})
                     </summary>
                     <ul className="mt-2 space-y-1.5">
                       {linkedSplit.overflow.map((s) => (
@@ -452,12 +644,10 @@ export function ReviewCard({
           {crossCipCount > 0 && (
             <section className="rounded-xl border border-subtle bg-surface-1 p-3">
               <div className="mb-2">
-                <h4 className="text-micro font-semibold uppercase tracking-wide text-secondary">
-                  Cross-CiP opportunities
+                <h4 className="text-xs font-semibold text-primary">
+                  Additional opportunities
                 </h4>
-                <p className="text-[11px] text-muted">
-                  Suggested extra coverage from other CiPs, ranked by usefulness.
-                </p>
+                <p className="text-[11px] text-muted">Cross-CiP suggestions.</p>
               </div>
               <ul className="space-y-1.5">
                 {crossSplit.primary.map((s) => (
@@ -476,7 +666,7 @@ export function ReviewCard({
               {crossSplit.overflow.length > 0 && (
                 <details className="mt-2 rounded-xl border border-subtle bg-surface-2 p-3">
                   <summary className="cursor-pointer text-[11px] font-medium text-secondary">
-                    More cross-CiP suggestions ({crossSplit.overflow.length})
+                    Show more cross-CiP suggestions ({crossSplit.overflow.length})
                   </summary>
                   <ul className="mt-2 space-y-1.5">
                     {crossSplit.overflow.map((s) => (
@@ -503,7 +693,7 @@ export function ReviewCard({
               onToggle={(e) => setDescriptorPanelOpen((e.target as HTMLDetailsElement).open)}
             >
               <summary className="cursor-pointer text-micro font-medium text-secondary">
-                View descriptor coverage
+                View coverage details
               </summary>
               <div className="mt-3">
                 <DescriptorCoveragePanel

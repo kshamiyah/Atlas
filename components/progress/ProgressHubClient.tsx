@@ -341,7 +341,7 @@ export function ProgressHubClient() {
           <>
             <section aria-label="Progress snapshot">
               <h2 className="sr-only">Progress snapshot</h2>
-              <ProgressKpiStrip kpis={data.kpis} />
+              <ProgressKpiStrip kpis={data.kpis} checkpoint={data.checkpoint} />
             </section>
 
             <ProgressMessageCentre messages={data.messages} />

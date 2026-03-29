@@ -13,6 +13,20 @@ export type ProgressKpiBlock = {
   pct: number;
 };
 
+export type ProgressCheckpointType = "annual" | "stage_end" | "waypoint";
+export type ProgressCheckpointTypeLabel =
+  | "Annual ARCP"
+  | "Stage-End ARCP"
+  | "Waypoint ARCP";
+
+export type ProgressCheckpointContext = {
+  type: ProgressCheckpointType;
+  label: ProgressCheckpointTypeLabel;
+  current_stage: string | null;
+  stage_elapsed_fraction: number | null;
+  working_percent: number;
+};
+
 export type ProgressMessagePriority = "high" | "medium" | "low";
 
 export type ProgressMessage = {
@@ -26,7 +40,9 @@ export type ProgressMessage = {
 
 export type ProgressSummaryResponse = {
   scope: ProgressSummaryScope;
+  checkpoint: ProgressCheckpointContext;
   kpis: {
+    cips_checkpoint: ProgressKpiBlock;
     cips: ProgressKpiBlock;
     key_skills: ProgressKpiBlock;
     descriptors: ProgressKpiBlock;
@@ -59,6 +75,9 @@ export type ProgressCipRow = {
   cip_number: number;
   cip_title: string;
   status: ProgressRagStatus;
+  checkpoint_type: ProgressCheckpointType;
+  expected_key_skills_by_now: number | null;
+  status_reason: string;
   entries_count: number;
   last_entry_date: string | null;
   key_skills: ProgressKpiBlock;
@@ -72,6 +91,7 @@ export type ProgressCipRow = {
 
 export type ProgressCipsResponse = {
   scope: ProgressSummaryScope;
+  checkpoint: ProgressCheckpointContext;
   cips: ProgressCipRow[];
   updated_at: string;
 };

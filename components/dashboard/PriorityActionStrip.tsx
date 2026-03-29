@@ -14,7 +14,7 @@ const PRIORITY_STYLES = {
   low: { color: "var(--accent-blue)", bg: "rgba(0,113,227,0.10)" },
 } as const;
 
-function buildActions(cips: GapReportCip[]): Action[] {
+function buildActions(cips: GapReportCip[], pendingSuggestionCount: number): Action[] {
   const actions: Action[] = [];
   const normalized = cips.map((cip) => ({
     ...cip,
@@ -50,14 +50,10 @@ function buildActions(cips: GapReportCip[]): Action[] {
     });
   }
 
-  const unconfirmedTotal = cips.reduce(
-    (sum, c) => sum + (c.total_skills - c.confirmed_skills),
-    0
-  );
-  if (unconfirmedTotal > 0) {
+  if (pendingSuggestionCount > 0) {
     actions.push({
       priority: "low",
-      title: `${unconfirmedTotal} key skill suggestion${unconfirmedTotal !== 1 ? "s" : ""} pending review`,
+      title: `${pendingSuggestionCount} key skill suggestion${pendingSuggestionCount !== 1 ? "s" : ""} pending review`,
       sub: "Confirm or reject AI-matched skills to improve your coverage accuracy.",
       href: "/dashboard/key-skill-review",
       cta: "Review Now",
@@ -69,10 +65,11 @@ function buildActions(cips: GapReportCip[]): Action[] {
 
 type Props = {
   cips: GapReportCip[];
+  pendingSuggestionCount: number;
   isLoading: boolean;
 };
 
-export function PriorityActionStrip({ cips, isLoading }: Props) {
+export function PriorityActionStrip({ cips, pendingSuggestionCount, isLoading }: Props) {
   if (isLoading) {
     return (
       <div className="card flex h-full flex-col gap-3 p-6">
@@ -116,7 +113,7 @@ export function PriorityActionStrip({ cips, isLoading }: Props) {
     );
   }
 
-  const actions = buildActions(cips);
+  const actions = buildActions(cips, pendingSuggestionCount);
   if (actions.length === 0) return null;
 
   return (

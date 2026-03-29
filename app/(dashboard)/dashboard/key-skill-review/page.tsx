@@ -12,7 +12,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ReviewFilters } from "@/components/key-skill-review/ReviewFilters";
 import { ReviewQueue } from "@/components/key-skill-review/ReviewQueue";
 import { ProgressFocusBanner } from "@/components/key-skill-review/ProgressFocusBanner";
-import type { ReviewQueueMode } from "@/components/key-skill-review/ReviewQueue";
+import type {
+  FocusReviewMode,
+  ReviewQueueMode,
+} from "@/components/key-skill-review/ReviewQueue";
 import { CoverageSummary } from "@/components/key-skill-review/CoverageSummary";
 import { ReviewSkeleton } from "@/components/key-skill-review/ReviewSkeleton";
 import {
@@ -117,6 +120,13 @@ type Toast = {
   onUndo?: () => void;
 };
 
+type LastUndoAction = {
+  id: string;
+  run: () => void;
+};
+
+type BatchActionScope = "linked" | "cross" | "both";
+
 type SyncProgressPayload = {
   phase:
     | "start"
@@ -138,6 +148,12 @@ function formatQueueStatus(status: PushQueueEntry["status"]): string {
   if (status === "failed") return "Failed";
   if (status === "synced") return "Synced";
   return "Pending";
+}
+
+function batchScopeLabel(scope: BatchActionScope): string {
+  if (scope === "linked") return "linked-CiP";
+  if (scope === "cross") return "cross-CiP";
+  return "linked and cross-CiP";
 }
 
 function ToastContainer({
@@ -203,9 +219,20 @@ function KeySkillReviewPageContent() {
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
   const [query, setQuery] = useState("");
   const [queueMode, setQueueMode] = useState<ReviewQueueMode>("focus");
+  const [focusReviewMode, setFocusReviewMode] = useState<FocusReviewMode>(() => {
+    if (typeof window === "undefined") return "classic";
+    try {
+      const raw = window.localStorage.getItem("piq.review.focus.mode");
+      return raw === "swipe" ? "swipe" : "classic";
+    } catch {
+      return "classic";
+    }
+  });
+  const [batchActionScope, setBatchActionScope] = useState<BatchActionScope>("linked");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [lastUndoAction, setLastUndoAction] = useState<LastUndoAction | null>(null);
   const toastTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const queueAckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueProgressHeartbeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -252,6 +279,23 @@ function KeySkillReviewPageContent() {
       toastTimers.current.delete(id);
     }, 6000);
     toastTimers.current.set(id, timer);
+  }, []);
+
+  const handleUndoLastAction = useCallback(() => {
+    setLastUndoAction((prev) => {
+      if (!prev) return null;
+      prev.run();
+      return null;
+    });
+  }, []);
+
+  const setFocusReviewModePersisted = useCallback((next: FocusReviewMode) => {
+    setFocusReviewMode(next);
+    try {
+      window.localStorage.setItem("piq.review.focus.mode", next);
+    } catch {
+      // no-op
+    }
   }, []);
 
   // ── Data loading ──────────────────────────────────────────────────────────
@@ -454,16 +498,6 @@ function KeySkillReviewPageContent() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const hasAnySuggestions = useMemo(
-    () =>
-      entries.some(
-        (e) =>
-          e.linked_cip_suggestions.length > 0 ||
-          e.cross_cip_suggestions.length > 0,
-      ),
-    [entries],
-  );
-
   const entriesWithoutSuggestions = useMemo(
     () =>
       entries.filter(
@@ -550,23 +584,30 @@ function KeySkillReviewPageContent() {
 
     // Show undo toast for confirm / reject
     if (nextStatus === "confirmed" || nextStatus === "rejected") {
-      addToast({
-        message: nextStatus === "confirmed" ? "Suggestion confirmed" : "Suggestion rejected",
-        onUndo: () => {
-          applyLocalStatusUpdate(entryId, suggestionId, source, prevStatus);
-          void fetchJson<{ ok: true }>("/api/key-skill-review/status", {
-            method: "PATCH",
-            body: JSON.stringify({
-              suggestion_id: suggestionId,
-              status: prevStatus,
-            } as UpdateSuggestionStatusBody),
-          }).catch((err) => {
+      const undoId = `${entryId}:${suggestionId}:${Date.now()}`;
+      const runUndo = () => {
+        setLastUndoAction((prev) => (prev?.id === undoId ? null : prev));
+        applyLocalStatusUpdate(entryId, suggestionId, source, prevStatus);
+        void fetchJson<{ ok: true }>("/api/key-skill-review/status", {
+          method: "PATCH",
+          body: JSON.stringify({
+            suggestion_id: suggestionId,
+            status: prevStatus,
+          } as UpdateSuggestionStatusBody),
+        })
+          .catch((err) => {
             setErrorMessage(err instanceof Error ? err.message : "Failed to undo");
-          }).then(() => {
+          })
+          .then(() => {
             void loadPushQueue();
           });
-        },
+      };
+
+      addToast({
+        message: nextStatus === "confirmed" ? "Suggestion confirmed" : "Suggestion rejected",
+        onUndo: runUndo,
       });
+      setLastUndoAction({ id: undoId, run: runUndo });
     }
 
     // Background API call — UI already updated
@@ -588,12 +629,21 @@ function KeySkillReviewPageContent() {
 
   // ── Bulk actions ──────────────────────────────────────────────────────────
 
-  async function handleConfirmAllHighConfidenceLinked() {
+  async function handleConfirmAllHighConfidence(scope: BatchActionScope) {
     const toConfirm: { suggestionId: string }[] = [];
     for (const entry of entries) {
-      for (const s of entry.linked_cip_suggestions) {
-        if (s.confidence >= 0.8 && s.status !== "confirmed" && s.suggestion_id) {
-          toConfirm.push({ suggestionId: s.suggestion_id });
+      if (scope !== "cross") {
+        for (const s of entry.linked_cip_suggestions) {
+          if (s.confidence >= 0.8 && s.status === "suggested" && s.suggestion_id) {
+            toConfirm.push({ suggestionId: s.suggestion_id });
+          }
+        }
+      }
+      if (scope !== "linked") {
+        for (const s of entry.cross_cip_suggestions) {
+          if (s.confidence >= 0.8 && s.status === "suggested" && s.suggestion_id) {
+            toConfirm.push({ suggestionId: s.suggestion_id });
+          }
         }
       }
     }
@@ -611,9 +661,53 @@ function KeySkillReviewPageContent() {
         ),
       );
       await reloadAllQueues();
-      addToast({ message: `${toConfirm.length} suggestion${toConfirm.length !== 1 ? "s" : ""} confirmed` });
+      addToast({
+        message: `${toConfirm.length} ${batchScopeLabel(scope)} suggestion${toConfirm.length !== 1 ? "s" : ""} confirmed`,
+      });
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Failed to confirm suggestions");
+    } finally {
+      setIsMutating(false);
+    }
+  }
+
+  async function handleRejectAllLowConfidence(scope: BatchActionScope) {
+    const toReject: { suggestionId: string }[] = [];
+    for (const entry of entries) {
+      if (scope !== "cross") {
+        for (const s of entry.linked_cip_suggestions) {
+          if (s.confidence < 0.7 && s.status === "suggested" && s.suggestion_id) {
+            toReject.push({ suggestionId: s.suggestion_id });
+          }
+        }
+      }
+      if (scope !== "linked") {
+        for (const s of entry.cross_cip_suggestions) {
+          if (s.confidence < 0.7 && s.status === "suggested" && s.suggestion_id) {
+            toReject.push({ suggestionId: s.suggestion_id });
+          }
+        }
+      }
+    }
+    if (toReject.length === 0) return;
+
+    setIsMutating(true);
+    setErrorMessage(null);
+    try {
+      await Promise.all(
+        toReject.map(({ suggestionId }) =>
+          fetchJson<{ ok: true }>("/api/key-skill-review/status", {
+            method: "PATCH",
+            body: JSON.stringify({ suggestion_id: suggestionId, status: "rejected" }),
+          }),
+        ),
+      );
+      await reloadAllQueues();
+      addToast({
+        message: `${toReject.length} low-confidence ${batchScopeLabel(scope)} suggestion${toReject.length !== 1 ? "s" : ""} rejected`,
+      });
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to reject suggestions");
     } finally {
       setIsMutating(false);
     }
@@ -707,23 +801,17 @@ function KeySkillReviewPageContent() {
   // ── Bulk action modal triggers ────────────────────────────────────────────
 
   function requestConfirmAllHighConfidence() {
-    const count = entries.reduce(
-      (acc, e) =>
-        acc +
-        e.linked_cip_suggestions.filter(
-          (s) => s.confidence >= 0.8 && s.status !== "confirmed" && s.suggestion_id,
-        ).length,
-      0,
-    );
+    const scope = batchActionScope;
+    const count = scopedConfidenceBuckets.high;
     if (count === 0) return;
     setPendingConfirm({
-      label: "Confirm all high-confidence linked-CiP suggestions",
+      label: `Confirm all high-confidence ${batchScopeLabel(scope)} suggestions`,
       description:
-        "Confirms all linked-CiP suggestions with ≥80% confidence that haven't been confirmed yet.",
+        `Confirms ${batchScopeLabel(scope)} suggestions with ≥80% confidence that are still pending review.`,
       count,
       onConfirm: () => {
         setPendingConfirm(null);
-        void handleConfirmAllHighConfidenceLinked();
+        void handleConfirmAllHighConfidence(scope);
       },
     });
   }
@@ -746,6 +834,22 @@ function KeySkillReviewPageContent() {
       onConfirm: () => {
         setPendingConfirm(null);
         void handleResetAllToSuggested();
+      },
+    });
+  }
+
+  function requestRejectAllLowConfidence() {
+    const scope = batchActionScope;
+    const count = scopedConfidenceBuckets.low;
+    if (count === 0) return;
+    setPendingConfirm({
+      label: `Reject all low-confidence ${batchScopeLabel(scope)} suggestions`,
+      description:
+        `Rejects ${batchScopeLabel(scope)} suggestions under 70% confidence that are still pending review.`,
+      count,
+      onConfirm: () => {
+        setPendingConfirm(null);
+        void handleRejectAllLowConfidence(scope);
       },
     });
   }
@@ -783,16 +887,13 @@ function KeySkillReviewPageContent() {
     setQueueMode("focus");
   }
 
-  function startBackgroundQueueSync(mode: "all" | "failed") {
+  function startBackgroundQueueSync() {
     if (!pushQueue.queue_available) {
       setQueueProgressMessage("Queue storage is unavailable. Run the latest migration first.");
       return;
     }
 
-    const targetEntries =
-      mode === "failed"
-        ? pushQueue.entries.filter((entry) => entry.status === "failed")
-        : syncableQueueEntries;
+    const targetEntries = syncableQueueEntries;
 
     if (targetEntries.length === 0) {
       setQueueProgressMessage("No queued entries need syncing.");
@@ -833,19 +934,81 @@ function KeySkillReviewPageContent() {
   }
 
   const actionDisabled = isMutating || isLoading;
-  const canConfirmAllHighConfidence = hasAnySuggestions;
-  const canResetRejected = hasAnySuggestions;
+  const confidenceBuckets = useMemo(() => {
+    let linkedHighPending = 0;
+    let linkedMediumPending = 0;
+    let linkedLowPending = 0;
+    let crossHighPending = 0;
+    let crossMediumPending = 0;
+    let crossLowPending = 0;
+
+    for (const entry of entries) {
+      for (const s of entry.linked_cip_suggestions) {
+        if (s.status !== "suggested" || !s.suggestion_id) continue;
+        if (s.confidence >= 0.8) linkedHighPending += 1;
+        else if (s.confidence >= 0.7) linkedMediumPending += 1;
+        else linkedLowPending += 1;
+      }
+      for (const s of entry.cross_cip_suggestions) {
+        if (s.status !== "suggested" || !s.suggestion_id) continue;
+        if (s.confidence >= 0.8) crossHighPending += 1;
+        else if (s.confidence >= 0.7) crossMediumPending += 1;
+        else crossLowPending += 1;
+      }
+    }
+
+    return {
+      linkedHighPending,
+      linkedMediumPending,
+      linkedLowPending,
+      crossHighPending,
+      crossMediumPending,
+      crossLowPending,
+    };
+  }, [entries]);
+
+  const scopedConfidenceBuckets = useMemo(() => {
+    if (batchActionScope === "linked") {
+      return {
+        high: confidenceBuckets.linkedHighPending,
+        medium: confidenceBuckets.linkedMediumPending,
+        low: confidenceBuckets.linkedLowPending,
+      };
+    }
+    if (batchActionScope === "cross") {
+      return {
+        high: confidenceBuckets.crossHighPending,
+        medium: confidenceBuckets.crossMediumPending,
+        low: confidenceBuckets.crossLowPending,
+      };
+    }
+    return {
+      high: confidenceBuckets.linkedHighPending + confidenceBuckets.crossHighPending,
+      medium: confidenceBuckets.linkedMediumPending + confidenceBuckets.crossMediumPending,
+      low: confidenceBuckets.linkedLowPending + confidenceBuckets.crossLowPending,
+    };
+  }, [batchActionScope, confidenceBuckets]);
+
+  const rejectedCount = useMemo(
+    () =>
+      entries.reduce(
+        (acc, e) =>
+          acc +
+          [...e.linked_cip_suggestions, ...e.cross_cip_suggestions].filter(
+            (s) => s.status === "rejected" && s.suggestion_id,
+          ).length,
+        0,
+      ),
+    [entries],
+  );
+  const canConfirmAllHighConfidence = scopedConfidenceBuckets.high > 0;
+  const canRejectLowConfidence = scopedConfidenceBuckets.low > 0;
+  const canResetRejected = rejectedCount > 0;
   const canGenerateForEmpty = entriesWithoutSuggestions.length > 0;
   const canGenerateCrossCip = entries.length > 0;
   const canAnalyseDescriptors = hasAnyConfirmed;
-  const hasAnyBulkAction =
-    canConfirmAllHighConfidence ||
-    canResetRejected ||
-    canGenerateForEmpty;
   const queueSummary = pushQueue.summary;
   const canRunQueueSync = !isSyncingQueue && syncableQueueEntries.length > 0;
-  const canRetryFailedQueue =
-    !isSyncingQueue && pushQueue.entries.some((entry) => entry.status === "failed");
   const activeQueueEntries = useMemo(
     () => pushQueue.entries.filter((entry) => entry.status !== "synced"),
     [pushQueue.entries],
@@ -1083,19 +1246,11 @@ function KeySkillReviewPageContent() {
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => startBackgroundQueueSync("all")}
+                        onClick={() => startBackgroundQueueSync()}
                         disabled={!canRunQueueSync}
                         className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {isSyncingQueue ? "Syncing..." : "Run Background Sync"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => startBackgroundQueueSync("failed")}
-                        disabled={!canRetryFailedQueue}
-                        className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Retry failed only
                       </button>
                     </div>
 
@@ -1111,28 +1266,44 @@ function KeySkillReviewPageContent() {
                       ) : (
                         <>
                           {activeQueueEntries.slice(0, 5).map((entry) => (
-                            <article
-                              key={entry.review_entry_id}
-                              className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5"
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-xs font-medium text-primary line-clamp-1">
-                                  {entry.title}
-                                </p>
-                                <span
-                                  className="rounded-full border border-subtle px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-secondary"
+                            (() => {
+                              const cipNumbers = Array.from(
+                                new Set(
+                                  entry.skills
+                                    .map((skill) => Number(skill.cip_number))
+                                    .filter((n) => Number.isFinite(n) && n > 0),
+                                ),
+                              ).sort((a, b) => a - b);
+                              const cipLabel =
+                                cipNumbers.length > 0
+                                  ? `CiP${cipNumbers.length === 1 ? "" : "s"} ${cipNumbers.join(", ")}`
+                                  : "No CiP";
+
+                              return (
+                                <article
+                                  key={entry.review_entry_id}
+                                  className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5"
                                 >
-                                  {formatQueueStatus(entry.status)}
-                                </span>
-                              </div>
-                              <p className="mt-1 text-[11px] text-muted">
-                                {entry.skills.length} skill{entry.skills.length !== 1 ? "s" : ""}
-                                {entry.entry_edit_url ? "" : " • missing Kaizen edit URL"}
-                              </p>
-                              {entry.last_error && (
-                                <p className="mt-1 text-[11px] text-accent-red">{entry.last_error}</p>
-                              )}
-                            </article>
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-xs font-medium text-primary line-clamp-1">
+                                      {entry.title}
+                                    </p>
+                                    <span
+                                      className="rounded-full border border-subtle px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-secondary"
+                                    >
+                                      {formatQueueStatus(entry.status)}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-muted">
+                                    {entry.skills.length} skill{entry.skills.length !== 1 ? "s" : ""} • {cipLabel}
+                                    {entry.entry_edit_url ? "" : " • missing Kaizen edit URL"}
+                                  </p>
+                                  {entry.last_error && (
+                                    <p className="mt-1 text-[11px] text-accent-red">{entry.last_error}</p>
+                                  )}
+                                </article>
+                              );
+                            })()
                           ))}
                           {activeQueueEntries.length > 5 && (
                             <p className="text-[11px] text-muted">
@@ -1149,19 +1320,45 @@ function KeySkillReviewPageContent() {
                           </summary>
                           <div className="mt-2 space-y-2">
                             {syncedQueueEntries.slice(0, 10).map((entry) => (
-                              <article
-                                key={`${entry.review_entry_id}-synced`}
-                                className="rounded-lg border border-subtle bg-surface-2 px-3 py-2"
-                              >
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <p className="text-xs font-medium text-primary line-clamp-1">
-                                    {entry.title}
-                                  </p>
-                                  <span className="rounded-full border border-subtle px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-secondary">
-                                    Synced
-                                  </span>
-                                </div>
-                              </article>
+                              (() => {
+                                const cipNumbers = Array.from(
+                                  new Set(
+                                    entry.skills
+                                      .map((skill) => Number(skill.cip_number))
+                                      .filter((n) => Number.isFinite(n) && n > 0),
+                                  ),
+                                ).sort((a, b) => a - b);
+                                const cipLabel =
+                                  cipNumbers.length > 0
+                                    ? `CiP${cipNumbers.length === 1 ? "" : "s"} ${cipNumbers.join(", ")}`
+                                    : "No CiP";
+                                const skillTitles = entry.skills
+                                  .map((skill) => skill.key_skill_title.trim())
+                                  .filter(Boolean)
+                                  .slice(0, 4);
+
+                                return (
+                                  <article
+                                    key={`${entry.review_entry_id}-synced`}
+                                    className="rounded-lg border border-subtle bg-surface-2 px-3 py-2"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="text-xs font-medium text-primary line-clamp-1">
+                                        {entry.title}
+                                      </p>
+                                      <span className="rounded-full border border-subtle px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-secondary">
+                                        Synced
+                                      </span>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted">{cipLabel}</p>
+                                    {skillTitles.length > 0 && (
+                                      <p className="mt-1 text-[11px] text-secondary line-clamp-2">
+                                        {skillTitles.join(" • ")}
+                                      </p>
+                                    )}
+                                  </article>
+                                );
+                              })()
                             ))}
                             {syncedQueueEntries.length > 10 && (
                               <p className="text-[11px] text-muted">
@@ -1215,54 +1412,111 @@ function KeySkillReviewPageContent() {
                       Batch actions
                     </summary>
                     <div className="mt-3 space-y-3">
-                      {hasAnyBulkAction ? (
-                        <>
-                          <div className="flex flex-wrap gap-2">
-                            {canConfirmAllHighConfidence && (
-                              <button
-                                type="button"
-                                onClick={requestConfirmAllHighConfidence}
-                                disabled={actionDisabled}
-                                className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Confirm high-confidence
-                              </button>
-                            )}
-                            {canGenerateForEmpty && (
-                              <button
-                                type="button"
-                                onClick={handleGenerateForEmpty}
-                                disabled={actionDisabled}
-                                className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Generate missing suggestions
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="rounded-xl border border-subtle bg-surface-1 p-3">
-                            <p className="text-[11px] font-medium text-secondary">
-                              Advanced tools
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {canResetRejected && (
-                                <button
-                                  type="button"
-                                  onClick={requestResetAllToSuggested}
-                                  disabled={actionDisabled}
-                                  className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  Reset rejected to suggested
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="text-xs text-muted">
-                          No bulk actions available yet.
+                      <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
+                        <p className="text-[11px] font-medium text-secondary">
+                          Action scope
                         </p>
-                      )}
+                        <div className="mt-2 inline-flex rounded-full border border-subtle bg-surface-2 p-1">
+                          <button
+                            type="button"
+                            onClick={() => setBatchActionScope("linked")}
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                              batchActionScope === "linked"
+                                ? "bg-surface-3 text-primary shadow-sm"
+                                : "text-secondary hover:text-primary"
+                            }`}
+                          >
+                            Linked only
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setBatchActionScope("cross")}
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                              batchActionScope === "cross"
+                                ? "bg-surface-3 text-primary shadow-sm"
+                                : "text-secondary hover:text-primary"
+                            }`}
+                          >
+                            Cross-CiP only
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setBatchActionScope("both")}
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                              batchActionScope === "both"
+                                ? "bg-surface-3 text-primary shadow-sm"
+                                : "text-secondary hover:text-primary"
+                            }`}
+                          >
+                            Both
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
+                        <p className="text-[11px] font-medium text-secondary">
+                          Pending confidence buckets
+                        </p>
+                        <p className="mt-1 text-[11px] text-muted">
+                          Selected scope ({batchScopeLabel(batchActionScope)}): High{" "}
+                          {scopedConfidenceBuckets.high} · Medium{" "}
+                          {scopedConfidenceBuckets.medium} · Low{" "}
+                          {scopedConfidenceBuckets.low}
+                        </p>
+                        <p className="mt-1 text-[11px] text-muted">
+                          Linked: High {confidenceBuckets.linkedHighPending} · Medium{" "}
+                          {confidenceBuckets.linkedMediumPending} · Low{" "}
+                          {confidenceBuckets.linkedLowPending}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-muted">
+                          Cross-CiP: High {confidenceBuckets.crossHighPending} · Medium{" "}
+                          {confidenceBuckets.crossMediumPending} · Low{" "}
+                          {confidenceBuckets.crossLowPending}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={requestConfirmAllHighConfidence}
+                          disabled={actionDisabled || !canConfirmAllHighConfidence}
+                          className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Confirm high-confidence ({scopedConfidenceBuckets.high})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={requestRejectAllLowConfidence}
+                          disabled={actionDisabled || !canRejectLowConfidence}
+                          className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Reject low-confidence ({scopedConfidenceBuckets.low})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleGenerateForEmpty}
+                          disabled={actionDisabled || !canGenerateForEmpty}
+                          className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Generate missing suggestions
+                        </button>
+                      </div>
+
+                      <div className="rounded-xl border border-subtle bg-surface-1 p-3">
+                        <p className="text-[11px] font-medium text-secondary">
+                          Advanced tools
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={requestResetAllToSuggested}
+                            disabled={actionDisabled || !canResetRejected}
+                            className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Reset rejected to suggested
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </details>
                 </aside>
@@ -1304,6 +1558,35 @@ function KeySkillReviewPageContent() {
                       </button>
                     </div>
                   </div>
+                  {queueMode === "focus" && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <p className="text-[11px] font-medium text-secondary">Focus style</p>
+                      <div className="inline-flex rounded-full border border-subtle bg-surface-1 p-1">
+                        <button
+                          type="button"
+                          onClick={() => setFocusReviewModePersisted("classic")}
+                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                            focusReviewMode === "classic"
+                              ? "bg-surface-2 text-primary shadow-sm"
+                              : "text-secondary hover:text-primary"
+                          }`}
+                        >
+                          Classic
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFocusReviewModePersisted("swipe")}
+                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                            focusReviewMode === "swipe"
+                              ? "bg-surface-2 text-primary shadow-sm"
+                              : "text-secondary hover:text-primary"
+                          }`}
+                        >
+                          Swipe
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-2">
                     <button
                       type="button"
@@ -1314,23 +1597,31 @@ function KeySkillReviewPageContent() {
                     </button>
                   </div>
                   <p className="mt-2 text-xs text-secondary">
-                    Focus mode shows one entry at a time for faster decisions. List mode keeps full context.
+                    {queueMode === "list"
+                      ? "List mode keeps full context across many entries."
+                      : focusReviewMode === "swipe"
+                        ? "Swipe opens a centered spotlight. Right confirms, left rejects, Esc exits."
+                        : "Classic focus keeps one entry open with full suggestion context."}
                   </p>
                 </section>
 
                 <ReviewQueue
-                  key={`${statusFilter}|${sourceFilter}|${confidenceFilter}|${queueMode}|${query}`}
+                  key={`${statusFilter}|${sourceFilter}|${confidenceFilter}|${queueMode}|${focusReviewMode}|${query}`}
                   entries={entries}
                   statusFilter={statusFilter}
                   sourceFilter={sourceFilter}
                   confidenceFilter={confidenceFilter}
                   query={query}
                   mode={queueMode}
+                  focusReviewMode={focusReviewMode}
                   onUpdateSuggestion={handleUpdateSuggestion}
                   disabled={actionDisabled}
                   progressFocusEntryId={progressFocusResolution?.entryId ?? null}
                   progressFocusSkillId={progressFocusParsed?.skillId ?? null}
                   progressFocusDescriptorId={progressFocusParsed?.descriptorId ?? null}
+                  onUndoLastAction={handleUndoLastAction}
+                  canUndoLastAction={lastUndoAction != null}
+                  onRequestExitSwipeMode={() => setFocusReviewModePersisted("classic")}
                 />
               </div>
             </div>

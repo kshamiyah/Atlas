@@ -5,6 +5,26 @@ import { buildKaizenSourceEntryKey } from "@/lib/key-skill-review/source-key";
 import { resolveKaizenDirectMatches } from "@/lib/key-skill-review/kaizen-key-skill-parser";
 import type { BootstrapResponse } from "@/lib/types/key-skill-review-api";
 
+type SuggestionStatus = "suggested" | "confirmed" | "rejected";
+
+type BootstrapSuggestionRow = {
+  user_id: string;
+  review_entry_id: string;
+  key_skill_id: string;
+  suggestion_source: "linked_cip";
+  method: "kaizen_direct";
+  status: SuggestionStatus;
+  confidence: number;
+  rationale: string;
+};
+
+function toSuggestionStatus(value: unknown): SuggestionStatus | null {
+  if (value === "suggested" || value === "confirmed" || value === "rejected") {
+    return value;
+  }
+  return null;
+}
+
 function toIsoDateOrNull(value: string | null | undefined): string | null {
   if (!value) return null;
   const raw = value.trim();
@@ -277,7 +297,8 @@ export async function POST() {
 
   // ── Auto-generate kaizen_direct suggestions for all bootstrapped entries ──
   // Resolves each entry's linked key skills via deterministic ID lookup against
-  // key_skills.kaizen_ids[]. All matches are stored as confirmed (ground truth).
+  // key_skills.kaizen_ids[]. First-time matches default to confirmed; if the user
+  // has already reviewed a suggestion, keep their status on subsequent bootstraps.
   // Cross-CiP suggestions are generated separately by suggest-cross-cip (AI).
   try {
     const [{ data: keySkillRows }, { data: cipRows }, { data: reviewEntries }] =
@@ -313,7 +334,32 @@ export async function POST() {
         kaizen_ids: Array.isArray(ks.kaizen_ids) ? ks.kaizen_ids : null,
       }));
 
-      const allSuggestionRows: Record<string, unknown>[] = [];
+      const allSuggestionRows: BootstrapSuggestionRow[] = [];
+
+      const existingStatusByKey = new Map<string, SuggestionStatus>();
+      if (reviewEntries.length > 0) {
+        const reviewEntryIds = Array.from(
+          new Set((reviewEntries as { id: string }[]).map((e) => String(e.id))),
+        );
+
+        const { data: existingSuggestionRows, error: existingSuggestionError } = await supabase
+          .from("key_skill_review_suggestions")
+          .select("review_entry_id, key_skill_id, suggestion_source, status")
+          .eq("user_id", userId)
+          .eq("suggestion_source", "linked_cip")
+          .in("review_entry_id", reviewEntryIds);
+
+        if (existingSuggestionError) {
+          throw existingSuggestionError;
+        }
+
+        for (const row of existingSuggestionRows ?? []) {
+          const status = toSuggestionStatus(row.status);
+          if (!status) continue;
+          const key = `${String(row.review_entry_id)}|${String(row.key_skill_id)}|${String(row.suggestion_source)}`;
+          existingStatusByKey.set(key, status);
+        }
+      }
 
       for (const entry of reviewEntries as {
         id: string;
@@ -328,14 +374,16 @@ export async function POST() {
         const kaizenDirectMatches = resolveKaizenDirectMatches(linkedKeySkillsRaw, kaizenCandidates);
 
         for (const m of kaizenDirectMatches) {
+          const existingStatus = existingStatusByKey.get(
+            `${entry.id}|${m.key_skill_id}|linked_cip`,
+          );
           allSuggestionRows.push({
             user_id: userId,
             review_entry_id: entry.id,
             key_skill_id: m.key_skill_id,
             suggestion_source: "linked_cip",
             method: "kaizen_direct",
-            // Always confirmed — these are skills the user manually linked in Kaizen.
-            status: "confirmed",
+            status: existingStatus ?? "confirmed",
             confidence: m.confidence,
             rationale: m.rationale,
           });

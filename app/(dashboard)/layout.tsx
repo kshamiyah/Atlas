@@ -26,6 +26,19 @@ export default async function DashboardLayout({
         .maybeSingle()
     : { data: null as { synced_at: string } | null };
 
+  let profilePhotoUrl: string | null = null;
+  if (user) {
+    const { data: profileRow, error: profileErr } = await supabase
+      .from("profiles")
+      .select("profile_photo_url")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!profileErr && profileRow && typeof profileRow.profile_photo_url === "string") {
+      const u = profileRow.profile_photo_url.trim();
+      profilePhotoUrl = u.length > 0 ? u : null;
+    }
+  }
+
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-surface-1 md:flex-row">
       <div
@@ -39,6 +52,7 @@ export default async function DashboardLayout({
       <AppSidebar
         userEmail={user?.email ?? (bypassAuth ? "dev-bypass@localhost" : undefined)}
         lastSyncAt={syncRow?.synced_at ?? null}
+        profilePhotoUrl={profilePhotoUrl}
       />
       <div className="relative flex-1 overflow-y-auto">
         <div className="min-h-full md:px-3 md:py-4 lg:px-5">

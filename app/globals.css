@@ -403,6 +403,36 @@ h3, .text-heading-3 {
   animation: fade-up 400ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
+@keyframes entry-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(14px) translateY(4px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) translateY(0) scale(1);
+  }
+}
+
+@keyframes entry-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-14px) translateY(4px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) translateY(0) scale(1);
+  }
+}
+
+.animate-entry-in-next {
+  animation: entry-in-next 240ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+.animate-entry-in-prev {
+  animation: entry-in-prev 240ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
 .animate-stagger > * {
   animation: fade-up 400ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
@@ -428,6 +458,13 @@ h3, .text-heading-3 {
 
 .animate-pulse-dot {
   animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-entry-in-next,
+  .animate-entry-in-prev {
+    animation: none;
+  }
 }
 
 /* ── Smooth theme transitions ─────────────────────────────────────────────

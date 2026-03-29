@@ -82,6 +82,14 @@ const VALID_STATUSES = new Set<PushQueueStatus>([
   "failed",
 ]);
 
+const DESCRIPTOR_ONLY_NON_SYNC_KEY_SKILLS = new Set<string>([
+  "4::Appreciates the importance of stakeholders in quality improvement work",
+]);
+
+function isDescriptorOnlyNonSyncKeySkill(cipNumber: number, title: string): boolean {
+  return DESCRIPTOR_ONLY_NON_SYNC_KEY_SKILLS.has(`${cipNumber}::${title}`);
+}
+
 function emptySummary(): PushQueueSummary {
   return { total: 0, pending: 0, running: 0, synced: 0, failed: 0 };
 }
@@ -139,11 +147,13 @@ function buildDisplayValue(
   keySkillTitle: string,
   kaizenId: string | null,
 ): string {
-  const prefix = cipNumber > 0 ? `CiP ${cipNumber}: ` : "";
+  void cipNumber;
+  // Kaizen token inputs are more reliable with "Title (ID)" values.
+  // Prefixing with "CiP N:" can prevent some forms from resolving the token.
   if (kaizenId) {
-    return `${prefix}${keySkillTitle} (${kaizenId})`;
+    return `${keySkillTitle} (${kaizenId})`;
   }
-  return `${prefix}${keySkillTitle}`;
+  return `${keySkillTitle}`;
 }
 
 function aggregateStatus(statuses: PushQueueStatus[]): PushQueueStatus {
@@ -436,6 +446,7 @@ export async function GET() {
   const keySkillById = new Map(typedKeySkills.map((keySkill) => [keySkill.id, keySkill]));
 
   const grouped = new Map<string, PushQueueGroup>();
+  const descriptorOnlySuggestionIds = new Set<string>();
 
   for (const row of queue) {
     const entry = entryById.get(row.review_entry_id);
@@ -449,12 +460,19 @@ export async function GET() {
     const entryEditUrl = toEditUrl(sourceUrl, sourceEntryId);
 
     const cipNumber = keySkill?.cip_id ? cipNumberById.get(keySkill.cip_id) ?? 0 : 0;
-    const kaizenId =
-      Array.isArray(keySkill?.kaizen_ids) && keySkill.kaizen_ids.length > 0
-        ? keySkill.kaizen_ids[0]
-        : null;
+    const kaizenIds = Array.isArray(keySkill?.kaizen_ids)
+      ? keySkill.kaizen_ids
+          .map((value) => String(value ?? "").trim())
+          .filter((value) => value.length > 0)
+      : [];
+    const kaizenId = kaizenIds.length > 0 ? kaizenIds[0] : null;
     const keySkillTitle = keySkill?.title ?? "";
     const displayValue = buildDisplayValue(cipNumber, keySkillTitle, kaizenId);
+
+    if (isDescriptorOnlyNonSyncKeySkill(cipNumber, keySkillTitle)) {
+      descriptorOnlySuggestionIds.add(row.suggestion_id);
+      continue;
+    }
 
     const existing = grouped.get(row.review_entry_id);
     if (existing) {
@@ -465,6 +483,7 @@ export async function GET() {
         key_skill_title: keySkillTitle,
         cip_number: cipNumber,
         kaizen_id: kaizenId,
+        kaizen_ids: kaizenIds,
         display_value: displayValue,
       });
       existing.statuses.push(row.status);
@@ -494,6 +513,7 @@ export async function GET() {
           key_skill_title: keySkillTitle,
           cip_number: cipNumber,
           kaizen_id: kaizenId,
+          kaizen_ids: kaizenIds,
           display_value: displayValue,
         },
       ],
@@ -502,6 +522,29 @@ export async function GET() {
       last_error: row.last_error,
       updated_at: row.updated_at,
     });
+  }
+
+  if (descriptorOnlySuggestionIds.size > 0) {
+    const syncedAt = new Date().toISOString();
+    for (const suggestionId of descriptorOnlySuggestionIds) {
+      const { error: syncSkipError } = await supabase
+        .from("key_skill_review_push_queue")
+        .update({
+          status: "synced",
+          synced_at: syncedAt,
+          updated_at: syncedAt,
+          last_error: null,
+        })
+        .eq("user_id", userId)
+        .eq("suggestion_id", suggestionId);
+
+      if (syncSkipError && !isQueueTableMissing(syncSkipError)) {
+        return NextResponse.json(
+          { error: "Failed to mark descriptor-only queue rows as synced: " + syncSkipError.message },
+          { status: 500 },
+        );
+      }
+    }
   }
 
   const entries: PushQueueEntry[] = Array.from(grouped.values())

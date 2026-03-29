@@ -1,11 +1,12 @@
 import { entrySortDate } from "./summary-metrics";
+import { classifyCipCheckpointStatus } from "./checkpoint-readiness";
 import type {
+  ProgressCheckpointContext,
   ProgressCipGapDescriptor,
   ProgressCipGapKeySkill,
   ProgressCipRow,
   ProgressCipTopEntry,
   ProgressKpiBlock,
-  ProgressRagStatus,
 } from "../types/progress";
 
 type CipCurriculum = { id: string; number: number; title: string };
@@ -43,17 +44,6 @@ function kpiBlock(covered: number, total: number): ProgressKpiBlock {
   };
 }
 
-function ragForCoverage(
-  ksBlock: ProgressKpiBlock,
-  descBlock: ProgressKpiBlock,
-): ProgressRagStatus {
-  const ksPct = ksBlock.total > 0 ? ksBlock.pct : 100;
-  const descPct = descBlock.total > 0 ? descBlock.pct : 100;
-  if (ksPct >= 100 && descPct >= 80) return "green";
-  if (ksPct >= 50 || descPct >= 40) return "amber";
-  return "red";
-}
-
 export function computeProgressCipRows(params: {
   cips: CipCurriculum[];
   keySkills: KeySkillCurriculum[];
@@ -62,6 +52,7 @@ export function computeProgressCipRows(params: {
   scopedEntries: EntryRow[];
   confirmedRows: ConfirmedRow[];
   coverageRows: CoverageRow[];
+  checkpoint: ProgressCheckpointContext;
 }): ProgressCipRow[] {
   const {
     cips,
@@ -71,6 +62,7 @@ export function computeProgressCipRows(params: {
     scopedEntries,
     confirmedRows,
     coverageRows,
+    checkpoint,
   } = params;
 
   const cipById = new Map(cips.map((c) => [String(c.id), c]));
@@ -183,12 +175,23 @@ export function computeProgressCipRows(params: {
 
     const key_skills = kpiBlock(ksCovered, ksList.length);
     const descriptors = kpiBlock(descCovered, descList.length);
-    const status = ragForCoverage(key_skills, descriptors);
+    const checkpointStatus = classifyCipCheckpointStatus({
+      checkpointType: checkpoint.type,
+      confirmedSkills: ksCovered,
+      totalSkills: ksList.length,
+      coveredDescriptors: descCovered,
+      totalDescriptors: descList.length,
+      stageElapsedFraction: checkpoint.stage_elapsed_fraction,
+      workingPercent: checkpoint.working_percent,
+    });
 
     out.push({
       cip_number: cip.number,
       cip_title: cip.title ?? "",
-      status,
+      status: checkpointStatus.status,
+      checkpoint_type: checkpoint.type,
+      expected_key_skills_by_now: checkpointStatus.expectedSkillsByNow,
+      status_reason: checkpointStatus.reason,
       entries_count,
       last_entry_date,
       key_skills,

@@ -88,6 +88,7 @@ export function ProfilePhotoEditor({
       } else {
         window.localStorage.removeItem("piq.profile.photo");
       }
+      window.dispatchEvent(new Event("piq:profile-photo-updated"));
     }
 
     setPhotoUrl(nextUrl);

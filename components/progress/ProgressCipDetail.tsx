@@ -3,10 +3,10 @@
 import Link from "next/link";
 import type { ProgressCipRow, ProgressRagStatus } from "@/lib/types/progress";
 
-function statusLabel(status: ProgressRagStatus): string {
+function statusLabel(status: ProgressRagStatus, checkpointType: ProgressCipRow["checkpoint_type"]): string {
   if (status === "green") return "On track";
-  if (status === "amber") return "Needs work";
-  return "At risk";
+  if (status === "amber") return checkpointType === "annual" ? "Near trajectory" : "Needs work";
+  return checkpointType === "annual" ? "Off trajectory" : "At risk";
 }
 
 type ProgressCipDetailProps = {
@@ -18,11 +18,19 @@ export function ProgressCipDetail({ row }: ProgressCipDetailProps) {
     <div className="space-y-5">
       <header>
         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-          CiP {row.cip_number} · {statusLabel(row.status)}
+          CiP {row.cip_number} · {statusLabel(row.status, row.checkpoint_type)}
         </p>
         <h3 className="mt-1 text-small font-semibold leading-snug text-primary">
           {row.cip_title}
         </h3>
+        <p className="mt-1 text-[11px] text-secondary">
+          {row.status_reason}
+        </p>
+        {row.expected_key_skills_by_now !== null && row.checkpoint_type === "annual" && (
+          <p className="mt-1 text-[11px] text-muted">
+            Expected key skills by now: {row.expected_key_skills_by_now}
+          </p>
+        )}
         <div className="mt-3 flex flex-wrap gap-4 text-micro text-secondary">
           <span>
             <span className="text-muted">Entries in scope</span>{" "}

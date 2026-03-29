@@ -1,5 +1,11 @@
 import { stagesForScope } from "../profile/stage";
-import type { ProgressKpiBlock } from "../types/progress";
+import {
+  classifyCipCheckpointStatus,
+} from "./checkpoint-readiness";
+import type {
+  ProgressCheckpointContext,
+  ProgressKpiBlock,
+} from "../types/progress";
 
 type CipRow = { id: string; number: number };
 type KeySkillRow = { id: string; cip_id: string };
@@ -84,14 +90,24 @@ export function computeProgressKpis(params: {
   descriptors: DescriptorRow[];
   confirmedRows: ConfirmedRow[];
   coverageRows: CoverageRow[];
+  checkpoint: ProgressCheckpointContext;
 }): {
   kpis: {
+    cips_checkpoint: ProgressKpiBlock;
     cips: ProgressKpiBlock;
     key_skills: ProgressKpiBlock;
     descriptors: ProgressKpiBlock;
   };
 } {
-  const { cips, keySkills, descriptors, confirmedRows, coverageRows, scopedEntryIds } =
+  const {
+    cips,
+    keySkills,
+    descriptors,
+    confirmedRows,
+    coverageRows,
+    scopedEntryIds,
+    checkpoint,
+  } =
     params;
 
   const cipById = new Map(cips.map((c) => [c.id, c]));
@@ -120,22 +136,6 @@ export function computeProgressKpis(params: {
     keySkillsByCip.set(cid, arr);
   }
 
-  let coveredCips = 0;
-  const totalCips = curriculumCipIds.size;
-  for (const cipId of curriculumCipIds) {
-    const ksList = keySkillsByCip.get(cipId) ?? [];
-    if (ksList.length === 0) continue;
-    const allConfirmed = ksList.every((ks) => confirmedInScope.has(String(ks.id)));
-    if (allConfirmed) coveredCips += 1;
-  }
-
-  const descriptorsInCurriculum = descriptors.filter((d) =>
-    curriculumKeySkillIds.has(String(d.key_skill_id)),
-  );
-  const descriptorKeys = descriptorsInCurriculum.map(
-    (d) => `${d.key_skill_id}:${d.id}`,
-  );
-
   const coveredDescriptorSet = new Set<string>();
   for (const row of coverageRows) {
     if (!row.covered) continue;
@@ -145,12 +145,49 @@ export function computeProgressKpis(params: {
     coveredDescriptorSet.add(key);
   }
 
+  let coveredCips = 0;
+  let checkpointCoveredCips = 0;
+  const totalCips = curriculumCipIds.size;
+  for (const cipId of curriculumCipIds) {
+    const ksList = keySkillsByCip.get(cipId) ?? [];
+    if (ksList.length === 0) continue;
+    const allConfirmed = ksList.every((ks) => confirmedInScope.has(String(ks.id)));
+    if (allConfirmed) coveredCips += 1;
+
+    const descriptorListForCip = descriptors.filter((d) =>
+      ksList.some((ks) => String(ks.id) === String(d.key_skill_id)),
+    );
+    let coveredDescriptorCountForCip = 0;
+    for (const descriptorRow of descriptorListForCip) {
+      const key = `${descriptorRow.key_skill_id}:${descriptorRow.id}`;
+      if (coveredDescriptorSet.has(key)) coveredDescriptorCountForCip += 1;
+    }
+    const checkpointStatus = classifyCipCheckpointStatus({
+      checkpointType: checkpoint.type,
+      confirmedSkills: ksList.filter((ks) => confirmedInScope.has(String(ks.id))).length,
+      totalSkills: ksList.length,
+      coveredDescriptors: coveredDescriptorCountForCip,
+      totalDescriptors: descriptorListForCip.length,
+      stageElapsedFraction: checkpoint.stage_elapsed_fraction,
+      workingPercent: checkpoint.working_percent,
+    });
+    if (checkpointStatus.status === "green") checkpointCoveredCips += 1;
+  }
+
+  const descriptorsInCurriculum = descriptors.filter((d) =>
+    curriculumKeySkillIds.has(String(d.key_skill_id)),
+  );
+  const descriptorKeys = descriptorsInCurriculum.map(
+    (d) => `${d.key_skill_id}:${d.id}`,
+  );
+
   let coveredDescriptors = 0;
   for (const key of descriptorKeys) {
     if (coveredDescriptorSet.has(key)) coveredDescriptors += 1;
   }
 
   const kpis = {
+    cips_checkpoint: pct(checkpointCoveredCips, totalCips),
     cips: pct(coveredCips, totalCips),
     key_skills: pct(confirmedInScope.size, curriculumKeySkillIds.size),
     descriptors: pct(coveredDescriptors, descriptorsInCurriculum.length),

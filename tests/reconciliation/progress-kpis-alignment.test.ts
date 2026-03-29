@@ -4,12 +4,21 @@ import { computeProgressCipRows } from "../../lib/progress/cip-metrics";
 import { computeDescriptorGroups } from "../../lib/progress/descriptor-metrics";
 import { computeKeySkillGroups, filterAndSortKeySkillGroups } from "../../lib/progress/key-skill-metrics";
 import { computeProgressKpis } from "../../lib/progress/summary-metrics";
+import type { ProgressCheckpointContext } from "../../lib/types/progress";
 
 /**
  * Synthetic curriculum + scoped rows. No database — proves summary KPIs match
  * unfiltered aggregations from the same inputs used by CiP / key-skills / descriptors stacks.
  */
 function buildFixture() {
+  const checkpoint: ProgressCheckpointContext = {
+    type: "annual",
+    label: "Annual ARCP",
+    current_stage: "ST1",
+    stage_elapsed_fraction: 0.5,
+    working_percent: 100,
+  };
+
   const cips = [
     { id: "c1", number: 1, title: "CiP 1" },
     { id: "c2", number: 2, title: "CiP 2" },
@@ -60,6 +69,7 @@ function buildFixture() {
   ];
 
   return {
+    checkpoint,
     cips,
     keySkills,
     descriptors,
@@ -80,6 +90,7 @@ describe("Progress KPI reconciliation (summary vs detail stacks)", () => {
       descriptors: f.descriptors,
       confirmedRows: f.confirmedRows,
       coverageRows: f.coverageRows,
+      checkpoint: f.checkpoint,
     });
 
     const cipRows = computeProgressCipRows({
@@ -90,6 +101,7 @@ describe("Progress KPI reconciliation (summary vs detail stacks)", () => {
       scopedEntries: f.scopedEntries,
       confirmedRows: f.confirmedRows,
       coverageRows: f.coverageRows,
+      checkpoint: f.checkpoint,
     });
 
     let coveredFromRows = 0;
@@ -111,6 +123,7 @@ describe("Progress KPI reconciliation (summary vs detail stacks)", () => {
       descriptors: f.descriptors,
       confirmedRows: f.confirmedRows,
       coverageRows: f.coverageRows,
+      checkpoint: f.checkpoint,
     });
 
     const built = computeKeySkillGroups({
@@ -143,6 +156,7 @@ describe("Progress KPI reconciliation (summary vs detail stacks)", () => {
       descriptors: f.descriptors,
       confirmedRows: f.confirmedRows,
       coverageRows: f.coverageRows,
+      checkpoint: f.checkpoint,
     });
 
     const groups = computeDescriptorGroups({

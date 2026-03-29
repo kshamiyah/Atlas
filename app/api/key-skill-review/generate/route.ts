@@ -35,6 +35,15 @@ type ExistingSuggestionRow = {
   status: string;
 };
 
+type SuggestionStatus = "suggested" | "confirmed" | "rejected";
+
+function toSuggestionStatus(value: unknown): SuggestionStatus | null {
+  if (value === "suggested" || value === "confirmed" || value === "rejected") {
+    return value;
+  }
+  return null;
+}
+
 export async function POST(request: Request) {
   const supabase = await getServerSupabaseClient();
   const {
@@ -159,7 +168,8 @@ export async function POST(request: Request) {
   }));
 
   // kaizen-direct: deterministic ID-based matches from Kaizen's own linked key skill
-  // data. These are the ground truth for linked_cip — all stored as confirmed.
+  // data. First-time matches default to confirmed; preserve any user-reviewed
+  // status on reruns.
   // Cross-CiP suggestions are handled separately by /api/key-skill-review/suggest-cross-cip
   // (AI-powered, method=ai).
   const kaizenDirectMatches = resolveKaizenDirectMatches(
@@ -178,6 +188,12 @@ export async function POST(request: Request) {
   const generatedKeySet = new Set<string>(
     suggestions.map((s) => `${s.key_skill_id}|${s.source}`),
   );
+  const existingStatusByKey = new Map<string, SuggestionStatus>();
+  for (const row of existing) {
+    const status = toSuggestionStatus(row.status);
+    if (!status) continue;
+    existingStatusByKey.set(`${row.key_skill_id}|${row.suggestion_source}`, status);
+  }
 
   // Always re-upsert kaizen_direct suggestions so confidence and rationale stay
   // current as kaizen_ids mappings are updated in future migrations.
@@ -189,7 +205,7 @@ export async function POST(request: Request) {
       key_skill_id: s.key_skill_id,
       suggestion_source: s.source,
       method: "kaizen_direct" as string,
-      status: "confirmed" as string,
+      status: existingStatusByKey.get(`${s.key_skill_id}|${s.source}`) ?? "confirmed",
       confidence: s.confidence,
       rationale: s.rationale,
     }));

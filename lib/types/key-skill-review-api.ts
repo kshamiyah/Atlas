@@ -21,11 +21,17 @@ export type BootstrapResponse = {
 
 export type AnalyseDescriptorsBody = {
   entry_ids?: string[];
+  force_full_refresh?: boolean;
 };
 
 export type AnalyseDescriptorsResponse = {
   processed: number;
   total_descriptors_analysed: number;
+};
+
+export type SuggestCrossCipBody = {
+  entry_ids?: string[];
+  force_full_refresh?: boolean;
 };
 
 export type SuggestCrossCipResponse = {
@@ -42,6 +48,7 @@ export type PushQueueSkill = {
   key_skill_title: string;
   cip_number: number;
   kaizen_id: string | null;
+  kaizen_ids: string[];
   display_value: string;
 };
 

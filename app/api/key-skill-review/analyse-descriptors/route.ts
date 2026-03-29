@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import {
   analyzeDescriptors,
@@ -17,6 +18,7 @@ type EntryRow = {
   entry_text: string;
   linked_cip_number: number;
   metadata: Record<string, unknown> | null;
+  updated_at: string;
 };
 
 type SuggestionRow = {
@@ -25,6 +27,7 @@ type SuggestionRow = {
   key_skill_id: string;
   status: "suggested" | "confirmed" | "rejected";
   suggestion_source: "linked_cip" | "cross_cip";
+  updated_at: string;
 };
 
 type KeySkillRow = {
@@ -44,6 +47,62 @@ type DescriptorRow = {
   text: string;
   sort_order: number | null;
 };
+
+type CoverageTimestampRow = {
+  review_entry_id: string;
+  analysed_at: string | null;
+};
+
+const DESCRIPTOR_LAST_RUN_AT_KEY = "descriptor_ai_last_run_at";
+const DESCRIPTOR_LAST_FINGERPRINT_KEY = "descriptor_ai_last_input_fingerprint";
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  if (!metadata) return null;
+  const value = metadata[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function toEpochMillis(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function buildDescriptorInputFingerprint(input: {
+  entry_text: string;
+  entry_type: string | null;
+  confirmed_key_skill_ids: string[];
+  candidate_key_skill_ids: string[];
+}): string {
+  const payload = JSON.stringify({
+    entry_text: input.entry_text,
+    entry_type: input.entry_type ?? "",
+    confirmed_key_skill_ids: input.confirmed_key_skill_ids.slice().sort(),
+    candidate_key_skill_ids: input.candidate_key_skill_ids.slice().sort(),
+  });
+  return createHash("sha1").update(payload).digest("hex");
+}
+
+function setMaxTimestamp(
+  target: Map<string, number>,
+  key: string,
+  timestamp: number,
+) {
+  const current = target.get(key) ?? 0;
+  if (timestamp > current) {
+    target.set(key, timestamp);
+  }
+}
 
 export async function POST(request: Request) {
   const supabase = await getServerSupabaseClient();
@@ -74,7 +133,7 @@ export async function POST(request: Request) {
   let entryQuery = supabase
     .from("key_skill_review_entries")
     .select(
-      "id, user_id, entry_type, entry_text, linked_cip_number, metadata",
+      "id, user_id, entry_type, entry_text, linked_cip_number, metadata, updated_at",
     )
     .eq("user_id", user.id)
     .order("last_seen_at", { ascending: false });
@@ -104,17 +163,14 @@ export async function POST(request: Request) {
   const entryIds = entries.map((e) => e.id);
 
   // 2. Load suggestions once for all entries (confirmed + suggested — not rejected).
-  // These drive which key skills are sent for descriptor analysis: confirmed skills
-  // are always included; suggested skills are included as candidates so the AI can
-  // evaluate descriptors even before the user makes a final decision.
+  // These drive which key skills are sent for descriptor analysis.
   const { data: suggestionRows, error: suggestionsError } = await supabase
     .from("key_skill_review_suggestions")
     .select(
-      "id, review_entry_id, key_skill_id, status, suggestion_source",
+      "id, review_entry_id, key_skill_id, status, suggestion_source, updated_at",
     )
     .in("review_entry_id", entryIds)
-    .eq("user_id", user.id)
-    .neq("status", "rejected");
+    .eq("user_id", user.id);
 
   if (suggestionsError) {
     return NextResponse.json(
@@ -128,16 +184,54 @@ export async function POST(request: Request) {
   // Index by entry: confirmed skills and all non-rejected skills per entry.
   const confirmedByEntry = new Map<string, SuggestionRow[]>();
   const allSuggestionsByEntry = new Map<string, SuggestionRow[]>();
+  const latestSuggestionUpdatedAtByEntry = new Map<string, number>();
   for (const s of suggestions) {
+    setMaxTimestamp(
+      latestSuggestionUpdatedAtByEntry,
+      s.review_entry_id,
+      toEpochMillis(s.updated_at),
+    );
+
     if (s.status === "confirmed") {
       const arr = confirmedByEntry.get(s.review_entry_id) ?? [];
       arr.push(s);
       confirmedByEntry.set(s.review_entry_id, arr);
     }
+    if (s.status === "rejected") {
+      continue;
+    }
     const all = allSuggestionsByEntry.get(s.review_entry_id) ?? [];
     all.push(s);
     allSuggestionsByEntry.set(s.review_entry_id, all);
   }
+
+  const { data: coverageTimestampRows, error: coverageTimestampsError } =
+    await supabase
+      .from("key_skill_descriptor_coverage")
+      .select("review_entry_id, analysed_at")
+      .in("review_entry_id", entryIds)
+      .eq("user_id", user.id);
+
+  if (coverageTimestampsError) {
+    return NextResponse.json(
+      {
+        error:
+          "Failed to load descriptor coverage timestamps: " +
+          coverageTimestampsError.message,
+      },
+      { status: 500 },
+    );
+  }
+
+  const latestCoverageAnalysedAtByEntry = new Map<string, number>();
+  (coverageTimestampRows ?? []).forEach((row) => {
+    const typedRow = row as CoverageTimestampRow;
+    setMaxTimestamp(
+      latestCoverageAnalysedAtByEntry,
+      String(typedRow.review_entry_id),
+      toEpochMillis(typedRow.analysed_at),
+    );
+  });
 
   // 3. Load all key skills, CiPs, and descriptors (shared across entries)
   const { data: keySkillRows, error: keySkillsError } = await supabase
@@ -212,6 +306,7 @@ export async function POST(request: Request) {
 
   let processed = 0;
   let totalDescriptorsAnalysed = 0;
+  const forceFullRefresh = body?.force_full_refresh === true;
 
   try {
     // 4. Process entries sequentially to respect rate limits
@@ -236,6 +331,37 @@ export async function POST(request: Request) {
 
       if (allEntrySkillIds.length === 0) {
         continue;
+      }
+
+      const inputFingerprint = buildDescriptorInputFingerprint({
+        entry_text: entry.entry_text ?? "",
+        entry_type: entry.entry_type ?? null,
+        confirmed_key_skill_ids: confirmedKeySkillIds,
+        candidate_key_skill_ids: allEntrySkillIds,
+      });
+
+      if (!forceFullRefresh) {
+        const existingFingerprint = metadataString(
+          entry.metadata,
+          DESCRIPTOR_LAST_FINGERPRINT_KEY,
+        );
+        const existingRunAt = metadataString(entry.metadata, DESCRIPTOR_LAST_RUN_AT_KEY);
+        if (existingRunAt && existingFingerprint === inputFingerprint) {
+          continue;
+        }
+      }
+
+      if (!forceFullRefresh) {
+        const lastAnalysedAt = latestCoverageAnalysedAtByEntry.get(entry.id);
+        if (lastAnalysedAt != null) {
+          const entryUpdatedAt = toEpochMillis(entry.updated_at);
+          const suggestionsUpdatedAt =
+            latestSuggestionUpdatedAtByEntry.get(entry.id) ?? 0;
+          const latestInputUpdate = Math.max(entryUpdatedAt, suggestionsUpdatedAt);
+          if (latestInputUpdate <= lastAnalysedAt) {
+            continue;
+          }
+        }
       }
 
       // Build AnalyzerKeySkill array with descriptors
@@ -275,6 +401,27 @@ export async function POST(request: Request) {
       totalDescriptorsAnalysed += descriptorResults.length;
 
       if (descriptorResults.length === 0) {
+        const { error: stampError } = await supabase
+          .from("key_skill_review_entries")
+          .update({
+            metadata: {
+              ...asRecord(entry.metadata),
+              [DESCRIPTOR_LAST_RUN_AT_KEY]: new Date().toISOString(),
+              [DESCRIPTOR_LAST_FINGERPRINT_KEY]: inputFingerprint,
+            },
+          })
+          .eq("id", entry.id)
+          .eq("user_id", user.id);
+
+        if (stampError) {
+          return NextResponse.json(
+            {
+              error:
+                "Failed to store descriptor run marker: " + stampError.message,
+            },
+            { status: 500 },
+          );
+        }
         continue;
       }
 
@@ -303,6 +450,28 @@ export async function POST(request: Request) {
             error:
               "Failed to upsert descriptor coverage: " +
               upsertError.message,
+          },
+          { status: 500 },
+        );
+      }
+
+      const { error: stampError } = await supabase
+        .from("key_skill_review_entries")
+        .update({
+          metadata: {
+            ...asRecord(entry.metadata),
+            [DESCRIPTOR_LAST_RUN_AT_KEY]: new Date().toISOString(),
+            [DESCRIPTOR_LAST_FINGERPRINT_KEY]: inputFingerprint,
+          },
+        })
+        .eq("id", entry.id)
+        .eq("user_id", user.id);
+
+      if (stampError) {
+        return NextResponse.json(
+          {
+            error:
+              "Failed to store descriptor run marker: " + stampError.message,
           },
           { status: 500 },
         );
