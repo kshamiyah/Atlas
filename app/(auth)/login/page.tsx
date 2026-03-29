@@ -1,6 +1,7 @@
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { LoginHashSessionBridge } from "@/components/auth/LoginHashSessionBridge";
 
 type LoginPageProps = {
   searchParams: Promise<{ source?: string }>;
@@ -60,6 +61,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   return (
     <main className="flex min-h-screen">
+      <LoginHashSessionBridge />
       {/* ── Left panel — branded hero ─────────────────────────────────────── */}
       <div
         className="relative hidden flex-col justify-between overflow-hidden p-10 lg:flex lg:w-[55%]"

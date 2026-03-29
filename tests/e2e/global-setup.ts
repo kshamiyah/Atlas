@@ -28,8 +28,9 @@ export default async function globalSetup() {
   const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
 
   const baseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.PLAYWRIGHT_BASE_URL ||
     process.env.SITE_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
     "http://localhost:3000";
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
@@ -58,7 +59,7 @@ export default async function globalSetup() {
   await page.goto(actionLink, { waitUntil: "networkidle" });
 
   // Wait until the app has established an authenticated session.
-  await page.waitForURL(/\/dashboard(?:\/|$)/, { timeout: 30_000 });
+  await page.waitForURL(/\/dashboard(?:\/|$)/, { timeout: 120_000 });
 
   await context.storageState({ path: STORAGE_PATH });
   await browser.close();

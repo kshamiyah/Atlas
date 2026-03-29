@@ -22,6 +22,9 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       ...process.env,
+      SITE_URL: "http://localhost:3000",
+      NEXT_PUBLIC_SITE_URL: "http://localhost:3000",
+      PLAYWRIGHT_BASE_URL: "http://localhost:3000",
       DEV_BYPASS_AUTH: "false",
     },
   },

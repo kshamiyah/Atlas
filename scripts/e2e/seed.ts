@@ -33,15 +33,22 @@ async function ensureTestUser(supabase: unknown) {
 
   const client = supabase as SeedSupabaseClient;
 
-  const { data, error } = await client.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
+  async function findUserByEmail(): Promise<SeedAuthUser | null> {
+    const perPage = 1000;
+    for (let page = 1; page <= 30; page++) {
+      const { data, error } = await client.auth.admin.listUsers({ page, perPage });
+      if (error) throw new Error(`Failed to list users: ${error.message}`);
+      const users = data?.users ?? [];
+      const found = users.find(
+        (u) => String(u.email ?? "").toLowerCase() === TEST_EMAIL.toLowerCase(),
+      );
+      if (found) return found;
+      if (users.length < perPage) break;
+    }
+    return null;
+  }
 
-  if (error) throw new Error(`Failed to list users: ${error.message}`);
-  const existing = (data?.users ?? []).find(
-    (u) => String(u.email ?? "").toLowerCase() === TEST_EMAIL.toLowerCase(),
-  );
+  const existing = await findUserByEmail();
   if (existing) return existing;
 
   const { data: created, error: createErr } =
@@ -50,7 +57,15 @@ async function ensureTestUser(supabase: unknown) {
       email_confirm: true,
     });
 
-  if (createErr) throw new Error(`Failed to create test user: ${createErr.message}`);
+  if (createErr) {
+    const alreadyExists =
+      /already|duplicate|exists|unique/i.test(createErr.message ?? "");
+    if (alreadyExists) {
+      const recovered = await findUserByEmail();
+      if (recovered) return recovered;
+    }
+    throw new Error(`Failed to create test user: ${createErr.message}`);
+  }
   if (!created) throw new Error("Failed to create test user (no data returned).");
   return created;
 }
@@ -236,4 +251,3 @@ seedE2E().catch((err) => {
   console.error("[e2e seed] failed:", err instanceof Error ? err.message : err);
   process.exit(1);
 });
-
