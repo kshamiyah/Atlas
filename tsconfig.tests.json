@@ -26,8 +26,10 @@
     "lib/progress/key-skill-metrics.ts",
     "lib/progress/descriptor-metrics.ts",
     "lib/progress/query-params.ts",
+    "lib/ai/prompts.ts",
     "tests/ltft/**/*.ts",
-    "tests/reconciliation/**/*.ts"
+    "tests/reconciliation/**/*.ts",
+    "scripts/model-comparison/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }
