@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
 import type { ModelConfig } from "./types";
 
 export interface CallParams {
@@ -93,8 +92,6 @@ async function callOpenAICompat(
   const apiKey = process.env[model.envKey];
   if (!apiKey) throw new Error(`Missing env var: ${model.envKey}`);
 
-  const client = new OpenAI({ apiKey, baseURL: model.baseURL });
-
   // OpenAI-compat endpoints don't support assistant prefill.
   // Instead, inject a critical format instruction into the system prompt.
   const system = params.prefillArray
@@ -102,26 +99,45 @@ async function callOpenAICompat(
       "\n\nCRITICAL: Your response MUST begin with the [ character immediately — no preamble, no explanation, no code fences. Output the JSON array directly."
     : params.system;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const response = await (client.chat.completions.create as any)({
+  // Use raw fetch so we can pass chat_template_kwargs without the SDK stripping it.
+  // The OpenAI Node SDK drops unknown fields; fetch sends exactly what we give it.
+  const body = {
     model: model.id,
     max_tokens: params.maxTokens,
     temperature: params.temperature,
-    // Disable Gemma 4 thinking mode — cuts latency from 37-200s down to ~5-15s
+    // Disable Gemma 4 thinking mode — cuts latency from 37-200s to ~5-15s
     chat_template_kwargs: { enable_thinking: false },
     messages: [
       { role: "system", content: system },
       { role: "user", content: params.userMessage },
     ],
+  };
+
+  const res = await fetch(`${model.baseURL}chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
   });
 
-  const rawText = response.choices[0]?.message?.content ?? "";
-  const usage = response.usage;
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const json = await res.json() as {
+    choices: { message: { content: string } }[];
+    usage: { prompt_tokens: number; completion_tokens: number };
+  };
+
+  const rawText = json.choices[0]?.message?.content ?? "";
 
   return {
     rawText,
-    inputTokens: usage?.prompt_tokens ?? 0,
-    outputTokens: usage?.completion_tokens ?? 0,
+    inputTokens: json.usage?.prompt_tokens ?? 0,
+    outputTokens: json.usage?.completion_tokens ?? 0,
     latencyMs: Date.now() - start,
   };
 }
