@@ -73,19 +73,29 @@ export function ratioInRange(wc: number, min: number, max: number): number {
 
 // ── Parse helpers ────────────────────────────────────────────────────────────
 
+function stripThinkingTags(raw: string): string {
+  // Gemma 4 wraps reasoning in <thought>...</thought> or <think>...</think> blocks
+  return raw
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .trim();
+}
+
 export function tryParseJson(raw: string): {
   parsed: unknown;
   method: "direct" | "fence-stripped" | "prefix-extracted" | "failed";
 } {
+  const cleaned = stripThinkingTags(raw);
+
   // 1. Direct parse
-  try {
-    return { parsed: JSON.parse(raw), method: "direct" };
-  } catch {
-    // ignore
+  for (const candidate of [cleaned, raw]) {
+    try {
+      return { parsed: JSON.parse(candidate), method: "direct" };
+    } catch { /* ignore */ }
   }
 
   // 2. Strip markdown fences
-  const stripped = raw.replace(/```json\n?|\n?```/g, "").trim();
+  const stripped = cleaned.replace(/```json\n?|\n?```/g, "").trim();
   try {
     return { parsed: JSON.parse(stripped), method: "fence-stripped" };
   } catch {
@@ -93,7 +103,7 @@ export function tryParseJson(raw: string): {
   }
 
   // 3. Extract first JSON object or array
-  const objMatch = raw.match(/(\{[\s\S]*\})/);
+  const objMatch = cleaned.match(/(\{[\s\S]*\})/);
   if (objMatch) {
     try {
       return { parsed: JSON.parse(objMatch[1]), method: "prefix-extracted" };
@@ -101,7 +111,7 @@ export function tryParseJson(raw: string): {
       // ignore
     }
   }
-  const arrMatch = raw.match(/(\[[\s\S]*\])/);
+  const arrMatch = cleaned.match(/(\[[\s\S]*\])/);
   if (arrMatch) {
     try {
       return { parsed: JSON.parse(arrMatch[1]), method: "prefix-extracted" };
@@ -117,11 +127,17 @@ export function tryParseJsonArray(raw: string, prefilled: boolean): {
   parsed: unknown;
   method: "direct" | "fence-stripped" | "prefix-extracted" | "failed";
 } {
+  const cleaned = stripThinkingTags(raw);
+
   // For prefill-style calls, the model returns array content without opening [
   // The raw text from the model may or may not start with [
   const candidates = prefilled
-    ? [raw.startsWith("[") ? raw : "[" + raw, raw]
-    : [raw];
+    ? [
+        cleaned.startsWith("[") ? cleaned : "[" + cleaned,
+        cleaned,
+        raw.startsWith("[") ? raw : "[" + raw,
+      ]
+    : [cleaned, raw];
 
   for (const candidate of candidates) {
     const result = tryParseJson(candidate);
