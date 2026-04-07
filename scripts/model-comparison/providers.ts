@@ -102,10 +102,13 @@ async function callOpenAICompat(
       "\n\nCRITICAL: Your response MUST begin with the [ character immediately — no preamble, no explanation, no code fences. Output the JSON array directly."
     : params.system;
 
-  const response = await client.chat.completions.create({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await (client.chat.completions.create as any)({
     model: model.id,
     max_tokens: params.maxTokens,
     temperature: params.temperature,
+    // Disable Gemma 4 thinking mode — cuts latency from 37-200s down to ~5-15s
+    chat_template_kwargs: { enable_thinking: false },
     messages: [
       { role: "system", content: system },
       { role: "user", content: params.userMessage },
