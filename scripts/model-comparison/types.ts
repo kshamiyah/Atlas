@@ -12,8 +12,6 @@ export interface ModelConfig {
   label: string;
   envKey: string;
   baseURL?: string;
-  /** If true, passes google.thinking_config.thinking_level="none" to disable reasoning mode */
-  disableThinking?: boolean;
 }
 
 // ── Raw call result ──────────────────────────────────────────────────────────

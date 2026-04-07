@@ -101,7 +101,7 @@ async function callOpenAICompat(
 
   // Use raw fetch so we can pass chat_template_kwargs without the SDK stripping it.
   // The OpenAI Node SDK drops unknown fields; fetch sends exactly what we give it.
-  const body: Record<string, unknown> = {
+  const body = {
     model: model.id,
     max_tokens: params.maxTokens,
     temperature: params.temperature,
@@ -110,13 +110,6 @@ async function callOpenAICompat(
       { role: "user", content: params.userMessage },
     ],
   };
-
-  // Disable Gemma 4 thinking mode via Google's extended config.
-  // This is passed as a top-level field (equivalent to extra_body in Python SDK).
-  // Cuts latency from 37–200s to ~5–15s.
-  if (model.disableThinking) {
-    body["google"] = { thinking_config: { thinking_level: "none" } };
-  }
 
   const res = await fetch(`${model.baseURL}chat/completions`, {
     method: "POST",

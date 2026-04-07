@@ -22,7 +22,6 @@ export const MODELS: Record<string, ModelConfig> = {
     label: "Gemma 4 31B",
     envKey: "GOOGLE_AI_STUDIO_API_KEY",
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-    disableThinking: true,
   },
   sonnet: {
     key: "sonnet",
