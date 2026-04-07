@@ -39,6 +39,7 @@ export const MODELS: Record<string, ModelConfig> = {
     envKey: "GOOGLE_AI_STUDIO_API_KEY",
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     jsonMode: true,
+    disableThinking: true,
   },
 };
 

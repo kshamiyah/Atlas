@@ -14,6 +14,8 @@ export interface ModelConfig {
   baseURL?: string;
   /** If true, adds response_format: { type: "json_object" } to OpenAI-compat requests */
   jsonMode?: boolean;
+  /** If true, passes reasoning_effort: "none" to disable thinking mode */
+  disableThinking?: boolean;
 }
 
 // ── Raw call result ──────────────────────────────────────────────────────────

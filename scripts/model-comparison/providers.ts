@@ -117,6 +117,14 @@ async function callOpenAICompat(
     body["response_format"] = { type: "json_object" };
   }
 
+  // Disable thinking/reasoning mode for models that support it.
+  // Gemini 2.5 Flash uses ~10k thinking tokens per call by default, which:
+  //   (a) consumes most of the maxTokens budget, truncating JSON output
+  //   (b) charges $3.50/M instead of $0.60/M, destroying the cost advantage
+  if (model.disableThinking) {
+    body["reasoning_effort"] = "none";
+  }
+
   const res = await fetch(`${model.baseURL}chat/completions`, {
     method: "POST",
     headers: {
