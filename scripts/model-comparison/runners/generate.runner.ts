@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/ai/prompts";
+import { SYSTEM_PROMPT, buildUserMessage } from "../../lib/ai/prompts";
 import { callModel } from "../providers";
 import { tryParseJson } from "../scoring/shared";
 import { scoreGenerate } from "../scoring/generate.scorer";
