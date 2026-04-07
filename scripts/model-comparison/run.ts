@@ -18,6 +18,23 @@
  *   MODEL_TEST_USER_ID           (alternative to --user-id flag)
  */
 
+// Load .env.local if present (no dotenv dependency needed)
+import * as fs from "fs";
+import * as path from "path";
+const envPath = path.join(__dirname, "..", "..", ".env.local");
+if (fs.existsSync(envPath)) {
+  const lines = fs.readFileSync(envPath, "utf8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx < 0) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+}
+
 import { fetchTestCases } from "./db";
 import { runGenerate } from "./runners/generate.runner";
 import { runMatchKeySkills } from "./runners/match-key-skills.runner";
