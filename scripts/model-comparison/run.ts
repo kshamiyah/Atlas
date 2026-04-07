@@ -62,6 +62,7 @@ function parseArgs(): {
   modelKeys: string[];
   callTypes: CallType[];
   limit: number;
+  debug: boolean;
 } {
   const args = process.argv.slice(2);
   const get = (flag: string) => {
@@ -106,8 +107,9 @@ function parseArgs(): {
     : allCallTypes;
 
   const limit = parseInt(get("--limit") ?? "15", 10);
+  const debug = args.includes("--debug");
 
-  return { userId, modelKeys, callTypes, limit };
+  return { userId, modelKeys, callTypes, limit, debug };
 }
 
 // ── Concurrency helpers ──────────────────────────────────────────────────────
@@ -186,6 +188,7 @@ function printProgress(
   testCaseId: string,
   modelLabel: string,
   result: ScoredResult,
+  debug = false,
 ) {
   const pct = result.maxScore > 0 ? Math.round((result.score / result.maxScore) * 100) : 0;
   const flag = pct < 60 ? " ⚠" : pct < 75 ? " ○" : "";
@@ -193,6 +196,10 @@ function printProgress(
   console.log(
     `  [${done}/${total}] ${testCaseId} · ${modelLabel} · ${result.latencyMs}ms · score=${pct}%${flag}${parsed}`,
   );
+  if (debug && !result.parseSuccess && result.rawText) {
+    const preview = result.rawText.slice(0, 400).replace(/\n/g, "↵");
+    console.log(`    ↳ raw: ${preview}`);
+  }
 }
 
 function printSummaryTable(summaries: ReturnType<typeof buildSummaries>) {
@@ -250,7 +257,7 @@ function printSummaryTable(summaries: ReturnType<typeof buildSummaries>) {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const { userId, modelKeys, callTypes, limit } = parseArgs();
+  const { userId, modelKeys, callTypes, limit, debug } = parseArgs();
 
   console.log("\nModel Comparison Test Harness");
   console.log("──────────────────────────────");
@@ -296,7 +303,7 @@ async function main() {
     (tc) => async () => {
       const result = await runCase(tc, referenceModel, new Map());
       refDone++;
-      printProgress(refDone, refTotal, tc.id, referenceModel.label, result);
+      printProgress(refDone, refTotal, tc.id, referenceModel.label, result, debug);
       referenceResults.set(`${tc.id}::${referenceModelKey}`, result);
       return result;
     },
@@ -318,7 +325,7 @@ async function main() {
       (tc) => async () => {
         const result = await runCase(tc, model, referenceResults);
         done++;
-        printProgress(done, total, tc.id, model.label, result);
+        printProgress(done, total, tc.id, model.label, result, debug);
         return result;
       },
     );
