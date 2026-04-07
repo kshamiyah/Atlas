@@ -2,9 +2,10 @@ import type { ModelConfig } from "./types";
 
 // Pricing per million tokens ($/MTok)
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  haiku:  { input: 1.00, output: 5.00  },
-  gemma4: { input: 0.14, output: 0.40  },
-  sonnet: { input: 3.00, output: 15.00 },
+  haiku:        { input: 1.00,  output: 5.00  },
+  gemma4:       { input: 0.14,  output: 0.40  },
+  sonnet:       { input: 3.00,  output: 15.00 },
+  geminiflash:  { input: 0.15,  output: 0.60  },
 };
 
 export const MODELS: Record<string, ModelConfig> = {
@@ -12,7 +13,7 @@ export const MODELS: Record<string, ModelConfig> = {
     key: "haiku",
     id: "claude-haiku-4-5-20251001",
     provider: "anthropic",
-    label: "Claude Haiku 4.5 (baseline)",
+    label: "Claude Haiku 4.5",
     envKey: "ANTHROPIC_API_KEY",
   },
   gemma4: {
@@ -29,6 +30,15 @@ export const MODELS: Record<string, ModelConfig> = {
     provider: "anthropic",
     label: "Claude Sonnet 4.6",
     envKey: "ANTHROPIC_API_KEY",
+  },
+  geminiflash: {
+    key: "geminiflash",
+    id: "gemini-2.5-flash",
+    provider: "openai-compat",
+    label: "Gemini 2.5 Flash",
+    envKey: "GOOGLE_AI_STUDIO_API_KEY",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    jsonMode: true,
   },
 };
 

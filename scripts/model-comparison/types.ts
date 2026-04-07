@@ -12,6 +12,8 @@ export interface ModelConfig {
   label: string;
   envKey: string;
   baseURL?: string;
+  /** If true, adds response_format: { type: "json_object" } to OpenAI-compat requests */
+  jsonMode?: boolean;
 }
 
 // ── Raw call result ──────────────────────────────────────────────────────────

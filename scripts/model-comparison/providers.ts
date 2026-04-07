@@ -101,7 +101,7 @@ async function callOpenAICompat(
 
   // Use raw fetch so we can pass chat_template_kwargs without the SDK stripping it.
   // The OpenAI Node SDK drops unknown fields; fetch sends exactly what we give it.
-  const body = {
+  const body: Record<string, unknown> = {
     model: model.id,
     max_tokens: params.maxTokens,
     temperature: params.temperature,
@@ -110,6 +110,12 @@ async function callOpenAICompat(
       { role: "user", content: params.userMessage },
     ],
   };
+
+  // json_object mode: faster + more reliable JSON — but skip for array outputs
+  // since the mode enforces an object wrapper which breaks array responses.
+  if (model.jsonMode && !params.prefillArray) {
+    body["response_format"] = { type: "json_object" };
+  }
 
   const res = await fetch(`${model.baseURL}chat/completions`, {
     method: "POST",
