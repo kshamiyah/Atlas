@@ -63,6 +63,7 @@ function parseArgs(): {
   callTypes: CallType[];
   limit: number;
   debug: boolean;
+  entryTypes?: string[];
 } {
   const args = process.argv.slice(2);
   const get = (flag: string) => {
@@ -109,7 +110,12 @@ function parseArgs(): {
   const limit = parseInt(get("--limit") ?? "15", 10);
   const debug = args.includes("--debug");
 
-  return { userId, modelKeys, callTypes, limit, debug };
+  const entryTypesRaw = get("--entry-types");
+  const entryTypes = entryTypesRaw
+    ? entryTypesRaw.split(",").map((t) => t.trim()).filter(Boolean)
+    : undefined;
+
+  return { userId, modelKeys, callTypes, limit, debug, entryTypes };
 }
 
 // ── Concurrency helpers ──────────────────────────────────────────────────────
@@ -257,7 +263,7 @@ function printSummaryTable(summaries: ReturnType<typeof buildSummaries>) {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const { userId, modelKeys, callTypes, limit, debug } = parseArgs();
+  const { userId, modelKeys, callTypes, limit, debug, entryTypes } = parseArgs();
 
   console.log("\nModel Comparison Test Harness");
   console.log("──────────────────────────────");
@@ -281,6 +287,7 @@ async function main() {
     userId,
     limitPerCallType: limit,
     callTypes,
+    entryTypes,
   });
 
   if (testCases.length === 0) {

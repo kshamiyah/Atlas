@@ -129,28 +129,42 @@ async function buildGenerateCases(
   supabase: ReturnType<typeof getSupabase>,
   userId: string,
   limit: number,
+  entryTypes?: string[],
 ): Promise<GenerateTestCase[]> {
-  const { data: entries, error } = await supabase
-    .from("generated_entries")
-    .select("id, entry_type, raw_input, stage_id, structured_data")
-    .eq("user_id", userId)
-    .not("raw_input", "is", null)
-    .neq("raw_input", "")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  let entries: Record<string, unknown>[] = [];
 
-  if (error || !entries) {
-    console.warn("  [db] No generated_entries found:", error?.message);
-    return [];
+  if (entryTypes && entryTypes.length > 0) {
+    // Fetch up to ceil(limit/types) of each type, then trim to limit
+    const perType = Math.ceil(limit / entryTypes.length);
+    for (const type of entryTypes) {
+      const { data, error } = await supabase
+        .from("generated_entries")
+        .select("id, entry_type, raw_input, stage_id, structured_data")
+        .eq("user_id", userId)
+        .eq("entry_type", type)
+        .not("raw_input", "is", null)
+        .neq("raw_input", "")
+        .order("created_at", { ascending: false })
+        .limit(perType);
+      if (!error && data) entries.push(...(data as Record<string, unknown>[]));
+    }
+    entries = entries.slice(0, limit);
+  } else {
+    const { data, error } = await supabase
+      .from("generated_entries")
+      .select("id, entry_type, raw_input, stage_id, structured_data")
+      .eq("user_id", userId)
+      .not("raw_input", "is", null)
+      .neq("raw_input", "")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (!error && data) entries = data as Record<string, unknown>[];
   }
 
   return entries
-    .filter((e: Record<string, unknown>) => {
-      const raw = String(e.raw_input ?? "").trim();
-      return raw.length > 20;
-    })
+    .filter((e) => String(e.raw_input ?? "").trim().length > 20)
     .map(
-      (e: Record<string, unknown>): GenerateTestCase => ({
+      (e): GenerateTestCase => ({
         id: `generate-${String(e.id).slice(0, 8)}`,
         callType: "generate",
         rawInput: String(e.raw_input),
@@ -287,21 +301,40 @@ async function buildDescriptorCases(
   userId: string,
   limit: number,
   allKeySkills: DbKeySkill[],
+  entryTypes?: string[],
 ): Promise<DescriptorTestCase[]> {
-  const { data: entries, error } = await supabase
-    .from("key_skill_review_entries")
-    .select("id, entry_type, entry_text, linked_cip_number")
-    .eq("user_id", userId)
-    .not("entry_text", "is", null)
-    .neq("entry_text", "")
-    .order("last_seen_at", { ascending: false })
-    .limit(limit);
+  let rawEntries: Record<string, unknown>[] = [];
 
-  if (error || !entries) return [];
+  if (entryTypes && entryTypes.length > 0) {
+    const perType = Math.ceil(limit / entryTypes.length);
+    for (const type of entryTypes) {
+      const { data, error } = await supabase
+        .from("key_skill_review_entries")
+        .select("id, entry_type, entry_text, linked_cip_number")
+        .eq("user_id", userId)
+        .eq("entry_type", type)
+        .not("entry_text", "is", null)
+        .neq("entry_text", "")
+        .order("last_seen_at", { ascending: false })
+        .limit(perType);
+      if (!error && data) rawEntries.push(...(data as Record<string, unknown>[]));
+    }
+    rawEntries = rawEntries.slice(0, limit);
+  } else {
+    const { data, error } = await supabase
+      .from("key_skill_review_entries")
+      .select("id, entry_type, entry_text, linked_cip_number")
+      .eq("user_id", userId)
+      .not("entry_text", "is", null)
+      .neq("entry_text", "")
+      .order("last_seen_at", { ascending: false })
+      .limit(limit);
+    if (!error && data) rawEntries = data as Record<string, unknown>[];
+  }
 
   const cases: DescriptorTestCase[] = [];
 
-  for (const e of entries as Record<string, unknown>[]) {
+  for (const e of rawEntries) {
     const cipNumber = Number(e.linked_cip_number ?? 0);
     if (!cipNumber) continue;
 
@@ -336,21 +369,40 @@ async function buildCrossCipCases(
   userId: string,
   limit: number,
   allKeySkills: DbKeySkill[],
+  entryTypes?: string[],
 ): Promise<CrossCipTestCase[]> {
-  const { data: entries, error } = await supabase
-    .from("key_skill_review_entries")
-    .select("id, entry_type, entry_text, linked_cip_number")
-    .eq("user_id", userId)
-    .not("entry_text", "is", null)
-    .neq("entry_text", "")
-    .order("last_seen_at", { ascending: false })
-    .limit(limit);
+  let rawEntries: Record<string, unknown>[] = [];
 
-  if (error || !entries) return [];
+  if (entryTypes && entryTypes.length > 0) {
+    const perType = Math.ceil(limit / entryTypes.length);
+    for (const type of entryTypes) {
+      const { data, error } = await supabase
+        .from("key_skill_review_entries")
+        .select("id, entry_type, entry_text, linked_cip_number")
+        .eq("user_id", userId)
+        .eq("entry_type", type)
+        .not("entry_text", "is", null)
+        .neq("entry_text", "")
+        .order("last_seen_at", { ascending: false })
+        .limit(perType);
+      if (!error && data) rawEntries.push(...(data as Record<string, unknown>[]));
+    }
+    rawEntries = rawEntries.slice(0, limit);
+  } else {
+    const { data, error } = await supabase
+      .from("key_skill_review_entries")
+      .select("id, entry_type, entry_text, linked_cip_number")
+      .eq("user_id", userId)
+      .not("entry_text", "is", null)
+      .neq("entry_text", "")
+      .order("last_seen_at", { ascending: false })
+      .limit(limit);
+    if (!error && data) rawEntries = data as Record<string, unknown>[];
+  }
 
   const cases: CrossCipTestCase[] = [];
 
-  for (const e of entries as Record<string, unknown>[]) {
+  for (const e of rawEntries) {
     const cipNumber = Number(e.linked_cip_number ?? 0);
     if (!cipNumber) continue;
 
@@ -391,11 +443,12 @@ export interface FetchOptions {
   userId: string;
   limitPerCallType: number;
   callTypes: string[];
+  entryTypes?: string[];
 }
 
 export async function fetchTestCases(opts: FetchOptions): Promise<AnyTestCase[]> {
   const supabase = getSupabase();
-  const { userId, limitPerCallType, callTypes } = opts;
+  const { userId, limitPerCallType, callTypes, entryTypes } = opts;
 
   console.log(`  [db] Fetching test cases for user ${userId.slice(0, 8)}...`);
 
@@ -415,7 +468,7 @@ export async function fetchTestCases(opts: FetchOptions): Promise<AnyTestCase[]>
   const allCases: AnyTestCase[] = [];
 
   if (callTypes.includes("generate")) {
-    const cases = await buildGenerateCases(supabase, userId, limitPerCallType);
+    const cases = await buildGenerateCases(supabase, userId, limitPerCallType, entryTypes);
     console.log(`  [db] ${cases.length} generate cases`);
     allCases.push(...cases);
   }
@@ -443,6 +496,7 @@ export async function fetchTestCases(opts: FetchOptions): Promise<AnyTestCase[]>
       userId,
       limitPerCallType,
       allKeySkills,
+      entryTypes,
     );
     console.log(`  [db] ${cases.length} descriptor cases`);
     allCases.push(...cases);
@@ -454,6 +508,7 @@ export async function fetchTestCases(opts: FetchOptions): Promise<AnyTestCase[]>
       userId,
       limitPerCallType,
       allKeySkills,
+      entryTypes,
     );
     console.log(`  [db] ${cases.length} cross-cip cases`);
     allCases.push(...cases);
