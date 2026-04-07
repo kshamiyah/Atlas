@@ -74,11 +74,33 @@ export function ratioInRange(wc: number, min: number, max: number): number {
 // ── Parse helpers ────────────────────────────────────────────────────────────
 
 function stripThinkingTags(raw: string): string {
-  // Gemma 4 wraps reasoning in <thought>...</thought> or <think>...</think> blocks
+  // Strip reasoning blocks from Gemma 4 (<thought>, <think>) and other models
   return raw
     .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
     .trim();
+}
+
+/**
+ * Extracts the last complete, balanced JSON object or array from text.
+ * Handles models that prefix output with thinking/reasoning text.
+ */
+function extractLastJsonBlock(text: string): string | null {
+  for (let i = text.length - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch !== "}" && ch !== "]") continue;
+    const opener = ch === "}" ? "{" : "[";
+    let depth = 0;
+    for (let j = i; j >= 0; j--) {
+      if (text[j] === ch) depth++;
+      else if (text[j] === opener) {
+        depth--;
+        if (depth === 0) return text.slice(j, i + 1);
+      }
+    }
+  }
+  return null;
 }
 
 export function tryParseJson(raw: string): {
@@ -102,22 +124,27 @@ export function tryParseJson(raw: string): {
     // ignore
   }
 
-  // 3. Extract first JSON object or array
+  // 3. Extract first JSON object or array (fast path for minimal preamble)
   const objMatch = cleaned.match(/(\{[\s\S]*\})/);
   if (objMatch) {
     try {
       return { parsed: JSON.parse(objMatch[1]), method: "prefix-extracted" };
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   }
   const arrMatch = cleaned.match(/(\[[\s\S]*\])/);
   if (arrMatch) {
     try {
       return { parsed: JSON.parse(arrMatch[1]), method: "prefix-extracted" };
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
+  }
+
+  // 4. Extract last balanced JSON block — handles models that output reasoning
+  //    text (Gemini 2.5 Flash, Gemma 4) before the actual JSON response.
+  const lastBlock = extractLastJsonBlock(cleaned);
+  if (lastBlock) {
+    try {
+      return { parsed: JSON.parse(lastBlock), method: "prefix-extracted" };
+    } catch { /* ignore */ }
   }
 
   return { parsed: null, method: "failed" };
