@@ -73,7 +73,7 @@ export async function runCrossCip(
   const callResult = await callModel(model, {
     system: "",
     userMessage: prompt,
-    maxTokens: 4000,
+    maxTokens: 8000,
     temperature: 0,
     prefillArray: true,
   });

@@ -197,8 +197,8 @@ function printProgress(
     `  [${done}/${total}] ${testCaseId} · ${modelLabel} · ${result.latencyMs}ms · score=${pct}%${flag}${parsed}`,
   );
   if (debug && !result.parseSuccess && result.rawText) {
-    const preview = result.rawText.slice(0, 400).replace(/\n/g, "↵");
-    console.log(`    ↳ raw: ${preview}`);
+    const preview = result.rawText.slice(0, 800).replace(/\n/g, "↵");
+    console.log(`    ↳ raw[${result.rawText.length}chars]: ${preview}`);
   }
 }
 

@@ -41,7 +41,7 @@ export async function runMatchKeySkills(
   const callResult = await callModel(model, {
     system: SYSTEM_PROMPT,
     userMessage,
-    maxTokens: 2000,
+    maxTokens: 4000,
     temperature: 0,
     prefillArray: false,
   });
