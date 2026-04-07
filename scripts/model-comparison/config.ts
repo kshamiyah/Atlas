@@ -10,7 +10,7 @@ export const MODELS: Record<string, ModelConfig> = {
   },
   gemma4: {
     key: "gemma4",
-    id: "gemma-2-27b-it",
+    id: "gemma-4-31b-it",
     provider: "openai-compat",
     label: "Gemma 4 31B",
     envKey: "GOOGLE_AI_STUDIO_API_KEY",
