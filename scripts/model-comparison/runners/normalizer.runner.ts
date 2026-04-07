@@ -43,7 +43,7 @@ export async function runNormalizer(
   const callResult = await callModel(model, {
     system: SYSTEM_PROMPT,
     userMessage,
-    maxTokens: 1600,
+    maxTokens: 4000,
     temperature: 0.2,
     prefillArray: false,
   });

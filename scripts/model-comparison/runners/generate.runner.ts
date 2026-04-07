@@ -18,7 +18,7 @@ export async function runGenerate(
   const callResult = await callModel(model, {
     system: SYSTEM_PROMPT,
     userMessage,
-    maxTokens: 3000,
+    maxTokens: 6000,
     temperature: 0.35,
     prefillArray: false,
   });
