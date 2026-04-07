@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { ScoredResult, ModelSummary, CallType } from "../types";
-import { MODELS } from "../config";
+import { MODELS, MODEL_PRICING } from "../config";
 
 const RESULTS_DIR = path.join(__dirname, "..", "results");
 const CALL_TYPES: CallType[] = ["generate", "match-key-skills", "normalizer", "descriptor", "cross-cip"];
@@ -130,6 +130,32 @@ export function buildMarkdownReport(
   lines.push(
     "| Total output tokens | " +
       summaries.map((s) => s.totalOutputTokens.toLocaleString()).join(" | ") +
+      " |",
+  );
+  lines.push(
+    "| Cost (this run) | " +
+      summaries.map((s) => {
+        const pricing = MODEL_PRICING[s.modelKey];
+        if (!pricing) return "n/a";
+        const cost =
+          (s.totalInputTokens / 1_000_000) * pricing.input +
+          (s.totalOutputTokens / 1_000_000) * pricing.output;
+        return `$${cost.toFixed(4)}`;
+      }).join(" | ") +
+      " |",
+  );
+  lines.push(
+    "| Est. cost / 1k real entries | " +
+      summaries.map((s) => {
+        const pricing = MODEL_PRICING[s.modelKey];
+        if (!pricing || s.totalInputTokens === 0) return "n/a";
+        const testCases = results.filter((r) => r.modelKey === s.modelKey).length;
+        if (testCases === 0) return "n/a";
+        const inputPer = s.totalInputTokens / testCases;
+        const outputPer = s.totalOutputTokens / testCases;
+        const costPer = (inputPer / 1_000_000) * pricing.input + (outputPer / 1_000_000) * pricing.output;
+        return `$${(costPer * 1000).toFixed(2)}`;
+      }).join(" | ") +
       " |",
   );
   lines.push(

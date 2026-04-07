@@ -1,5 +1,12 @@
 import type { ModelConfig } from "./types";
 
+// Pricing per million tokens ($/MTok)
+export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  haiku:  { input: 1.00, output: 5.00  },
+  gemma4: { input: 0.14, output: 0.40  },
+  sonnet: { input: 3.00, output: 15.00 },
+};
+
 export const MODELS: Record<string, ModelConfig> = {
   haiku: {
     key: "haiku",
