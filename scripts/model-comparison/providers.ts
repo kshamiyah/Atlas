@@ -105,8 +105,6 @@ async function callOpenAICompat(
     model: model.id,
     max_tokens: params.maxTokens,
     temperature: params.temperature,
-    // Disable Gemma 4 thinking mode — cuts latency from 37-200s to ~5-15s
-    chat_template_kwargs: { enable_thinking: false },
     messages: [
       { role: "system", content: system },
       { role: "user", content: params.userMessage },
