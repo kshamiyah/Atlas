@@ -16,6 +16,8 @@ export interface ModelConfig {
   jsonMode?: boolean;
   /** If true, passes reasoning_effort: "none" to disable thinking mode */
   disableThinking?: boolean;
+  /** If true, uses max_completion_tokens instead of max_tokens (required by OpenAI GPT-5.x) */
+  useCompletionTokens?: boolean;
 }
 
 // ── Raw call result ──────────────────────────────────────────────────────────

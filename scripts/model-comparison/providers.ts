@@ -103,7 +103,10 @@ async function callOpenAICompat(
   // The OpenAI Node SDK drops unknown fields; fetch sends exactly what we give it.
   const body: Record<string, unknown> = {
     model: model.id,
-    max_tokens: params.maxTokens,
+    // OpenAI GPT-5.x requires max_completion_tokens; Gemini uses max_tokens
+    ...(model.useCompletionTokens
+      ? { max_completion_tokens: params.maxTokens }
+      : { max_tokens: params.maxTokens }),
     temperature: params.temperature,
     messages: [
       { role: "system", content: system },

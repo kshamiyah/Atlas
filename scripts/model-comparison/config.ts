@@ -62,6 +62,7 @@ export const MODELS: Record<string, ModelConfig> = {
     envKey: "OPENAI_API_KEY",
     baseURL: "https://api.openai.com/v1/",
     jsonMode: true,
+    useCompletionTokens: true,
   },
   gpt5nano: {
     key: "gpt5nano",
@@ -71,6 +72,7 @@ export const MODELS: Record<string, ModelConfig> = {
     envKey: "OPENAI_API_KEY",
     baseURL: "https://api.openai.com/v1/",
     jsonMode: true,
+    useCompletionTokens: true,
   },
 };
 
