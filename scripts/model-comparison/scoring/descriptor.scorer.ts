@@ -108,10 +108,9 @@ export function scoreDescriptor(
     : 10;
   checks.push(proportionalCheck("no_missing_fields", fieldPts, 10));
 
-  // ── 3. Agreement with reference model (30 pts) ───────────────────────────
+  // ── 3. Agreement with judge (30 pts) ─────────────────────────────────────
 
   if (referenceOutput && Array.isArray(referenceOutput) && referenceOutput.length > 0) {
-    // Build a map of descriptor_id -> covered from reference
     const refMap = new Map<string, boolean>();
     for (const item of referenceOutput as Record<string, unknown>[]) {
       const id = String(item.descriptor_id ?? "");
@@ -120,7 +119,6 @@ export function scoreDescriptor(
       }
     }
 
-    // Build map from current output
     const currentMap = new Map<string, boolean>();
     for (const item of validItems) {
       const id = String(item.descriptor_id ?? "");
@@ -129,7 +127,6 @@ export function scoreDescriptor(
       }
     }
 
-    // Agreement = fraction of shared IDs where covered matches
     const sharedIds = [...refMap.keys()].filter((id) => currentMap.has(id));
     if (sharedIds.length > 0) {
       const agreements = sharedIds.filter(
@@ -139,21 +136,21 @@ export function scoreDescriptor(
       const agreementPts = Math.round(agreementRate * 30);
       checks.push(
         proportionalCheck(
-          "agreement_with_reference",
+          "agreement_with_judge",
           agreementPts,
           30,
-          `${agreements.length}/${sharedIds.length} agree with Haiku baseline (${Math.round(agreementRate * 100)}%)`,
+          `${agreements.length}/${sharedIds.length} agree with Sonnet judge (${Math.round(agreementRate * 100)}%)`,
         ),
       );
     } else {
       checks.push(
-        proportionalCheck("agreement_with_reference", 0, 30, "no shared IDs to compare"),
+        proportionalCheck("agreement_with_judge", 0, 30, "no shared IDs to compare"),
       );
     }
   } else {
-    // No reference available (this IS the reference model — full points)
+    // No judge verdict available — skip check (give full points so it doesn't penalise)
     checks.push(
-      proportionalCheck("agreement_with_reference", 30, 30, "reference model — full points"),
+      proportionalCheck("agreement_with_judge", 30, 30, "no judge verdict — skipped"),
     );
   }
 

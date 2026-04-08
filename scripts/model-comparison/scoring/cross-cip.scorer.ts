@@ -150,8 +150,8 @@ export function scoreCrossCip(
     ),
   );
 
-  // Agreement with reference model
-  if (referenceOutput && Array.isArray(referenceOutput) && referenceOutput.length > 0) {
+  // Agreement with Sonnet judge
+  if (referenceOutput && Array.isArray(referenceOutput)) {
     const refIds = new Set(
       (referenceOutput as Record<string, unknown>[]).map((i) =>
         String(i.key_skill_id ?? ""),
@@ -161,26 +161,26 @@ export function scoreCrossCip(
     const allIds = new Set([...refIds, ...currentIds]);
 
     if (allIds.size > 0) {
-      // Jaccard similarity: intersection / union
       const intersection = [...refIds].filter((id) => currentIds.has(id)).length;
       const union = allIds.size;
       const jaccard = intersection / union;
       const agreementPts = Math.round(jaccard * 20);
       checks.push(
         proportionalCheck(
-          "agreement_with_reference",
+          "agreement_with_judge",
           agreementPts,
           20,
-          `Jaccard similarity with Haiku: ${Math.round(jaccard * 100)}% (${intersection} shared / ${union} total)`,
+          `Jaccard with Sonnet judge: ${Math.round(jaccard * 100)}% (${intersection} shared / ${union} total)`,
         ),
       );
     } else {
-      checks.push(proportionalCheck("agreement_with_reference", 20, 20, "both empty"));
+      // Both judge and model returned nothing — full agreement
+      checks.push(proportionalCheck("agreement_with_judge", 20, 20, "both returned no skills"));
     }
   } else {
-    // This is the reference model — full points
+    // No judge verdict — skip (give full points)
     checks.push(
-      proportionalCheck("agreement_with_reference", 20, 20, "reference model — full points"),
+      proportionalCheck("agreement_with_judge", 20, 20, "no judge verdict — skipped"),
     );
   }
 

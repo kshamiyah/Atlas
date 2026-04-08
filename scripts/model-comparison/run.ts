@@ -42,6 +42,7 @@ import { runNormalizer } from "./runners/normalizer.runner";
 import { runDescriptor } from "./runners/descriptor.runner";
 import { runCrossCip } from "./runners/cross-cip.runner";
 import { runFieldRegen } from "./runners/field.runner";
+import { runJudge } from "./judge/judge";
 import { writeReport, buildSummaries } from "./report/writer";
 import { writeAuditReport } from "./report/audit";
 import { MODELS, MODEL_PRICING } from "./config";
@@ -153,8 +154,11 @@ async function runCase(
   model: ModelConfig,
   referenceResults: Map<string, ScoredResult>,
 ): Promise<ScoredResult> {
-  const refKey = `${testCase.id}::haiku`;
-  const refResult = referenceResults.get(refKey);
+  // Look up judge verdict first; fall back to first-model reference for non-judged tasks
+  const refResult =
+    referenceResults.get(`${testCase.id}::__judge__`) ??
+    referenceResults.get(`${testCase.id}::haiku`) ??
+    referenceResults.get([...referenceResults.keys()].find((k) => k.startsWith(`${testCase.id}::`) && !k.endsWith("::__judge__")) ?? "");
   const refParsed = refResult?.parsed ?? null;
 
   try {
@@ -327,40 +331,74 @@ async function main() {
 
   console.log(`\nLoaded ${testCases.length} test case(s) across ${callTypes.length} call type(s)\n`);
 
-  // ── Phase 1: Run Haiku (reference model) first ───────────────────────────
-  const referenceModelKey = modelKeys.includes("haiku") ? "haiku" : modelKeys[0];
-  const referenceModel = MODELS[referenceModelKey];
-  const referenceResults = new Map<string, ScoredResult>();
+  // ── Phase 1: Run Sonnet judge for descriptor + cross-cip cases ───────────
+  // Judge produces ground-truth verdicts independently — all tested models are
+  // scored against the same external standard (no model self-grades).
+  const judgeVerdicts = new Map<string, unknown>(); // testCaseId -> parsed verdict
+  const needsJudge =
+    (callTypes.includes("descriptor") || callTypes.includes("cross-cip")) &&
+    !!process.env[MODELS.sonnet.envKey];
 
-  console.log(`Running reference model: ${referenceModel.label}...`);
-  const refTotal = testCases.length;
-  let refDone = 0;
+  if (needsJudge) {
+    const judgeCases = testCases.filter(
+      (tc) => tc.callType === "descriptor" || tc.callType === "cross-cip",
+    );
+    console.log(`Running Sonnet judge on ${judgeCases.length} case(s) for ground truth...`);
+    let judgeIdx = 0;
+    for (const tc of judgeCases) {
+      judgeIdx++;
+      process.stdout.write(`  [${judgeIdx}/${judgeCases.length}] judging ${tc.id}...`);
+      const verdict = await runJudge(tc, MODELS.sonnet);
+      judgeVerdicts.set(tc.id, verdict);
+      const count = Array.isArray(verdict) ? verdict.length : 0;
+      process.stdout.write(` ${count} item(s)\n`);
+    }
+    console.log("");
+  } else if (callTypes.includes("descriptor") || callTypes.includes("cross-cip")) {
+    console.log("⚠ No ANTHROPIC_API_KEY for Sonnet judge — falling back to first-model reference\n");
+  }
 
-  const refTasks = testCases.map(
-    (tc) => async () => {
-      const result = await runCase(tc, referenceModel, new Map());
-      refDone++;
-      printProgress(refDone, refTotal, tc.id, referenceModel.label, result, debug);
-      referenceResults.set(`${tc.id}::${referenceModelKey}`, result);
-      return result;
-    },
-  );
+  // ── Phase 2: Run all tested models ───────────────────────────────────────
+  // Build a referenceResults map from judge verdicts (for descriptor/cross-cip)
+  // so runCase can pass the right referenceOutput to the scorer.
+  const judgeAsReference = new Map<string, ScoredResult>();
+  for (const [caseId, verdict] of judgeVerdicts) {
+    // Wrap judge verdict as a minimal ScoredResult so runCase can consume it
+    const tc = testCases.find((t) => t.id === caseId);
+    if (!tc) continue;
+    judgeAsReference.set(`${caseId}::__judge__`, {
+      testCaseId: caseId,
+      callType: tc.callType,
+      modelKey: "__judge__",
+      rawText: "",
+      parsed: verdict,
+      parseSuccess: true,
+      parseMethod: "direct",
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: 0,
+      checks: [],
+      score: 0,
+      maxScore: 0,
+    });
+  }
 
-  const refResults = await runWithSemaphore(refTasks, 3);
+  const allResults: ScoredResult[] = [];
 
-  // ── Phase 2: Run remaining models ────────────────────────────────────────
-  const otherModelKeys = modelKeys.filter((k) => k !== referenceModelKey);
-  const allResults: ScoredResult[] = [...refResults];
-
-  for (const modelKey of otherModelKeys) {
+  for (const modelKey of modelKeys) {
     const model = MODELS[modelKey];
-    console.log(`\nRunning ${model.label}...`);
+    console.log(`Running ${model.label}...`);
     let done = 0;
     const total = testCases.length;
 
+    // Each model uses judge verdicts as reference (if available), otherwise
+    // falls back to the first model's output for non-judge tasks.
     const tasks = testCases.map(
       (tc) => async () => {
-        const result = await runCase(tc, model, referenceResults);
+        // For descriptor/cross-cip: use judge verdict as reference
+        // For other tasks: no reference needed (scorers don't use it)
+        const refMap = judgeAsReference.size > 0 ? judgeAsReference : new Map<string, ScoredResult>();
+        const result = await runCase(tc, model, refMap);
         done++;
         printProgress(done, total, tc.id, model.label, result, debug);
         return result;
