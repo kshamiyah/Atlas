@@ -42,6 +42,7 @@ import { runNormalizer } from "./runners/normalizer.runner";
 import { runDescriptor } from "./runners/descriptor.runner";
 import { runCrossCip } from "./runners/cross-cip.runner";
 import { writeReport, buildSummaries } from "./report/writer";
+import { writeAuditReport } from "./report/audit";
 import { MODELS } from "./config";
 import type {
   ScoredResult,
@@ -64,6 +65,7 @@ function parseArgs(): {
   limit: number;
   debug: boolean;
   entryTypes?: string[];
+  audit: boolean;
 } {
   const args = process.argv.slice(2);
   const get = (flag: string) => {
@@ -115,7 +117,9 @@ function parseArgs(): {
     ? entryTypesRaw.split(",").map((t) => t.trim()).filter(Boolean)
     : undefined;
 
-  return { userId, modelKeys, callTypes, limit, debug, entryTypes };
+  const audit = args.includes("--audit");
+
+  return { userId, modelKeys, callTypes, limit, debug, entryTypes, audit };
 }
 
 // ── Concurrency helpers ──────────────────────────────────────────────────────
@@ -267,7 +271,7 @@ function printSummaryTable(summaries: ReturnType<typeof buildSummaries>) {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const { userId, modelKeys, callTypes, limit, debug, entryTypes } = parseArgs();
+  const { userId, modelKeys, callTypes, limit, debug, entryTypes, audit } = parseArgs();
 
   console.log("\nModel Comparison Test Harness");
   console.log("──────────────────────────────");
@@ -354,7 +358,13 @@ async function main() {
   printSummaryTable(summaries);
 
   console.log(`\nJSON report: ${jsonPath}`);
-  console.log(`MD report:   ${mdPath}\n`);
+  console.log(`MD report:   ${mdPath}`);
+
+  if (audit) {
+    const auditPath = writeAuditReport(allResults, modelKeys);
+    console.log(`Audit report: ${auditPath}`);
+  }
+  console.log("");
 
   // Exit code: 0 if all models score ≥70% overall, 1 otherwise
   const allPass = summaries.every(
