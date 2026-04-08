@@ -202,9 +202,13 @@ function printProgress(
   console.log(
     `  [${done}/${total}] ${testCaseId} · ${modelLabel} · ${result.latencyMs}ms · score=${pct}%${flag}${parsed}`,
   );
-  if (debug && !result.parseSuccess && result.rawText) {
-    const preview = result.rawText.slice(0, 800).replace(/\n/g, "↵");
-    console.log(`    ↳ raw[${result.rawText.length}chars]: ${preview}`);
+  if (debug && !result.parseSuccess) {
+    if (result.error) {
+      console.log(`    ↳ error: ${result.error.slice(0, 300)}`);
+    } else if (result.rawText) {
+      const preview = result.rawText.slice(0, 800).replace(/\n/g, "↵");
+      console.log(`    ↳ raw[${result.rawText.length}chars]: ${preview}`);
+    }
   }
 }
 
