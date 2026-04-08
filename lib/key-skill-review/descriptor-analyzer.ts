@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callGemini, stripFences } from "@/lib/ai/gemini-client";
 
 export type AnalyzerKeySkill = {
   key_skill_id: string;
@@ -29,13 +29,9 @@ type PromptDescriptor = {
 };
 
 const MAX_DESCRIPTORS_PER_CALL = 30;
-const MODEL_NAME = "claude-haiku-4-5-20251001";
 
-type CallUsage = { input_tokens: number; output_tokens: number };
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const SYSTEM_PROMPT =
+  "You are an RCOG curriculum expert. Analyse whether portfolio entries provide evidence for specific descriptors. Output ONLY valid JSON — no prose, no markdown fences.";
 
 function buildPrompt(
   entry: AnalyzerEntry,
@@ -55,13 +51,13 @@ function buildPrompt(
     "For each descriptor below, determine if the entry provides direct evidence.",
     "Only mark covered=true if the entry text explicitly demonstrates that descriptor.",
     "",
-    "Continue the JSON array that has already been started. Output one object per descriptor:",
-    '  { "descriptor_id": "<id>", "covered": true, "confidence": 0.0 },',
+    "Output ONLY a valid JSON array — starting with [ and ending with ]. One object per descriptor:",
+    '  { "descriptor_id": "<id>", "covered": true, "confidence": 0.0 }',
     "",
     "Rules:",
     "- covered: true only if the entry text explicitly demonstrates that descriptor",
     "- confidence: number between 0.0 and 1.0",
-    "- Output ONLY the array items and the closing ]. No prose. No code fences. No extra fields.",
+    "- Output ONLY the JSON array. No prose. No code fences. No extra fields.",
     "",
     "Descriptors to analyse:",
     JSON.stringify(
@@ -77,48 +73,25 @@ function buildPrompt(
   ].join("\n");
 }
 
-async function callAnthropic(prompt: string): Promise<{ data: unknown; usage: CallUsage }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is not configured");
-  }
-
-  // Prefill the assistant turn with "[" so the model is forced to continue
-  // a JSON array directly — no prose, no code fences possible.
-  const message = await anthropic.messages.create({
-    model: MODEL_NAME,
-    max_tokens: 8192,
+async function callDescriptorModel(prompt: string): Promise<{ data: unknown }> {
+  const raw = await callGemini({
+    system: SYSTEM_PROMPT,
+    user: prompt,
+    maxTokens: 8192,
     temperature: 0,
-    messages: [
-      { role: "user", content: prompt },
-      { role: "assistant", content: "[" },
-    ],
   });
 
-  const usage: CallUsage = {
-    input_tokens: message.usage.input_tokens,
-    output_tokens: message.usage.output_tokens,
-  };
-
-  const textPart = message.content.find(
-    (c) => c.type === "text",
-  ) as { type: "text"; text: string } | undefined;
-
-  if (!textPart?.text) {
-    throw new Error("Anthropic response missing text content");
-  }
-
-  // The model continues from "[", so prepend it to get the full array
-  const jsonText = "[" + textPart.text.trim();
+  const jsonText = stripFences(raw);
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonText);
   } catch {
     const preview = jsonText.slice(0, 400).replace(/\n/g, " ");
-    throw new Error(`Failed to parse Anthropic response as JSON. Preview: ${preview}`);
+    throw new Error(`Failed to parse descriptor response as JSON. Preview: ${preview}`);
   }
 
-  return { data: parsed, usage };
+  return { data: parsed };
 }
 
 export async function analyzeDescriptors(
@@ -151,7 +124,7 @@ export async function analyzeDescriptors(
 
   for (const chunk of chunks) {
     const prompt = buildPrompt(entry, chunk);
-    const { data: raw } = await callAnthropic(prompt);
+    const { data: raw } = await callDescriptorModel(prompt);
 
     if (!Array.isArray(raw)) {
       continue;

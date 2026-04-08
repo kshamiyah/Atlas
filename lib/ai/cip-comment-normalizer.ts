@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callGemini, stripFences } from "./gemini-client";
 
 type LengthMode = "short" | "standard" | "detailed";
 
@@ -172,43 +172,35 @@ export async function normalizeCipTraineeComments(params: {
     }
   }
 
-  const client = new Anthropic();
   const maxAttempts = 2;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1600,
-      temperature: 0.2,
+    const raw = await callGemini({
       system: NORMALIZER_SYSTEM_PROMPT,
-      messages: [
+      user: JSON.stringify(
         {
-          role: "user",
-          content: JSON.stringify(
-            {
-              target_length: lengthMode,
-              target_word_range: range,
-              current_word_count: words,
-              current_paragraph_count: countParagraphs(current),
-              current_text: current,
-            },
-            null,
-            2
-          ),
+          target_length: lengthMode,
+          target_word_range: range,
+          current_word_count: words,
+          current_paragraph_count: countParagraphs(current),
+          current_text: current,
         },
-      ],
-    });
+        null,
+        2
+      ),
+      maxTokens: 1600,
+      temperature: 0.2,
+      jsonObject: true,
+    }).catch(() => "");
 
-    const raw = response.content[0]?.type === "text" ? response.content[0].text : "";
     if (!raw) continue;
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      const stripped = raw.replace(/```json\n?|\n?```/g, "").trim();
       try {
-        parsed = JSON.parse(stripped);
+        parsed = JSON.parse(stripFences(raw));
       } catch {
         continue;
       }

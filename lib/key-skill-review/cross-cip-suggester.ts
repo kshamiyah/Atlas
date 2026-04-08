@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callGemini, stripFences } from "@/lib/ai/gemini-client";
 
 export type CrossCipSkillInput = {
   key_skill_id: string;
@@ -14,13 +14,9 @@ export type CrossCipSuggestion = {
 };
 
 const MAX_SKILLS_PER_CALL = 60;
-const MODEL_NAME = "claude-haiku-4-5-20251001";
 
-type CallUsage = { input_tokens: number; output_tokens: number };
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const SYSTEM_PROMPT =
+  "You are an RCOG curriculum expert identifying cross-CiP skill evidence in portfolio entries. Output ONLY valid JSON — no prose, no markdown fences.";
 
 function buildPrompt(
   entryText: string,
@@ -76,59 +72,34 @@ function buildPrompt(
     conservativeNote,
     "- confidence: 0.0–1.0 (use 0.8+ for explicit strong evidence, 0.6–0.79 for moderate, <0.6 only if weak)",
     "- rationale: short phrase max 8 words explaining the specific evidence",
-    "- If no skills are evidenced, output just ]",
-    "- Output ONLY array items and closing ]. No prose. No code fences.",
+    "- If no skills are evidenced, output []",
+    "- Output ONLY a valid JSON array. No prose. No code fences.",
     "",
-    "Continue the JSON array that has already been started. Output one object per evidenced skill:",
-    '  { "key_skill_id": "<id>", "cip_number": N, "confidence": 0.0, "rationale": "short phrase" },',
+    "Output a JSON array. One object per evidenced skill:",
+    '  { "key_skill_id": "<id>", "cip_number": N, "confidence": 0.0, "rationale": "short phrase" }',
   ].join("\n");
 }
 
-async function callAnthropic(
-  prompt: string,
-): Promise<{ data: unknown; usage: CallUsage }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is not configured");
-  }
-
-  // Prefill "[" so the model continues the JSON array directly
-  const message = await anthropic.messages.create({
-    model: MODEL_NAME,
-    max_tokens: 2048,
+async function callCrossCipModel(prompt: string): Promise<{ data: unknown }> {
+  const raw = await callGemini({
+    system: SYSTEM_PROMPT,
+    user: prompt,
+    maxTokens: 2048,
     temperature: 0,
-    messages: [
-      { role: "user", content: prompt },
-      { role: "assistant", content: "[" },
-    ],
   });
 
-  const usage: CallUsage = {
-    input_tokens: message.usage.input_tokens,
-    output_tokens: message.usage.output_tokens,
-  };
-
-  const textPart = message.content.find(
-    (c) => c.type === "text",
-  ) as { type: "text"; text: string } | undefined;
-
-  if (!textPart?.text) {
-    // Model returned nothing — no cross-CiP matches
-    return { data: [], usage };
-  }
-
-  const jsonText = "[" + textPart.text.trim();
+  const jsonText = stripFences(raw).trim();
+  if (!jsonText) return { data: [] };
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonText);
   } catch {
     const preview = jsonText.slice(0, 400).replace(/\n/g, " ");
-    throw new Error(
-      `Failed to parse cross-CiP response as JSON. Preview: ${preview}`,
-    );
+    throw new Error(`Failed to parse cross-CiP response as JSON. Preview: ${preview}`);
   }
 
-  return { data: parsed, usage };
+  return { data: parsed };
 }
 
 export async function suggestCrossCipSkills(
@@ -155,7 +126,7 @@ export async function suggestCrossCipSkills(
       chunk,
       linkedSkillTitles,
     );
-    const { data: raw } = await callAnthropic(prompt);
+    const { data: raw } = await callCrossCipModel(prompt);
 
     if (!Array.isArray(raw)) continue;
 

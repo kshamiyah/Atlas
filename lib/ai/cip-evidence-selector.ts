@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callGemini, stripFences } from "./gemini-client";
 
 export type CipEvidenceSkillInput = {
   key_skill_id: string;
@@ -66,42 +66,32 @@ export async function selectCipEvidence(params: {
   key_skills: CipEvidenceSkillInput[];
   entries: CipEvidenceEntryInput[];
 }): Promise<CipEvidenceSelection> {
-  const client = new Anthropic();
-
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1400,
-    temperature: 0,
+  const raw = await callGemini({
     system: SELECTION_PROMPT,
-    messages: [
+    user: JSON.stringify(
       {
-        role: "user",
-        content: JSON.stringify(
-          {
-            cip_number: params.cip_number,
-            user_request: params.user_request,
-            key_skills: params.key_skills,
-            entries: params.entries,
-          },
-          null,
-          2
-        ),
+        cip_number: params.cip_number,
+        user_request: params.user_request,
+        key_skills: params.key_skills,
+        entries: params.entries,
       },
-    ],
+      null,
+      2
+    ),
+    maxTokens: 1400,
+    temperature: 0,
+    jsonObject: true,
   });
 
-  const block = response.content[0];
-  const raw = block?.type === "text" ? block.text : "";
   if (!raw) {
-    throw new Error("Empty response from Claude (CiP evidence selection)");
+    throw new Error("Empty response from Gemini (CiP evidence selection)");
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    const stripped = raw.replace(/```json\n?|\n?```/g, "").trim();
-    parsed = JSON.parse(stripped);
+    parsed = JSON.parse(stripFences(raw));
   }
 
   if (!parsed || typeof parsed !== "object") {

@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callGemini, stripFences } from "./gemini-client";
 import { SYSTEM_PROMPT, buildUserMessage } from "./prompts";
 
 export type GeneratedAIOutput = {
@@ -26,41 +26,31 @@ export async function generatePortfolioEntry(params: {
   length?: "short" | "standard" | "detailed";
   target_key_skills?: { id: string; title: string; descriptors: string[] }[];
 }): Promise<GeneratedAIOutput> {
-  const client = new Anthropic();
-
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 3000,
-    temperature: 0.35,
+  const raw = await callGemini({
     system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: buildUserMessage({
-          entry_type: params.entry_type,
-          free_text: params.free_text,
-          current_stage_id: params.stage_id,
-          date_hint: params.date_hint,
-          length: params.length,
-          target_key_skills: params.target_key_skills,
-        }),
-      },
-    ],
+    user: buildUserMessage({
+      entry_type: params.entry_type,
+      free_text: params.free_text,
+      current_stage_id: params.stage_id,
+      date_hint: params.date_hint,
+      length: params.length,
+      target_key_skills: params.target_key_skills,
+    }),
+    maxTokens: 3000,
+    temperature: 0.35,
+    jsonObject: true,
   });
 
-  const block = response.content[0];
-  const raw = block?.type === "text" ? block.text : "";
-  if (!raw) throw new Error("Empty response from Claude");
+  if (!raw) throw new Error("Empty response from Gemini");
 
   let parsed: GeneratedAIOutput;
   try {
     parsed = JSON.parse(raw) as GeneratedAIOutput;
   } catch {
-    const stripped = raw.replace(/```json\n?|\n?```/g, "").trim();
     try {
-      parsed = JSON.parse(stripped) as GeneratedAIOutput;
+      parsed = JSON.parse(stripFences(raw)) as GeneratedAIOutput;
     } catch (e) {
-      throw new Error("Claude returned invalid JSON: " + String(e));
+      throw new Error("Gemini returned invalid JSON: " + String(e));
     }
   }
 
