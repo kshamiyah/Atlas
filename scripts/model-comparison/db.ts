@@ -454,6 +454,23 @@ async function buildFieldRegenCases(
     osats_formative: ["clinical_details_and_complexity", "what_went_well", "what_could_have_gone_better", "learning_plan", "trainee_reflection"],
   };
 
+  // Word length expectation per field — maps to FIELD_WORD_RANGES keys in config.ts
+  // "short" = brief evaluative fields; "standard" = analytical narrative; "detailed" = extended plan/discussion
+  const FIELD_LENGTH_MAP: Record<string, "short" | "standard" | "detailed"> = {
+    what_went_well: "short",
+    what_could_have_gone_better: "short",
+    what_happened: "short",
+    important_points: "short",
+    describe_the_event: "standard",
+    trainee_analysis: "standard",
+    reflection: "standard",
+    clinical_details_and_complexity: "standard",
+    trainee_learning_plan: "detailed",
+    trainee_reflection: "standard",
+    learning_plan: "detailed",
+    record_of_discussion_or_action_plan: "detailed",
+  };
+
   // Human-readable field labels
   const FIELD_LABELS: Record<string, string> = {
     what_happened: "What Happened",
@@ -524,7 +541,7 @@ async function buildFieldRegenCases(
       rawInput: e.raw_input ? String(e.raw_input) : undefined,
       currentFields,
       originalFieldValue: originalValue,
-      length: "standard",
+      length: FIELD_LENGTH_MAP[targetFieldId] ?? "standard",
     });
   }
 

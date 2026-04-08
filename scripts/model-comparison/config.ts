@@ -133,9 +133,12 @@ export const CIP_WORD_RANGES: Record<string, { min: number; max: number }> = {
   detailed: { min: 500, max: 650 },
 };
 
-// Non-CiP narrative field word targets
+// Non-CiP narrative field word targets (for single field regeneration, NOT full entries)
+// "short" = brief OSATS fields (what_went_well, what_could_have_gone_better)
+// "standard" = typical analytical fields (trainee_analysis, describe_the_event, reflection)
+// "detailed" = extended fields (trainee_learning_plan, record_of_discussion_or_action_plan)
 export const FIELD_WORD_RANGES: Record<string, { min: number; max: number }> = {
-  short: { min: 100, max: 150 },
-  standard: { min: 250, max: 350 },
-  detailed: { min: 450, max: 600 },
+  short: { min: 50, max: 120 },
+  standard: { min: 80, max: 200 },
+  detailed: { min: 180, max: 350 },
 };

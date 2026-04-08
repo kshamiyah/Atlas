@@ -6,7 +6,7 @@
  *     --user-id <uuid> \
  *     [--models haiku,gemma4]           (default: haiku,gemma4)
  *     [--call-types generate,match-key-skills,normalizer,descriptor,cross-cip]
- *     [--limit 15]                       (entries per call type, default: 15)
+ *     [--limit 15]                       (entries per call type, default: 15; use 5 for quick check, 15+ for validation)
  *
  * Required env vars:
  *   NEXT_PUBLIC_SUPABASE_URL
