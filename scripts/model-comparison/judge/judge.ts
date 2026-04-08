@@ -11,14 +11,14 @@ import type { ModelConfig, DescriptorTestCase, CrossCipTestCase, AnyTestCase } f
 async function callJudge(
   model: ModelConfig,
   prompt: string,
-  prefillArray: boolean,
 ): Promise<unknown> {
+  // Sonnet 4.6 does not support assistant prefill — ask it to output JSON directly.
   const result = await callModel(model, {
-    system: "You are an expert RCOG curriculum assessor. Output only valid JSON. No prose, no markdown.",
+    system: "You are an expert RCOG curriculum assessor. Output ONLY a valid JSON array — no prose, no markdown, no code fences. Your entire response must be parseable by JSON.parse().",
     userMessage: prompt,
     maxTokens: 4096,
     temperature: 0,
-    prefillArray,
+    prefillArray: false, // prefill not supported by claude-sonnet-4-6
   });
 
   if (result.error) {
@@ -30,7 +30,7 @@ async function callJudge(
     return null;
   }
 
-  const { parsed, method } = tryParseJsonArray(result.rawText, prefillArray);
+  const { parsed, method } = tryParseJsonArray(result.rawText, false);
   if (method === "failed") {
     console.warn(`    ↳ judge parse failed. Raw: ${result.rawText.slice(0, 200).replace(/\n/g, " ")}`);
     return null;
@@ -70,7 +70,7 @@ async function judgeDescriptor(
     JSON.stringify(testCase.descriptors, null, 2),
   ].join("\n");
 
-  return callJudge(model, prompt, true);
+  return callJudge(model, prompt);
 }
 
 async function judgeCrossCip(
@@ -103,7 +103,7 @@ async function judgeCrossCip(
     JSON.stringify(testCase.crossCipSkills, null, 2),
   ].join("\n");
 
-  return callJudge(model, prompt, true);
+  return callJudge(model, prompt);
 }
 
 export async function runJudge(
