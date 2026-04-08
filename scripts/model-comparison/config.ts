@@ -6,8 +6,9 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   gemma4:       { input: 0.14,  output: 0.40  },
   sonnet:       { input: 3.00,  output: 15.00 },
   geminiflash:  { input: 0.10,  output: 0.40  },
-  gemini31flash:{ input: 0.075, output: 0.30  },
+  gemini31flash:{ input: 0.10,  output: 0.40  },
   gpt54nano:    { input: 0.05,  output: 0.40  },
+  gpt5nano:     { input: 0.03,  output: 0.20  },
 };
 
 export const MODELS: Record<string, ModelConfig> = {
@@ -45,9 +46,9 @@ export const MODELS: Record<string, ModelConfig> = {
   },
   gemini31flash: {
     key: "gemini31flash",
-    id: "gemini-3.1-flash",
+    id: "gemini-3-flash-preview",
     provider: "openai-compat",
-    label: "Gemini 3.1 Flash",
+    label: "Gemini 3 Flash",
     envKey: "GOOGLE_AI_STUDIO_API_KEY",
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     jsonMode: true,
@@ -55,9 +56,18 @@ export const MODELS: Record<string, ModelConfig> = {
   },
   gpt54nano: {
     key: "gpt54nano",
-    id: "gpt-5.4-nano-2026-03-17",
+    id: "gpt-5.4-nano",
     provider: "openai-compat",
     label: "GPT-5.4 Nano",
+    envKey: "OPENAI_API_KEY",
+    baseURL: "https://api.openai.com/v1/",
+    jsonMode: true,
+  },
+  gpt5nano: {
+    key: "gpt5nano",
+    id: "gpt-5-nano",
+    provider: "openai-compat",
+    label: "GPT-5 Nano",
     envKey: "OPENAI_API_KEY",
     baseURL: "https://api.openai.com/v1/",
     jsonMode: true,
