@@ -3,7 +3,8 @@ export type CallType =
   | "match-key-skills"
   | "normalizer"
   | "descriptor"
-  | "cross-cip";
+  | "cross-cip"
+  | "field-regen";
 
 export interface ModelConfig {
   key: string;
@@ -140,9 +141,22 @@ export interface CrossCipTestCase {
   linkedSkillTitles: string[];
 }
 
+export interface FieldRegenTestCase {
+  id: string;
+  callType: "field-regen";
+  entryType: string;
+  targetFieldId: string;
+  targetFieldLabel: string;
+  rawInput?: string;
+  currentFields: Record<string, string>;
+  originalFieldValue: string;
+  length: "short" | "standard" | "detailed";
+}
+
 export type AnyTestCase =
   | GenerateTestCase
   | MatchKeySkillsTestCase
   | NormalizerTestCase
   | DescriptorTestCase
-  | CrossCipTestCase;
+  | CrossCipTestCase
+  | FieldRegenTestCase;

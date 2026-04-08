@@ -41,6 +41,7 @@ import { runMatchKeySkills } from "./runners/match-key-skills.runner";
 import { runNormalizer } from "./runners/normalizer.runner";
 import { runDescriptor } from "./runners/descriptor.runner";
 import { runCrossCip } from "./runners/cross-cip.runner";
+import { runFieldRegen } from "./runners/field.runner";
 import { writeReport, buildSummaries } from "./report/writer";
 import { writeAuditReport } from "./report/audit";
 import { MODELS } from "./config";
@@ -52,6 +53,7 @@ import type {
   NormalizerTestCase,
   DescriptorTestCase,
   CrossCipTestCase,
+  FieldRegenTestCase,
   ModelConfig,
   CallType,
 } from "./types";
@@ -103,6 +105,7 @@ function parseArgs(): {
     "normalizer",
     "descriptor",
     "cross-cip",
+    "field-regen",
   ];
   const callTypesRaw = get("--call-types");
   const callTypes = callTypesRaw
@@ -166,6 +169,8 @@ async function runCase(
         return await runDescriptor(testCase as DescriptorTestCase, model, refParsed);
       case "cross-cip":
         return await runCrossCip(testCase as CrossCipTestCase, model, refParsed);
+      case "field-regen":
+        return await runFieldRegen(testCase as FieldRegenTestCase, model);
     }
   } catch (err) {
     // Return a failed result rather than crashing the whole run
@@ -223,6 +228,7 @@ function printSummaryTable(summaries: ReturnType<typeof buildSummaries>) {
     "normalizer",
     "descriptor",
     "cross-cip",
+    "field-regen",
   ];
 
   console.log("\n" + "═".repeat(80));
@@ -263,6 +269,23 @@ function printSummaryTable(summaries: ReturnType<typeof buildSummaries>) {
   console.log("\n  Parse failures:");
   for (const s of summaries) {
     console.log(`    ${s.modelLabel}: ${s.parseFailures}`);
+  }
+
+  console.log("\n  Cost this run:");
+  for (const s of summaries) {
+    const { MODEL_PRICING } = require("./config");
+    const pricing = MODEL_PRICING[s.modelKey];
+    if (!pricing) { console.log(`    ${s.modelLabel}: n/a`); continue; }
+    const cost = (s.totalInputTokens / 1_000_000) * pricing.input +
+      (s.totalOutputTokens / 1_000_000) * pricing.output;
+    const testCaseCount = allResults.filter((r: ScoredResult) => r.modelKey === s.modelKey).length;
+    const costPer1k = testCaseCount > 0
+      ? ((s.totalInputTokens / testCaseCount / 1_000_000) * pricing.input +
+         (s.totalOutputTokens / testCaseCount / 1_000_000) * pricing.output) * 1000
+      : 0;
+    console.log(
+      `    ${s.modelLabel}: $${cost.toFixed(4)} this run | ~$${costPer1k.toFixed(2)}/1k entries`,
+    );
   }
 
   console.log("═".repeat(80));
@@ -361,7 +384,7 @@ async function main() {
   console.log(`MD report:   ${mdPath}`);
 
   if (audit) {
-    const auditPath = writeAuditReport(allResults, modelKeys);
+    const auditPath = writeAuditReport(allResults, modelKeys, testCases);
     console.log(`Audit report: ${auditPath}`);
   }
   console.log("");

@@ -6,6 +6,7 @@ import type {
   NormalizerTestCase,
   DescriptorTestCase,
   CrossCipTestCase,
+  FieldRegenTestCase,
 } from "./types";
 
 function getSupabase() {
@@ -437,6 +438,94 @@ async function buildCrossCipCases(
   return cases;
 }
 
+async function buildFieldRegenCases(
+  supabase: ReturnType<typeof getSupabase>,
+  userId: string,
+  limit: number,
+): Promise<FieldRegenTestCase[]> {
+  // Fetch entries that have structured_data.fields with at least one narrative field
+  const ENTRY_TYPES = ["cbd", "reflection", "osats_formative", "minicex"];
+  const perType = Math.ceil(limit / ENTRY_TYPES.length);
+
+  const NARRATIVE_FIELDS_MAP: Record<string, string[]> = {
+    reflection: ["what_happened", "important_points", "reflection", "record_of_discussion_or_action_plan"],
+    cbd: ["describe_the_event", "trainee_analysis", "trainee_learning_plan", "trainee_reflection"],
+    minicex: ["describe_the_event", "trainee_analysis", "trainee_learning_plan", "trainee_reflection"],
+    osats_formative: ["clinical_details_and_complexity", "what_went_well", "what_could_have_gone_better", "learning_plan", "trainee_reflection"],
+  };
+
+  // Human-readable field labels
+  const FIELD_LABELS: Record<string, string> = {
+    what_happened: "What Happened",
+    important_points: "Important Points",
+    reflection: "Reflection",
+    record_of_discussion_or_action_plan: "Record of Discussion / Action Plan",
+    describe_the_event: "Describe the Event",
+    trainee_analysis: "Trainee Analysis",
+    trainee_learning_plan: "Trainee Learning Plan",
+    trainee_reflection: "Trainee Reflection",
+    clinical_details_and_complexity: "Clinical Details and Complexity",
+    what_went_well: "What Went Well",
+    what_could_have_gone_better: "What Could Have Gone Better",
+    learning_plan: "Learning Plan",
+  };
+
+  let allEntries: Record<string, unknown>[] = [];
+
+  for (const type of ENTRY_TYPES) {
+    const { data, error } = await supabase
+      .from("generated_entries")
+      .select("id, entry_type, raw_input, structured_data")
+      .eq("user_id", userId)
+      .eq("entry_type", type)
+      .not("structured_data", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(perType);
+    if (!error && data) allEntries.push(...(data as Record<string, unknown>[]));
+  }
+
+  allEntries = allEntries.slice(0, limit);
+
+  const cases: FieldRegenTestCase[] = [];
+
+  for (const e of allEntries) {
+    const entryType = String(e.entry_type ?? "");
+    const sd = e.structured_data as Record<string, unknown>;
+    const fields = sd?.fields as Record<string, unknown> | undefined;
+    if (!fields) continue;
+
+    const narrativeFields = NARRATIVE_FIELDS_MAP[entryType] ?? [];
+    // Pick the 2nd narrative field so we test variety (not always the first field)
+    const targetFieldId = narrativeFields[1] ?? narrativeFields[0];
+    if (!targetFieldId) continue;
+
+    const originalValue = String(fields[targetFieldId] ?? "").trim();
+    if (!originalValue || originalValue.length < 30) continue;
+
+    // Build currentFields: all fields as strings
+    const currentFields: Record<string, string> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (typeof v === "string" && v.trim()) {
+        currentFields[k] = v;
+      }
+    }
+
+    cases.push({
+      id: `field-${String(e.id).slice(0, 8)}`,
+      callType: "field-regen",
+      entryType,
+      targetFieldId,
+      targetFieldLabel: FIELD_LABELS[targetFieldId] ?? targetFieldId,
+      rawInput: e.raw_input ? String(e.raw_input) : undefined,
+      currentFields,
+      originalFieldValue: originalValue,
+      length: "standard",
+    });
+  }
+
+  return cases;
+}
+
 // ── Main export ──────────────────────────────────────────────────────────────
 
 export interface FetchOptions {
@@ -511,6 +600,12 @@ export async function fetchTestCases(opts: FetchOptions): Promise<AnyTestCase[]>
       entryTypes,
     );
     console.log(`  [db] ${cases.length} cross-cip cases`);
+    allCases.push(...cases);
+  }
+
+  if (callTypes.includes("field-regen")) {
+    const cases = await buildFieldRegenCases(supabase, userId, limitPerCallType);
+    console.log(`  [db] ${cases.length} field-regen cases`);
     allCases.push(...cases);
   }
 

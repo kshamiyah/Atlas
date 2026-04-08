@@ -4,7 +4,7 @@ import type { ScoredResult, ModelSummary, CallType } from "../types";
 import { MODELS, MODEL_PRICING } from "../config";
 
 const RESULTS_DIR = path.join(__dirname, "..", "results");
-const CALL_TYPES: CallType[] = ["generate", "match-key-skills", "normalizer", "descriptor", "cross-cip"];
+const CALL_TYPES: CallType[] = ["generate", "match-key-skills", "normalizer", "descriptor", "cross-cip", "field-regen"];
 
 // ── Summary computation ──────────────────────────────────────────────────────
 
