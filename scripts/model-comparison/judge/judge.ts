@@ -8,6 +8,36 @@ import { callModel } from "../providers";
 import { tryParseJsonArray } from "../scoring/shared";
 import type { ModelConfig, DescriptorTestCase, CrossCipTestCase, AnyTestCase } from "../types";
 
+async function callJudge(
+  model: ModelConfig,
+  prompt: string,
+  prefillArray: boolean,
+): Promise<unknown> {
+  const result = await callModel(model, {
+    system: "You are an expert RCOG curriculum assessor. Output only valid JSON. No prose, no markdown.",
+    userMessage: prompt,
+    maxTokens: 4096,
+    temperature: 0,
+    prefillArray,
+  });
+
+  if (result.error) {
+    console.warn(`    ↳ judge API error: ${result.error}`);
+    return null;
+  }
+  if (!result.rawText.trim()) {
+    console.warn(`    ↳ judge returned empty response`);
+    return null;
+  }
+
+  const { parsed, method } = tryParseJsonArray(result.rawText, prefillArray);
+  if (method === "failed") {
+    console.warn(`    ↳ judge parse failed. Raw: ${result.rawText.slice(0, 200).replace(/\n/g, " ")}`);
+    return null;
+  }
+  return parsed;
+}
+
 async function judgeDescriptor(
   testCase: DescriptorTestCase,
   model: ModelConfig,
@@ -40,16 +70,7 @@ async function judgeDescriptor(
     JSON.stringify(testCase.descriptors, null, 2),
   ].join("\n");
 
-  const result = await callModel(model, {
-    system: "",
-    userMessage: prompt,
-    maxTokens: 4096,
-    temperature: 0,
-    prefillArray: true,
-  });
-
-  const { parsed } = tryParseJsonArray(result.rawText, true);
-  return parsed;
+  return callJudge(model, prompt, true);
 }
 
 async function judgeCrossCip(
@@ -82,16 +103,7 @@ async function judgeCrossCip(
     JSON.stringify(testCase.crossCipSkills, null, 2),
   ].join("\n");
 
-  const result = await callModel(model, {
-    system: "",
-    userMessage: prompt,
-    maxTokens: 4096,
-    temperature: 0,
-    prefillArray: true,
-  });
-
-  const { parsed } = tryParseJsonArray(result.rawText, true);
-  return parsed;
+  return callJudge(model, prompt, true);
 }
 
 export async function runJudge(
