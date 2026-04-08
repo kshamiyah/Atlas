@@ -44,7 +44,7 @@ import { runCrossCip } from "./runners/cross-cip.runner";
 import { runFieldRegen } from "./runners/field.runner";
 import { writeReport, buildSummaries } from "./report/writer";
 import { writeAuditReport } from "./report/audit";
-import { MODELS } from "./config";
+import { MODELS, MODEL_PRICING } from "./config";
 import type {
   ScoredResult,
   AnyTestCase,
@@ -273,12 +273,11 @@ function printSummaryTable(summaries: ReturnType<typeof buildSummaries>) {
 
   console.log("\n  Cost this run:");
   for (const s of summaries) {
-    const { MODEL_PRICING } = require("./config");
     const pricing = MODEL_PRICING[s.modelKey];
     if (!pricing) { console.log(`    ${s.modelLabel}: n/a`); continue; }
     const cost = (s.totalInputTokens / 1_000_000) * pricing.input +
       (s.totalOutputTokens / 1_000_000) * pricing.output;
-    const testCaseCount = allResults.filter((r: ScoredResult) => r.modelKey === s.modelKey).length;
+    const testCaseCount = Object.values(s.byCallType).reduce((sum, ct) => sum + ct.caseCount, 0);
     const costPer1k = testCaseCount > 0
       ? ((s.totalInputTokens / testCaseCount / 1_000_000) * pricing.input +
          (s.totalOutputTokens / testCaseCount / 1_000_000) * pricing.output) * 1000

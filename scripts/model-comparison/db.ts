@@ -481,9 +481,11 @@ async function buildFieldRegenCases(
       .not("structured_data", "is", null)
       .order("created_at", { ascending: false })
       .limit(perType);
-    if (!error && data) allEntries.push(...(data as Record<string, unknown>[]));
+    if (error) console.warn(`  [db] field-regen fetch error (${type}):`, error.message);
+    if (data) allEntries.push(...(data as Record<string, unknown>[]));
   }
 
+  console.log(`  [db] field-regen: fetched ${allEntries.length} raw entries`);
   allEntries = allEntries.slice(0, limit);
 
   const cases: FieldRegenTestCase[] = [];
@@ -492,7 +494,10 @@ async function buildFieldRegenCases(
     const entryType = String(e.entry_type ?? "");
     const sd = e.structured_data as Record<string, unknown>;
     const fields = sd?.fields as Record<string, unknown> | undefined;
-    if (!fields) continue;
+    if (!fields) {
+      console.warn(`  [db] field-regen: entry ${String(e.id).slice(0, 8)} has no .fields in structured_data (keys: ${Object.keys(sd ?? {}).join(", ")})`);
+      continue;
+    }
 
     const narrativeFields = NARRATIVE_FIELDS_MAP[entryType] ?? [];
     // Pick the 2nd narrative field so we test variety (not always the first field)
