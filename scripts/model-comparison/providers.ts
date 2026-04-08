@@ -107,7 +107,7 @@ async function callOpenAICompat(
     ...(model.useCompletionTokens
       ? { max_completion_tokens: params.maxTokens }
       : { max_tokens: params.maxTokens }),
-    temperature: params.temperature,
+    ...(model.noTemperature ? {} : { temperature: params.temperature }),
     messages: [
       { role: "system", content: system },
       { role: "user", content: params.userMessage },

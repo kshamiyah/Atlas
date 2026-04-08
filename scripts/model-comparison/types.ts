@@ -18,6 +18,8 @@ export interface ModelConfig {
   disableThinking?: boolean;
   /** If true, uses max_completion_tokens instead of max_tokens (required by OpenAI GPT-5.x) */
   useCompletionTokens?: boolean;
+  /** If true, omits temperature parameter (required by some reasoning models) */
+  noTemperature?: boolean;
 }
 
 // ── Raw call result ──────────────────────────────────────────────────────────

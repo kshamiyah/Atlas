@@ -73,6 +73,7 @@ export const MODELS: Record<string, ModelConfig> = {
     baseURL: "https://api.openai.com/v1/",
     jsonMode: true,
     useCompletionTokens: true,
+    noTemperature: true,
   },
 };
 
