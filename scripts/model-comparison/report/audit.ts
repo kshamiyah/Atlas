@@ -55,7 +55,7 @@ function buildDescriptorAudit(
 
   // Table header
   const modelLabels = modelKeys.map((k) => MODELS[k]?.label ?? k);
-  lines.push(`| Descriptor ID | ${modelLabels.map((l) => `${l}<br>covered / conf / reasoning`).join(" | ")} |`);
+  lines.push(`| Descriptor ID | ${modelLabels.map((l) => l).join(" | ")} |`);
   lines.push(`| --- | ${modelLabels.map(() => "---").join(" | ")} |`);
 
   for (const did of allDescriptorIds) {
@@ -68,8 +68,7 @@ function buildDescriptorAudit(
       if (!item) return "_(not returned)_";
       const cov = covered(item.covered);
       const c = conf(item.confidence);
-      const reason = short(item.reasoning ?? item.rationale, 70);
-      return `${cov} / ${c}<br>"${reason}"`;
+      return `${cov} (conf: ${c})`;
     });
     lines.push(`| \`${did.slice(-8)}\` | ${cells.join(" | ")} |`);
   }
@@ -181,29 +180,34 @@ function buildGenerateAudit(
 
   for (const k of modelKeys) {
     const r = caseResults.find((r) => r.modelKey === k);
-    const label = MODELS[k]?.label ?? k;
+    const modelLabel = MODELS[k]?.label ?? k;
 
-    lines.push(`#### ${label}`);
+    lines.push(`#### ${modelLabel}`);
     if (!r || !r.parseSuccess || !r.parsed) {
       lines.push("_Parse failed — no output_");
       lines.push("");
       continue;
     }
 
-    const entry = r.parsed as Record<string, unknown>;
-    const title = String(entry.title ?? entry.entry_type ?? "").trim();
+    // Generate output is { entry_type, fields: { ... }, stage_id, inferred_level }
+    const top = r.parsed as Record<string, unknown>;
+    const fields = (typeof top.fields === "object" && top.fields !== null)
+      ? top.fields as Record<string, unknown>
+      : top; // fallback: some models might flatten the output
+
+    const title = String(fields.title ?? top.entry_type ?? "").trim();
     if (title) lines.push(`**Title:** ${title}`);
+    lines.push(`**Entry type:** ${String(top.entry_type ?? "")}`);
     lines.push(`**Score:** ${r.score}/${r.maxScore}`);
     lines.push("");
 
     for (const key of NARRATIVE_KEYS) {
-      if (!(key in entry)) continue;
-      const text = String(entry[key] ?? "").trim();
+      const text = String(fields[key] ?? "").trim();
       if (!text) continue;
-      const label = key.replace(/_/g, " ");
-      // Show first 400 chars of each narrative field
-      const preview = text.length > 400 ? text.slice(0, 400) + "\n\n_[truncated...]_" : text;
-      lines.push(`**${label}:**`);
+      const fieldLabel = key.replace(/_/g, " ");
+      // Show first 500 chars of each narrative field
+      const preview = text.length > 500 ? text.slice(0, 500) + "\n\n_[truncated...]_" : text;
+      lines.push(`**${fieldLabel}:**`);
       lines.push("");
       lines.push(preview);
       lines.push("");
