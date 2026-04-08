@@ -5,7 +5,9 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   haiku:        { input: 1.00,  output: 5.00  },
   gemma4:       { input: 0.14,  output: 0.40  },
   sonnet:       { input: 3.00,  output: 15.00 },
-  geminiflash:  { input: 0.15,  output: 0.60  },
+  geminiflash:  { input: 0.10,  output: 0.40  },
+  gemini31flash:{ input: 0.075, output: 0.30  },
+  gpt54nano:    { input: 0.05,  output: 0.40  },
 };
 
 export const MODELS: Record<string, ModelConfig> = {
@@ -40,6 +42,25 @@ export const MODELS: Record<string, ModelConfig> = {
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     jsonMode: true,
     disableThinking: true,
+  },
+  gemini31flash: {
+    key: "gemini31flash",
+    id: "gemini-3.1-flash",
+    provider: "openai-compat",
+    label: "Gemini 3.1 Flash",
+    envKey: "GOOGLE_AI_STUDIO_API_KEY",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    jsonMode: true,
+    disableThinking: true,
+  },
+  gpt54nano: {
+    key: "gpt54nano",
+    id: "gpt-5.4-nano-2026-03-17",
+    provider: "openai-compat",
+    label: "GPT-5.4 Nano",
+    envKey: "OPENAI_API_KEY",
+    baseURL: "https://api.openai.com/v1/",
+    jsonMode: true,
   },
 };
 
