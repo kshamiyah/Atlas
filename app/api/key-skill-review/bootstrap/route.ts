@@ -4,6 +4,7 @@ import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { buildKaizenSourceEntryKey } from "@/lib/key-skill-review/source-key";
 import { resolveKaizenDirectMatches } from "@/lib/key-skill-review/kaizen-key-skill-parser";
 import type { BootstrapResponse } from "@/lib/types/key-skill-review-api";
+import { isUnsignedAssessorEvidence } from "@/lib/kaizen/evidence-eligibility";
 
 type SuggestionStatus = "suggested" | "confirmed" | "rejected";
 
@@ -182,6 +183,8 @@ export async function POST() {
 
   let includedWithoutLinkedCip = 0;
   let skippedTO1 = 0;
+  let skippedUnsignedAssessor = 0;
+  const invalidSourceEntryKeys = new Set<string>();
   const rows = entries
     .map((e) => {
       // TO1 (Team Observation 1) entries are assessor-only — trainees cannot
@@ -230,6 +233,27 @@ export async function POST() {
         status: String(e.status ?? ""),
       });
 
+      const extractedFields =
+        e.extracted_fields && typeof e.extracted_fields === "object"
+          ? (e.extracted_fields as Record<string, unknown>)
+          : null;
+
+      if (
+        isUnsignedAssessorEvidence({
+          detected_entry_type:
+            typeof e.detected_entry_type === "string"
+              ? e.detected_entry_type
+              : entryType,
+          assessment_type: entryType,
+          status: typeof e.status === "string" ? e.status : null,
+          extracted_fields: extractedFields,
+        })
+      ) {
+        skippedUnsignedAssessor += 1;
+        invalidSourceEntryKeys.add(sourceEntryKey);
+        return null;
+      }
+
       const isoDate = toIsoDateOrNull(
         e.kaizen_date ? String(e.kaizen_date) : null,
       );
@@ -257,13 +281,10 @@ export async function POST() {
               ? e.extraction_status
               : "none",
           linked_key_skills_raw:
-            e.extracted_fields &&
-            typeof e.extracted_fields === "object" &&
-            "linked key skills" in (e.extracted_fields as Record<string, unknown>)
+            extractedFields &&
+            "linked key skills" in extractedFields
               ? String(
-                  (e.extracted_fields as Record<string, unknown>)[
-                    "linked key skills"
-                  ] ?? "",
+                  extractedFields["linked key skills"] ?? "",
                 ) || null
               : null,
         },
@@ -281,10 +302,35 @@ export async function POST() {
     }
   }
   const dedupedRows = Array.from(dedupe.values());
+  const sourceEntryKeys = dedupedRows.map((row) => row.source_entry_key);
+
+  if (invalidSourceEntryKeys.size > 0) {
+    const { error: deleteInvalidReviewEntriesError } = await supabase
+      .from("key_skill_review_entries")
+      .delete()
+      .eq("user_id", userId)
+      .eq("source_system", "kaizen")
+      .in("source_entry_key", Array.from(invalidSourceEntryKeys));
+
+    if (deleteInvalidReviewEntriesError) {
+      return NextResponse.json(
+        {
+          error:
+            "Failed to remove unsigned assessor review entries: " +
+            deleteInvalidReviewEntriesError.message,
+        },
+        { status: 500 },
+      );
+    }
+  }
+
+  // Metadata merge is handled in Postgres, so the payload can stay narrow and
+  // avoid stale read/merge/write races.
+  const rowsForUpsert = dedupedRows;
 
   const { error: upsertError } = await supabase
     .from("key_skill_review_entries")
-    .upsert(dedupedRows, {
+    .upsert(rowsForUpsert, {
       onConflict: "user_id,source_system,source_entry_key",
     });
 
@@ -310,7 +356,7 @@ export async function POST() {
                 .select("id, entry_text, linked_cip_number, metadata")
                 .eq("user_id", userId)
                 .eq("source_system", "kaizen")
-                .in("source_entry_key", dedupedRows.map((r) => r.source_entry_key)),
+                .in("source_entry_key", sourceEntryKeys),
       ]);
 
     if (keySkillRows && cipRows && reviewEntries?.length) {
@@ -401,15 +447,20 @@ export async function POST() {
         }
       }
     }
-  } catch {
+  } catch (err) {
     // Suggestion generation is non-fatal — bootstrap entries are already saved.
+    console.error("[key-skill-review/bootstrap] Non-fatal kaizen-direct suggestion generation failure", {
+      user_id: userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   const body: BootstrapResponse = {
     ok: true,
-    upserted_entries: dedupedRows.length,
+    upserted_entries: rowsForUpsert.length,
     included_without_linked_cip: includedWithoutLinkedCip,
     skipped_to1: skippedTO1,
+    skipped_unsigned_assessor: skippedUnsignedAssessor,
   };
   return NextResponse.json(body);
 }

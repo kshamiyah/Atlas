@@ -2,16 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReviewEntry } from "@/lib/types/key-skill-review";
+import type {
+  AuditCandidateRecommendation,
+  AuditEntryResult,
+} from "@/lib/types/audit-entry-result";
 import { ReviewCard } from "./ReviewCard";
 import type {
   ConfidenceFilter,
   SourceFilter,
   StatusFilter,
 } from "./ReviewFilters";
+import type { AuditReviewDecisionBody } from "@/lib/types/key-skill-review-api";
+import { buildCurrentAuditDecisionMap } from "@/lib/key-skill-review/audit-review-decisions";
+import { RECOMMENDED_SKILLS_PER_ENTRY_TARGET } from "@/lib/key-skill-review/entry-skill-target";
 
 const PAGE_SIZE = 25;
 export type ReviewQueueMode = "focus" | "list";
 export type FocusReviewMode = "classic" | "swipe";
+type AuditItemFilter = "overlinked" | "awaiting_sync" | "replace" | "flag" | "all";
 const SWIPE_THRESHOLD_PX = 96;
 
 type ReviewQueueProps = {
@@ -36,16 +44,230 @@ type ReviewQueueProps = {
   onUndoLastAction?: (() => void) | null;
   canUndoLastAction?: boolean;
   onRequestExitSwipeMode?: (() => void) | null;
-};
-
-type PendingSuggestionTarget = {
-  suggestionId: string;
-  source: "linked_cip" | "cross_cip";
+  auditResultsByEntryId?: Record<string, AuditEntryResult>;
+  onApplyAuditRecommendation?: (
+    entryId: string,
+    recommendation: AuditCandidateRecommendation,
+  ) => Promise<void> | void;
+  pendingRemovalCountByEntryId?: Record<string, number>;
+  onUnlinkKaizenSkill?: (
+    entryId: string,
+    keySkillId: string,
+    kaizenSkillId: string,
+    keySkillTitle: string,
+  ) => Promise<void> | void;
+  reviewWorkstream?: "audit" | "suggestions";
+  auditItemFilter?: AuditItemFilter;
+  appliedAuditRecommendationKeys?: Record<string, true>;
+  onRecordAuditReviewDecision?: (
+    body: AuditReviewDecisionBody,
+  ) => Promise<void> | void;
 };
 
 type PendingSuggestionCandidate = ReviewEntry["linked_cip_suggestions"][number] & {
   source: "linked_cip" | "cross_cip";
 };
+
+type UnifiedReviewItem = {
+  itemKey: string;
+  kind: "suggestion" | "remove" | "replace";
+  entryId: string;
+  title: string;
+  subtitle: string;
+  rationale: string;
+  confidence: number | null;
+  recommendation: AuditCandidateRecommendation | null;
+  suggestionId: string | null;
+  suggestionSource: "linked_cip" | "cross_cip" | null;
+  swipeRightLabel: string;
+  swipeLeftLabel: string;
+  reviewDecisionKey?: string | null;
+};
+
+type StructuredEntrySection = {
+  title: string;
+  paragraphs: string[];
+};
+
+const ENTRY_PARAGRAPH_STARTERS = [
+  "Patient",
+  "Compared",
+  "My consultant",
+  "Outpatient management",
+  "The discussion reinforced",
+  "I plan",
+  "This discussion was invaluable",
+  "I feel",
+  "Throughout the shift",
+  "What challenged me",
+  "Looking back",
+  "Next time",
+];
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function decodeEntryTextEntities(text: string): string {
+  return text
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function cleanEntryNarrative(rawText: string, title: string): string {
+  let text = decodeEntryTextEntities(rawText).replace(/\s+/g, " ").trim();
+  const cleanTitle = title.trim();
+  if (!text || !cleanTitle) return text;
+
+  const escapedTitle = escapeRegex(cleanTitle);
+  const editTitlePrefix = new RegExp(`^Edit\\s+${escapedTitle}\\s*`, "i");
+  const duplicatedTitlePrefix = new RegExp(
+    `^${escapedTitle}\\s+Edit\\s+${escapedTitle}\\s*`,
+    "i",
+  );
+  text = text.replace(editTitlePrefix, "");
+  text = text.replace(duplicatedTitlePrefix, "");
+
+  const singleTitlePrefix = new RegExp(`^${escapedTitle}\\s+`, "i");
+  text = text.replace(singleTitlePrefix, "");
+
+  return text.trim();
+}
+
+function sectionTitleForParagraph(paragraph: string): string {
+  const p = paragraph.toLowerCase();
+  if (
+    p.includes("i plan") ||
+    p.includes("next time") ||
+    p.includes("what i would develop") ||
+    p.includes("further study") ||
+    p.includes("guideline")
+  ) {
+    return "Learning plan";
+  }
+  if (
+    p.includes("i feel") ||
+    p.includes("what challenged me") ||
+    p.includes("looking back") ||
+    p.includes("this discussion was invaluable") ||
+    p.includes("the key learning")
+  ) {
+    return "Reflection";
+  }
+  if (
+    p.includes("risk") ||
+    p.includes("monitoring") ||
+    p.includes("decision") ||
+    p.includes("escalat") ||
+    p.includes("pathway")
+  ) {
+    return "Decision-making and risk balance";
+  }
+  if (
+    p.includes("communicat") ||
+    p.includes("handover") ||
+    p.includes("team") ||
+    p.includes("staff") ||
+    p.includes("partner")
+  ) {
+    return "Communication and teamworking";
+  }
+  return "Entry notes";
+}
+
+function structureEntryNarrative(rawText: string, title: string): StructuredEntrySection[] {
+  const cleaned = cleanEntryNarrative(rawText, title);
+  if (!cleaned) return [];
+
+  const starterPattern = new RegExp(
+    `\\s+(?=(?:${ENTRY_PARAGRAPH_STARTERS.map(escapeRegex).join("|")}))`,
+    "g",
+  );
+  const paragraphs = cleaned
+    .replace(starterPattern, "\n\n")
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const sections: StructuredEntrySection[] = [];
+  for (const paragraph of paragraphs) {
+    const sectionTitle = sectionTitleForParagraph(paragraph);
+    const previous = sections[sections.length - 1];
+    if (previous && previous.title === sectionTitle) {
+      previous.paragraphs.push(paragraph);
+      continue;
+    }
+    sections.push({ title: sectionTitle, paragraphs: [paragraph] });
+  }
+
+  return sections;
+}
+
+function reviewItemKindLabel(kind: UnifiedReviewItem["kind"]): string {
+  if (kind === "suggestion") return "Pending suggestion";
+  if (kind === "remove") return "Overlinked removal";
+  return "Replacement suggestion";
+}
+
+function buildEntryReviewReason(
+  entry: ReviewEntry,
+  auditResult: AuditEntryResult | undefined,
+  reviewItemCount: number,
+  reviewItems: UnifiedReviewItem[],
+  reviewWorkstream: "audit" | "suggestions",
+  auditItemFilter: AuditItemFilter,
+): string {
+  const itemCounts = reviewItems.reduce(
+    (acc, item) => {
+      acc[item.kind] += 1;
+      return acc;
+    },
+    { suggestion: 0, remove: 0, replace: 0 },
+  );
+
+  if (reviewWorkstream === "audit" && auditItemFilter === "replace") {
+    return `${itemCounts.replace} replacement recommendation${itemCounts.replace === 1 ? "" : "s"} still need review`;
+  }
+  if (reviewWorkstream === "audit" && auditItemFilter === "overlinked") {
+    const overlinkedBy = Number(auditResult?.overlinked_by ?? 0);
+    const base =
+      auditResult?.overlinked && overlinkedBy > 0
+        ? `This entry is over cap by ${overlinkedBy}`
+        : `${itemCounts.remove + itemCounts.replace} overlinked recommendation${
+            itemCounts.remove + itemCounts.replace === 1 ? "" : "s"
+          } still need review`;
+    if (itemCounts.replace > 0) {
+      return `${base} · ${itemCounts.replace} replacement recommendation${
+        itemCounts.replace === 1 ? "" : "s"
+      } included`;
+    }
+    return base;
+  }
+
+  const parts: string[] = [];
+  const overlinkedBy = Number(auditResult?.overlinked_by ?? 0);
+  const findings = Array.isArray(auditResult?.audit_findings) ? auditResult.audit_findings : [];
+  const replaceCount = findings.filter((finding) => finding.type === "replace").length;
+  const pendingSuggestionCount = pendingSuggestionsForEntry(entry, auditResult).length;
+
+  if (auditResult?.overlinked && overlinkedBy > 0) {
+    parts.push(`This entry is over cap by ${overlinkedBy}`);
+  }
+  if (replaceCount > 0) {
+    parts.push(`${replaceCount} replacement recommendation${replaceCount === 1 ? "" : "s"} need review`);
+  }
+  if (pendingSuggestionCount > 0) {
+    parts.push(`${pendingSuggestionCount} pending suggestion${pendingSuggestionCount === 1 ? "" : "s"} still need a decision`);
+  }
+  if (parts.length === 0) {
+    parts.push(`${reviewItemCount} review item${reviewItemCount === 1 ? "" : "s"} on this entry`);
+  }
+
+  return parts.join(" · ");
+}
 
 function isEditableTarget(target: Element | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -57,21 +279,17 @@ function isEditableTarget(target: Element | null): boolean {
   return false;
 }
 
-function countPendingSuggestions(entry: ReviewEntry): number {
-  const linkedPending = entry.linked_cip_suggestions.filter((s) => s.status === "suggested").length;
-  const crossPending = entry.cross_cip_suggestions.filter((s) => s.status === "suggested").length;
-  return linkedPending + crossPending;
+function canSurfaceAdditionalLinks(auditResult: AuditEntryResult | undefined): boolean {
+  if (!auditResult) return true;
+  if (auditResult.overlinked === true) return false;
+  return Number(auditResult.slots_remaining ?? 0) > 0;
 }
 
-function firstPendingSuggestion(entry: ReviewEntry): PendingSuggestionTarget | null {
-  const all = pendingSuggestionsForEntry(entry);
-  if (all.length === 0) return null;
-  const next = all[0];
-  if (!next?.suggestion_id) return null;
-  return { suggestionId: next.suggestion_id, source: next.source };
-}
-
-function pendingSuggestionsForEntry(entry: ReviewEntry): PendingSuggestionCandidate[] {
+function pendingSuggestionsForEntry(
+  entry: ReviewEntry,
+  auditResult: AuditEntryResult | undefined,
+): PendingSuggestionCandidate[] {
+  if (!canSurfaceAdditionalLinks(auditResult)) return [];
   const all = [
     ...entry.linked_cip_suggestions.map((s) => ({ ...s, source: "linked_cip" as const })),
     ...entry.cross_cip_suggestions.map((s) => ({ ...s, source: "cross_cip" as const })),
@@ -82,6 +300,284 @@ function pendingSuggestionsForEntry(entry: ReviewEntry): PendingSuggestionCandid
       return a.key_skill_title.localeCompare(b.key_skill_title);
     });
   return all;
+}
+
+function findSuggestionSource(
+  entry: ReviewEntry,
+  suggestionId: string | null | undefined,
+): "linked_cip" | "cross_cip" | null {
+  if (!suggestionId) return null;
+  if (entry.linked_cip_suggestions.some((s) => s.suggestion_id === suggestionId)) {
+    return "linked_cip";
+  }
+  if (entry.cross_cip_suggestions.some((s) => s.suggestion_id === suggestionId)) {
+    return "cross_cip";
+  }
+  return null;
+}
+
+function findSuggestionForSkill(
+  entry: ReviewEntry,
+  keySkillId: string | null | undefined,
+): PendingSuggestionCandidate | null {
+  if (!keySkillId) return null;
+  const all = [
+    ...entry.linked_cip_suggestions.map((s) => ({ ...s, source: "linked_cip" as const })),
+    ...entry.cross_cip_suggestions.map((s) => ({ ...s, source: "cross_cip" as const })),
+  ]
+    .filter(
+      (s) =>
+        s.key_skill_id === keySkillId &&
+        typeof s.suggestion_id === "string" &&
+        s.suggestion_id.length > 0,
+    )
+    .sort((a, b) => {
+      const statusRank = (status: typeof a.status) =>
+        status === "suggested" ? 0 : status === "confirmed" ? 1 : 2;
+      const byStatus = statusRank(a.status) - statusRank(b.status);
+      if (byStatus !== 0) return byStatus;
+      const sourceRank = (value: typeof a.source) => (value === "linked_cip" ? 0 : 1);
+      const bySource = sourceRank(a.source) - sourceRank(b.source);
+      if (bySource !== 0) return bySource;
+      return b.confidence - a.confidence;
+    });
+
+  return all[0] ?? null;
+}
+
+function buildUnifiedReviewItemsForEntry(
+  entry: ReviewEntry,
+  auditResult: AuditEntryResult | undefined,
+  reviewWorkstream: "audit" | "suggestions",
+  auditItemFilter: AuditItemFilter,
+  currentAuditDecisionMap: Record<string, { decision: string }> = {},
+): UnifiedReviewItem[] {
+  const suggestionItems: UnifiedReviewItem[] = pendingSuggestionsForEntry(
+    entry,
+    auditResult,
+  ).map((suggestion) => ({
+    itemKey: `suggestion:${suggestion.suggestion_id}`,
+    kind: "suggestion",
+    entryId: entry.id,
+    title: suggestion.key_skill_title,
+    subtitle: `CiP ${suggestion.cip_number} · ${suggestion.source === "cross_cip" ? "Cross-CiP" : "Linked"}`,
+    rationale: suggestion.rationale,
+    confidence:
+      typeof suggestion.confidence === "number" && suggestion.confidence > 0
+        ? suggestion.confidence
+        : null,
+    recommendation: null,
+    suggestionId: suggestion.suggestion_id ?? null,
+    suggestionSource: suggestion.source,
+    swipeRightLabel: "Confirm",
+    swipeLeftLabel: "Reject",
+  }));
+
+  const candidateRecommendations = Array.isArray(auditResult?.candidate_recommendations)
+    ? auditResult.candidate_recommendations
+    : [];
+  const currentLinkedSkills = Array.isArray(auditResult?.current_linked_skills)
+    ? auditResult.current_linked_skills
+    : [];
+  const rebalanceItems: UnifiedReviewItem[] = [];
+
+  if (auditResult?.audit_link_plan?.mode === "rebalance") {
+    const planSkills = Array.isArray(auditResult.audit_link_plan.skills)
+      ? auditResult.audit_link_plan.skills
+      : [];
+
+    for (const skill of planSkills) {
+      if (skill.decision !== "remove" && skill.decision !== "replace_in") continue;
+
+      if (skill.decision === "remove") {
+        const matchingRecommendation =
+          candidateRecommendations.find(
+            (candidate) =>
+              candidate.action === "remove" &&
+              candidate.key_skill_id === skill.key_skill_id,
+          ) ?? null;
+        const kaizenSkillId =
+          currentLinkedSkills.find((linked) => linked.key_skill_id === skill.key_skill_id)
+            ?.kaizen_id ??
+          entry.kaizen_linked_skills?.find((linked) => linked.key_skill_id === skill.key_skill_id)
+            ?.kaizen_id ??
+          null;
+
+        const recommendation =
+          matchingRecommendation ??
+          (kaizenSkillId
+            ? {
+                key_skill_id: skill.key_skill_id,
+                key_skill_title: skill.key_skill_title,
+                cip_number: skill.cip_number,
+                action: "remove" as const,
+                replace_skill_id: null,
+                replace_skill_title: null,
+                confidence:
+                  typeof skill.confidence === "number" ? skill.confidence : 0,
+                rationale: skill.rationale,
+                target_kaizen_skill_id: kaizenSkillId,
+                logic_points: skill.logic_points,
+              }
+            : null);
+
+        rebalanceItems.push({
+          itemKey: `remove:${skill.key_skill_id}`,
+          kind: "remove",
+          entryId: entry.id,
+          title: skill.key_skill_title,
+          subtitle: `CiP ${skill.cip_number}`,
+          rationale: skill.rationale,
+          confidence:
+            typeof skill.confidence === "number" && skill.confidence > 0
+              ? skill.confidence
+              : null,
+          recommendation,
+          suggestionId:
+            recommendation && typeof recommendation.suggestion_id === "string"
+              ? recommendation.suggestion_id
+              : null,
+          suggestionSource:
+            recommendation && typeof recommendation.suggestion_id === "string"
+              ? findSuggestionSource(entry, recommendation.suggestion_id)
+              : null,
+          swipeRightLabel: "Action",
+          swipeLeftLabel: "Keep current",
+          reviewDecisionKey: `remove:${skill.key_skill_id}`,
+        });
+        continue;
+      }
+
+      const matchingRecommendation =
+        candidateRecommendations.find(
+          (candidate) =>
+            candidate.action === "replace" &&
+            candidate.key_skill_id === skill.key_skill_id &&
+            candidate.replace_skill_id === skill.replace_skill_id,
+        ) ?? null;
+      const backingSuggestion =
+        findSuggestionForSkill(entry, skill.key_skill_id) ??
+        (typeof matchingRecommendation?.suggestion_id === "string"
+          ? {
+              suggestion_id: matchingRecommendation.suggestion_id,
+              source:
+                findSuggestionSource(entry, matchingRecommendation.suggestion_id) ?? "cross_cip",
+            }
+          : null);
+      const recommendation =
+        matchingRecommendation ??
+        (backingSuggestion
+          ? {
+              key_skill_id: skill.key_skill_id,
+              key_skill_title: skill.key_skill_title,
+              cip_number: skill.cip_number,
+              action: "replace" as const,
+              replace_skill_id: skill.replace_skill_id ?? null,
+              replace_skill_title: skill.replace_skill_title ?? null,
+              confidence:
+                typeof skill.confidence === "number" ? skill.confidence : 0,
+              rationale: skill.rationale,
+              suggestion_id: backingSuggestion.suggestion_id,
+              logic_points: skill.logic_points,
+            }
+          : null);
+
+      rebalanceItems.push({
+        itemKey: `replace:${skill.key_skill_id}:${skill.replace_skill_id ?? ""}`,
+        kind: "replace",
+        entryId: entry.id,
+        title: skill.key_skill_title,
+        subtitle: `Instead of ${skill.replace_skill_title ?? "the current linked skill"}`,
+        rationale: skill.rationale,
+        confidence:
+          typeof skill.confidence === "number" && skill.confidence > 0
+            ? skill.confidence
+            : null,
+        recommendation,
+        suggestionId:
+          recommendation && typeof recommendation.suggestion_id === "string"
+            ? recommendation.suggestion_id
+            : null,
+        suggestionSource:
+          recommendation && typeof recommendation.suggestion_id === "string"
+            ? findSuggestionSource(entry, recommendation.suggestion_id)
+            : null,
+        swipeRightLabel: "Action",
+        swipeLeftLabel: "Keep current",
+        reviewDecisionKey: `replace:${skill.key_skill_id}:${skill.replace_skill_id ?? ""}`,
+      });
+    }
+  } else if (auditResult?.overlinked === true) {
+    const fallbackRows = candidateRecommendations
+      .filter(
+        (
+          candidate,
+        ): candidate is AuditCandidateRecommendation & {
+          action: "remove" | "replace";
+        } => candidate.action === "remove" || candidate.action === "replace",
+      )
+      .sort((a, b) => {
+        const actionRank = (value: "remove" | "replace") => (value === "remove" ? 0 : 1);
+        const rankDelta = actionRank(a.action) - actionRank(b.action);
+        if (rankDelta !== 0) return rankDelta;
+        return b.confidence - a.confidence;
+      });
+
+    for (const candidate of fallbackRows) {
+      rebalanceItems.push({
+        itemKey: `${candidate.action}:${candidate.key_skill_id}:${candidate.replace_skill_id ?? ""}`,
+        kind: candidate.action,
+        entryId: entry.id,
+        title: candidate.key_skill_title,
+        subtitle:
+          candidate.action === "replace"
+            ? `Instead of ${candidate.replace_skill_title ?? "the current linked skill"}`
+            : `CiP ${candidate.cip_number}`,
+        rationale:
+          Array.isArray(candidate.logic_points) && candidate.logic_points.length > 0
+            ? candidate.logic_points.slice(0, 3).join(". ")
+            : candidate.rationale,
+        confidence:
+          typeof candidate.confidence === "number" && candidate.confidence > 0
+            ? candidate.confidence
+            : null,
+        recommendation: candidate,
+        suggestionId:
+          typeof candidate.suggestion_id === "string" ? candidate.suggestion_id : null,
+        suggestionSource:
+          typeof candidate.suggestion_id === "string"
+            ? findSuggestionSource(entry, candidate.suggestion_id)
+            : null,
+        swipeRightLabel: "Action",
+        swipeLeftLabel: "Keep current",
+        reviewDecisionKey:
+          candidate.action === "replace"
+            ? `replace:${candidate.key_skill_id}:${candidate.replace_skill_id ?? ""}`
+            : `remove:${candidate.key_skill_id}`,
+      });
+    }
+  }
+
+  const filteredRebalanceItems = rebalanceItems.filter((item) => {
+    const key = item.reviewDecisionKey;
+    return !key || !(key in currentAuditDecisionMap);
+  });
+
+  if (reviewWorkstream === "audit") {
+    if (auditItemFilter === "overlinked") {
+      return filteredRebalanceItems;
+    }
+    if (auditItemFilter === "replace") {
+      return filteredRebalanceItems.filter((item) => item.kind === "replace");
+    }
+    if (auditItemFilter === "awaiting_sync" || auditItemFilter === "flag") {
+      return [];
+    }
+  }
+
+  return reviewWorkstream === "audit"
+    ? [...filteredRebalanceItems, ...suggestionItems]
+    : [...suggestionItems, ...filteredRebalanceItems];
 }
 
 export function ReviewQueue({
@@ -100,6 +596,14 @@ export function ReviewQueue({
   onUndoLastAction = null,
   canUndoLastAction = false,
   onRequestExitSwipeMode = null,
+  auditResultsByEntryId = {},
+  onApplyAuditRecommendation,
+  pendingRemovalCountByEntryId = {},
+  onUnlinkKaizenSkill,
+  reviewWorkstream = "suggestions",
+  auditItemFilter = "all",
+  appliedAuditRecommendationKeys = {},
+  onRecordAuditReviewDecision,
 }: ReviewQueueProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [focusIndex, setFocusIndex] = useState(0);
@@ -108,6 +612,7 @@ export function ReviewQueue({
   const [swipeDragX, setSwipeDragX] = useState(0);
   const [swipeAnimating, setSwipeAnimating] = useState<"confirm" | "reject" | null>(null);
   const [isSwiping, setIsSwiping] = useState(false);
+  const [reviewedItemDecisions, setReviewedItemDecisions] = useState<Record<string, "acted" | "declined">>({});
   const swipeStartX = useRef<number | null>(null);
 
   const visibleEntries = useMemo(() => {
@@ -149,62 +654,164 @@ export function ReviewQueue({
           cross = cross.filter(matchesSuggestionQuery);
         }
 
-        if (linked.length === 0 && cross.length === 0) return null;
+        const filteredEntry = {
+          ...entry,
+          linked_cip_suggestions: linked,
+          cross_cip_suggestions: cross,
+        };
+        const currentAuditDecisionMap = buildCurrentAuditDecisionMap(
+          filteredEntry.audit_review_decisions,
+          auditResultsByEntryId[entry.id]?.audit_input_fingerprint ?? null,
+        );
+        const hasReviewItems =
+          buildUnifiedReviewItemsForEntry(
+            filteredEntry,
+            auditResultsByEntryId[entry.id],
+            reviewWorkstream,
+            auditItemFilter,
+            currentAuditDecisionMap,
+          ).length > 0;
 
-        return { ...entry, linked_cip_suggestions: linked, cross_cip_suggestions: cross };
+        if (!hasReviewItems) return null;
+
+        return filteredEntry;
       })
       .filter((e): e is ReviewEntry => e !== null);
-  }, [entries, statusFilter, sourceFilter, confidenceFilter, query]);
+  }, [
+    entries,
+    statusFilter,
+    sourceFilter,
+    confidenceFilter,
+    query,
+    auditResultsByEntryId,
+    reviewWorkstream,
+    auditItemFilter,
+  ]);
 
-  const pendingCountsByEntryId = useMemo(() => {
-    const out = new Map<string, number>();
+  const reviewItemsByEntryId = useMemo(() => {
+    const out = new Map<string, UnifiedReviewItem[]>();
     for (const entry of visibleEntries) {
-      out.set(entry.id, countPendingSuggestions(entry));
+      const currentAuditDecisionMap = buildCurrentAuditDecisionMap(
+        entry.audit_review_decisions,
+        auditResultsByEntryId[entry.id]?.audit_input_fingerprint ?? null,
+      );
+      const items = buildUnifiedReviewItemsForEntry(
+        entry,
+        auditResultsByEntryId[entry.id],
+        reviewWorkstream,
+        auditItemFilter,
+        currentAuditDecisionMap,
+      ).filter(
+        (item) =>
+          !(item.itemKey in reviewedItemDecisions) &&
+          !(item.itemKey in appliedAuditRecommendationKeys),
+      );
+      out.set(entry.id, items);
     }
     return out;
-  }, [visibleEntries]);
+  }, [
+    appliedAuditRecommendationKeys,
+    auditResultsByEntryId,
+    reviewWorkstream,
+    auditItemFilter,
+    reviewedItemDecisions,
+    visibleEntries,
+  ]);
 
-  const pendingEntryIndices = useMemo(() => {
+  const reviewItemCountsByEntryId = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const [entryId, items] of reviewItemsByEntryId.entries()) {
+      out.set(entryId, items.length);
+    }
+    return out;
+  }, [reviewItemsByEntryId]);
+
+  const reviewableEntryIndices = useMemo(() => {
     const out: number[] = [];
     for (let i = 0; i < visibleEntries.length; i += 1) {
       const entry = visibleEntries[i];
       if (!entry) continue;
-      if ((pendingCountsByEntryId.get(entry.id) ?? 0) > 0) out.push(i);
+      if ((reviewItemCountsByEntryId.get(entry.id) ?? 0) > 0) out.push(i);
     }
     return out;
-  }, [pendingCountsByEntryId, visibleEntries]);
+  }, [reviewItemCountsByEntryId, visibleEntries]);
 
-  const totalPendingAcrossVisible = useMemo(
-    () => [...pendingCountsByEntryId.values()].reduce((acc, n) => acc + n, 0),
-    [pendingCountsByEntryId],
+  const totalReviewItemsAcrossVisible = useMemo(
+    () => [...reviewItemCountsByEntryId.values()].reduce((acc, n) => acc + n, 0),
+    [reviewItemCountsByEntryId],
   );
 
   const activeIndex = Math.min(focusIndex, Math.max(visibleEntries.length - 1, 0));
   const activeEntry = visibleEntries[activeIndex] ?? null;
-  const activeEntryPending = activeEntry ? pendingCountsByEntryId.get(activeEntry.id) ?? 0 : 0;
-  const activePendingSuggestions = useMemo(
-    () => (activeEntry ? pendingSuggestionsForEntry(activeEntry) : []),
+  const activeEntryReviewCount = activeEntry ? reviewItemCountsByEntryId.get(activeEntry.id) ?? 0 : 0;
+  const activeAuditResult = activeEntry ? auditResultsByEntryId[activeEntry.id] : undefined;
+  const activeReviewItems = useMemo(
+    () => (activeEntry ? reviewItemsByEntryId.get(activeEntry.id) ?? [] : []),
+    [activeEntry, reviewItemsByEntryId],
+  );
+  const activeAllReviewItems = useMemo(
+    () =>
+      activeEntry
+        ? buildUnifiedReviewItemsForEntry(
+            activeEntry,
+            auditResultsByEntryId[activeEntry.id],
+            reviewWorkstream,
+            auditItemFilter,
+            buildCurrentAuditDecisionMap(
+              activeEntry.audit_review_decisions,
+              auditResultsByEntryId[activeEntry.id]?.audit_input_fingerprint ?? null,
+            ),
+          )
+        : [],
+    [activeEntry, auditItemFilter, auditResultsByEntryId, reviewWorkstream],
+  );
+  const activeReviewItem = activeReviewItems[0] ?? null;
+  const nextReviewItem = activeReviewItems[1] ?? null;
+  const activeEntryNarrativeSections = useMemo(
+    () =>
+      activeEntry
+        ? structureEntryNarrative(activeEntry.raw_text ?? "", activeEntry.title ?? "")
+        : [],
     [activeEntry],
   );
-  const activeSpotlightSuggestion = activePendingSuggestions[0] ?? null;
-  const nextSpotlightSuggestion = activePendingSuggestions[1] ?? null;
+  const activeEntryReviewReason = useMemo(
+    () =>
+      activeEntry
+        ? buildEntryReviewReason(
+            activeEntry,
+            auditResultsByEntryId[activeEntry.id],
+            activeEntryReviewCount,
+            activeReviewItems,
+            reviewWorkstream,
+            auditItemFilter,
+          )
+        : "",
+    [
+      activeEntry,
+      activeEntryReviewCount,
+      activeReviewItems,
+      auditItemFilter,
+      auditResultsByEntryId,
+      reviewWorkstream,
+    ],
+  );
 
-  const nextPendingIndex = useMemo(() => {
-    if (pendingEntryIndices.length === 0) return null;
-    for (const idx of pendingEntryIndices) {
+  const nextReviewableIndex = useMemo(() => {
+    if (reviewableEntryIndices.length === 0) return null;
+    for (const idx of reviewableEntryIndices) {
       if (idx > activeIndex) return idx;
     }
-    return pendingEntryIndices[0] ?? null;
-  }, [activeIndex, pendingEntryIndices]);
+    return reviewableEntryIndices[0] ?? null;
+  }, [activeIndex, reviewableEntryIndices]);
 
-  const prevPendingIndex = useMemo(() => {
-    if (pendingEntryIndices.length === 0) return null;
-    for (let i = pendingEntryIndices.length - 1; i >= 0; i -= 1) {
-      const idx = pendingEntryIndices[i];
+  const prevReviewableIndex = useMemo(() => {
+    if (reviewableEntryIndices.length === 0) return null;
+    for (let i = reviewableEntryIndices.length - 1; i >= 0; i -= 1) {
+      const idx = reviewableEntryIndices[i];
       if (idx < activeIndex) return idx;
     }
-    return pendingEntryIndices[pendingEntryIndices.length - 1] ?? null;
-  }, [activeIndex, pendingEntryIndices]);
+    return reviewableEntryIndices[reviewableEntryIndices.length - 1] ?? null;
+  }, [activeIndex, reviewableEntryIndices]);
 
   const navigateToIndex = useCallback(
     (targetIndex: number) => {
@@ -219,15 +826,15 @@ export function ReviewQueue({
     [focusIndex],
   );
 
-  const goToNextPending = useCallback(() => {
-    if (nextPendingIndex == null) return;
-    navigateToIndex(nextPendingIndex);
-  }, [navigateToIndex, nextPendingIndex]);
+  const goToNextReviewable = useCallback(() => {
+    if (nextReviewableIndex == null) return;
+    navigateToIndex(nextReviewableIndex);
+  }, [navigateToIndex, nextReviewableIndex]);
 
-  const goToPrevPending = useCallback(() => {
-    if (prevPendingIndex == null) return;
-    navigateToIndex(prevPendingIndex);
-  }, [navigateToIndex, prevPendingIndex]);
+  const goToPrevReviewable = useCallback(() => {
+    if (prevReviewableIndex == null) return;
+    navigateToIndex(prevReviewableIndex);
+  }, [navigateToIndex, prevReviewableIndex]);
 
   const updateSuggestionWithAutoAdvance = useCallback(
     (
@@ -236,83 +843,141 @@ export function ReviewQueue({
       source: "linked_cip" | "cross_cip",
       nextStatus: "suggested" | "confirmed" | "rejected",
     ) => {
-      if (mode === "focus" && autoAdvanceEnabled && nextStatus !== "suggested") {
-        const entryIndex = visibleEntries.findIndex((e) => e.id === entryId);
-        if (entryIndex >= 0) {
-          const targetEntry = visibleEntries[entryIndex];
-          const targetSuggestions =
-            source === "linked_cip"
-              ? targetEntry.linked_cip_suggestions
-              : targetEntry.cross_cip_suggestions;
-          const targetSuggestion = targetSuggestions.find((s) => s.suggestion_id === suggestionId);
-          const pendingBefore = countPendingSuggestions(targetEntry);
+      onUpdateSuggestion(entryId, suggestionId, source, nextStatus);
+    },
+    [onUpdateSuggestion],
+  );
 
-          if (targetSuggestion?.status === "suggested" && pendingBefore === 1) {
-            const nextIdxFromCurrent = (() => {
-              for (let i = entryIndex + 1; i < visibleEntries.length; i += 1) {
-                const candidate = visibleEntries[i];
-                if (!candidate) continue;
-                if (countPendingSuggestions(candidate) > 0) return i;
-              }
-              for (let i = 0; i < entryIndex; i += 1) {
-                const candidate = visibleEntries[i];
-                if (!candidate) continue;
-                if (countPendingSuggestions(candidate) > 0) return i;
-              }
-              return null;
-            })();
+  const findNextReviewableIndexFrom = useCallback(
+    (entryIndex: number) => {
+      for (let i = entryIndex + 1; i < visibleEntries.length; i += 1) {
+        const candidate = visibleEntries[i];
+        if (!candidate) continue;
+        if ((reviewItemCountsByEntryId.get(candidate.id) ?? 0) > 0) return i;
+      }
+      for (let i = 0; i < entryIndex; i += 1) {
+        const candidate = visibleEntries[i];
+        if (!candidate) continue;
+        if ((reviewItemCountsByEntryId.get(candidate.id) ?? 0) > 0) return i;
+      }
+      return null;
+    },
+    [reviewItemCountsByEntryId, visibleEntries],
+  );
 
-            if (nextIdxFromCurrent != null) {
-              navigateToIndex(nextIdxFromCurrent);
-            }
+  const completeReviewItem = useCallback(
+    async (item: UnifiedReviewItem, direction: "right" | "left") => {
+      const entryIndex = visibleEntries.findIndex((entry) => entry.id === item.entryId);
+      const currentCount = reviewItemCountsByEntryId.get(item.entryId) ?? 0;
+      const shouldAdvance =
+        mode === "focus" && autoAdvanceEnabled && currentCount <= 1 && entryIndex >= 0;
+
+      if (item.kind === "suggestion") {
+        if (!item.suggestionId || !item.suggestionSource) return;
+        updateSuggestionWithAutoAdvance(
+          item.entryId,
+          item.suggestionId,
+          item.suggestionSource,
+          direction === "right" ? "confirmed" : "rejected",
+        );
+      } else if (direction === "right") {
+        if (item.recommendation && onApplyAuditRecommendation) {
+          await onApplyAuditRecommendation(item.entryId, item.recommendation);
+        } else {
+          return;
+        }
+      } else {
+        if (item.suggestionId && item.suggestionSource) {
+          updateSuggestionWithAutoAdvance(
+            item.entryId,
+            item.suggestionId,
+            item.suggestionSource,
+            "rejected",
+          );
+        }
+        if (
+          item.reviewDecisionKey &&
+          item.recommendation &&
+          onRecordAuditReviewDecision
+        ) {
+          const auditFingerprint =
+            auditResultsByEntryId[item.entryId]?.audit_input_fingerprint ?? null;
+          if (auditFingerprint) {
+            await onRecordAuditReviewDecision({
+              review_entry_id: item.entryId,
+              recommendation_key: item.reviewDecisionKey,
+              decision: "kept",
+              audit_input_fingerprint: auditFingerprint,
+              action: item.kind,
+              key_skill_id: item.recommendation.key_skill_id,
+              replace_skill_id: item.recommendation.replace_skill_id ?? null,
+              key_skill_title: item.recommendation.key_skill_title,
+              replace_skill_title: item.recommendation.replace_skill_title ?? null,
+            });
           }
         }
       }
 
-      onUpdateSuggestion(entryId, suggestionId, source, nextStatus);
+      setReviewedItemDecisions((current) => ({
+        ...current,
+        [item.itemKey]: direction === "right" ? "acted" : "declined",
+      }));
+
+      if (shouldAdvance) {
+        const nextIndex = findNextReviewableIndexFrom(entryIndex);
+        if (nextIndex != null) {
+          navigateToIndex(nextIndex);
+        }
+      }
     },
-    [autoAdvanceEnabled, mode, navigateToIndex, onUpdateSuggestion, visibleEntries],
+    [
+      autoAdvanceEnabled,
+      findNextReviewableIndexFrom,
+      mode,
+      navigateToIndex,
+      onRecordAuditReviewDecision,
+      onApplyAuditRecommendation,
+      auditResultsByEntryId,
+      reviewItemCountsByEntryId,
+      updateSuggestionWithAutoAdvance,
+      visibleEntries,
+    ],
   );
 
-  const applyDecisionToFirstPending = useCallback(
-    (status: "confirmed" | "rejected") => {
-      if (!activeEntry) return;
-      const target = firstPendingSuggestion(activeEntry);
-      if (!target) return;
-      updateSuggestionWithAutoAdvance(activeEntry.id, target.suggestionId, target.source, status);
+  const applyDecisionToActiveItem = useCallback(
+    (direction: "right" | "left") => {
+      if (!activeReviewItem || disabled || swipeAnimating) return;
+      void completeReviewItem(activeReviewItem, direction);
     },
-    [activeEntry, updateSuggestionWithAutoAdvance],
+    [activeReviewItem, completeReviewItem, disabled, swipeAnimating],
   );
 
   const commitSpotlightDecision = useCallback(
-    (status: "confirmed" | "rejected") => {
-      if (!activeEntry || !activeSpotlightSuggestion?.suggestion_id) return;
+    (direction: "right" | "left") => {
+      if (!activeReviewItem) return;
       if (swipeAnimating) return;
 
-      setSwipeAnimating(status === "confirmed" ? "confirm" : "reject");
+      setSwipeAnimating(direction === "right" ? "confirm" : "reject");
       setSwipeDragX(0);
       setIsSwiping(false);
       swipeStartX.current = null;
 
-      const suggestionId = activeSpotlightSuggestion.suggestion_id;
-      const source = activeSpotlightSuggestion.source;
-      const entryId = activeEntry.id;
       window.setTimeout(() => {
-        updateSuggestionWithAutoAdvance(entryId, suggestionId, source, status);
+        void completeReviewItem(activeReviewItem, direction);
         setSwipeAnimating(null);
         setSwipeDragX(0);
         setIsSwiping(false);
       }, 280);
     },
-    [activeEntry, activeSpotlightSuggestion, swipeAnimating, updateSuggestionWithAutoAdvance],
+    [activeReviewItem, completeReviewItem, swipeAnimating],
   );
 
   const handleSpotlightPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!activeSpotlightSuggestion || disabled || swipeAnimating) return;
+    if (!activeReviewItem || disabled || swipeAnimating) return;
     swipeStartX.current = e.clientX;
     setIsSwiping(true);
     e.currentTarget.setPointerCapture?.(e.pointerId);
-  }, [activeSpotlightSuggestion, disabled, swipeAnimating]);
+  }, [activeReviewItem, disabled, swipeAnimating]);
 
   const handleSpotlightPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!isSwiping) return;
@@ -328,11 +993,11 @@ export function ReviewQueue({
     setIsSwiping(false);
     swipeStartX.current = null;
     if (swipeDragX >= SWIPE_THRESHOLD_PX) {
-      commitSpotlightDecision("confirmed");
+      commitSpotlightDecision("right");
       return;
     }
     if (swipeDragX <= -SWIPE_THRESHOLD_PX) {
-      commitSpotlightDecision("rejected");
+      commitSpotlightDecision("left");
       return;
     }
     setSwipeDragX(0);
@@ -364,29 +1029,29 @@ export function ReviewQueue({
       if (e.key === "ArrowRight") {
         e.preventDefault();
         if (focusReviewMode === "swipe") {
-          commitSpotlightDecision("confirmed");
+          commitSpotlightDecision("right");
         } else {
-          applyDecisionToFirstPending("confirmed");
+          applyDecisionToActiveItem("right");
         }
         return;
       }
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         if (focusReviewMode === "swipe") {
-          commitSpotlightDecision("rejected");
+          commitSpotlightDecision("left");
         } else {
-          applyDecisionToFirstPending("rejected");
+          applyDecisionToActiveItem("left");
         }
         return;
       }
       if (key === "n") {
         e.preventDefault();
-        goToNextPending();
+        goToNextReviewable();
         return;
       }
       if (key === "p") {
         e.preventDefault();
-        goToPrevPending();
+        goToPrevReviewable();
         return;
       }
       if (key === "u" && canUndoLastAction && onUndoLastAction) {
@@ -398,12 +1063,12 @@ export function ReviewQueue({
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [
-    applyDecisionToFirstPending,
+    applyDecisionToActiveItem,
     commitSpotlightDecision,
     canUndoLastAction,
     focusReviewMode,
-    goToNextPending,
-    goToPrevPending,
+    goToNextReviewable,
+    goToPrevReviewable,
     mode,
     onRequestExitSwipeMode,
     onUndoLastAction,
@@ -450,6 +1115,79 @@ export function ReviewQueue({
   if (mode === "focus") {
     if (!activeEntry) return null;
 
+    const activeEntryTarget = Math.max(
+      1,
+      Number(
+        activeAuditResult?.effective_target ??
+          RECOMMENDED_SKILLS_PER_ENTRY_TARGET,
+      ) || RECOMMENDED_SKILLS_PER_ENTRY_TARGET,
+    );
+    const activeEntryConfirmedSuggestions = [
+      ...activeEntry.linked_cip_suggestions,
+      ...activeEntry.cross_cip_suggestions,
+    ].filter((suggestion) => suggestion.status === "confirmed");
+    const activeEntryConfirmedCount = activeEntryConfirmedSuggestions.length;
+    const activeEntryLinkedTitles = activeEntryConfirmedSuggestions
+      .map((suggestion) => suggestion.key_skill_title.trim())
+      .filter(Boolean);
+    const activeEntrySlotsRemaining = Math.max(0, activeEntryTarget - activeEntryConfirmedCount);
+    const activeSuggestionProjectedCount =
+      activeReviewItem?.kind === "suggestion" ? activeEntryConfirmedCount + 1 : activeEntryConfirmedCount;
+    const actedAuditItemsForEntry = activeAllReviewItems.filter(
+      (item) =>
+        item.kind !== "suggestion" &&
+        reviewedItemDecisions[item.itemKey] === "acted",
+    );
+    const baseCurrentLinkedSkills =
+      Array.isArray(activeAuditResult?.current_linked_skills) &&
+      activeAuditResult.current_linked_skills.length > 0
+        ? activeAuditResult.current_linked_skills.map((skill) => ({
+            key_skill_id: skill.key_skill_id,
+            key_skill_title: skill.key_skill_title,
+          }))
+        : Array.isArray(activeEntry.kaizen_linked_skills)
+          ? activeEntry.kaizen_linked_skills.map((skill) => ({
+              key_skill_id: skill.key_skill_id,
+              key_skill_title: skill.key_skill_title,
+            }))
+          : [];
+    const effectiveCurrentLinkedSkills = [...baseCurrentLinkedSkills];
+    for (const item of actedAuditItemsForEntry) {
+      if (item.kind === "remove") {
+        const removeIndex = effectiveCurrentLinkedSkills.findIndex(
+          (skill) => skill.key_skill_id === item.recommendation?.key_skill_id,
+        );
+        if (removeIndex >= 0) {
+          effectiveCurrentLinkedSkills.splice(removeIndex, 1);
+        }
+      }
+      if (item.kind === "replace") {
+        const outgoingSkillId = item.recommendation?.replace_skill_id ?? null;
+        const outgoingIndex = effectiveCurrentLinkedSkills.findIndex(
+          (skill) => skill.key_skill_id === outgoingSkillId,
+        );
+        if (outgoingIndex >= 0) {
+          effectiveCurrentLinkedSkills.splice(outgoingIndex, 1);
+        }
+        if (item.recommendation?.key_skill_id && item.recommendation.key_skill_title) {
+          effectiveCurrentLinkedSkills.push({
+            key_skill_id: item.recommendation.key_skill_id,
+            key_skill_title: item.recommendation.key_skill_title,
+          });
+        }
+      }
+    }
+    const effectiveCurrentLinkedCount = effectiveCurrentLinkedSkills.length;
+    const effectiveCurrentLinkedTitles = effectiveCurrentLinkedSkills
+      .map((skill) => skill.key_skill_title.trim())
+      .filter(Boolean);
+    const effectiveOverCapBy = Math.max(0, effectiveCurrentLinkedCount - activeEntryTarget);
+    const projectedAuditLinkedCount =
+      activeReviewItem?.kind === "remove"
+        ? Math.max(0, effectiveCurrentLinkedCount - 1)
+        : effectiveCurrentLinkedCount;
+    const projectedAuditOverCapBy = Math.max(0, projectedAuditLinkedCount - activeEntryTarget);
+
     const totalSuggestions =
       activeEntry.linked_cip_suggestions.length +
       activeEntry.cross_cip_suggestions.length;
@@ -467,7 +1205,7 @@ export function ReviewQueue({
         ? 100
         : Math.round((activeIndex / (visibleEntries.length - 1)) * 100);
 
-    const quickActionDisabled = pendingSuggestions <= 0 || disabled || swipeAnimating !== null;
+    const quickActionDisabled = activeEntryReviewCount <= 0 || disabled || swipeAnimating !== null;
     const swipeAbs = Math.abs(swipeDragX);
     const swipeProgress = Math.min(1, swipeAbs / SWIPE_THRESHOLD_PX);
     const swipeTrackX = Math.max(-52, Math.min(52, swipeDragX * 0.35));
@@ -495,7 +1233,7 @@ export function ReviewQueue({
     } as const;
     const stackedCardStyle = {
       transform: `translateY(${swipeAnimating ? 0 : Math.max(0, 10 - swipeProgress * 10)}px) scale(${swipeAnimating ? 1 : 0.97 + swipeProgress * 0.03})`,
-      opacity: nextSpotlightSuggestion
+      opacity: nextReviewItem
         ? swipeAnimating
           ? 0.96
           : 0.62 + swipeProgress * 0.28
@@ -523,36 +1261,18 @@ export function ReviewQueue({
           <div className="sticky top-3 z-10 rounded-xl border border-subtle bg-surface-2/95 p-3 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[11px] text-secondary">
-                <span className="font-semibold text-primary">{activeEntryPending}</span> pending on this entry ·{" "}
-                <span className="font-semibold text-primary">{totalPendingAcrossVisible}</span> pending in current queue
+                <span className="font-semibold text-primary">{activeEntryReviewCount}</span> review item{activeEntryReviewCount === 1 ? "" : "s"} on this entry ·{" "}
+                <span className="font-semibold text-primary">{totalReviewItemsAcrossVisible}</span> in current queue
               </p>
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => applyDecisionToFirstPending("confirmed")}
-                  disabled={quickActionDisabled}
-                  className="btn-primary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Shortcut: Right Arrow"
-                >
-                  Confirm next (Right Arrow)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyDecisionToFirstPending("rejected")}
-                  disabled={quickActionDisabled}
-                  className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Shortcut: Left Arrow"
-                >
-                  Reject next (Left Arrow)
-                </button>
-                <button
-                  type="button"
-                  onClick={goToNextPending}
-                  disabled={nextPendingIndex == null}
+                  onClick={goToNextReviewable}
+                  disabled={nextReviewableIndex == null}
                   className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
                   title="Shortcut: N"
                 >
-                  Next pending (N)
+                  Next to review (N)
                 </button>
                 <button
                   type="button"
@@ -579,42 +1299,18 @@ export function ReviewQueue({
                   Entry {activeIndex + 1} of {visibleEntries.length}
                 </h2>
                 <p className="text-[11px] text-muted">
-                  {totalPendingAcrossVisible} pending suggestion
-                  {totalPendingAcrossVisible === 1 ? "" : "s"} across current filters
+                  {totalReviewItemsAcrossVisible} review item
+                  {totalReviewItemsAcrossVisible === 1 ? "" : "s"} across current filters
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={goToPrevPending}
-                  disabled={prevPendingIndex == null}
-                  className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Previous pending
-                </button>
-                <button
-                  type="button"
-                  onClick={goToNextPending}
-                  disabled={nextPendingIndex == null}
-                  className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Next pending
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigateToIndex(Math.max(activeIndex - 1, 0))}
-                  disabled={activeIndex === 0}
-                  className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigateToIndex(Math.min(activeIndex + 1, visibleEntries.length - 1))}
-                  disabled={activeIndex >= visibleEntries.length - 1}
+                  onClick={goToNextReviewable}
+                  disabled={nextReviewableIndex == null}
                   className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Next
+                  Next to review
                 </button>
               </div>
             </div>
@@ -630,35 +1326,79 @@ export function ReviewQueue({
               </label>
             </div>
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <p className="rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[11px] text-secondary">
-                {pendingSuggestions} pending of {totalSuggestions} suggestions on this entry
-              </p>
-              <p className="rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[11px] text-secondary">
-                {reviewedPct}% reviewed for this entry
-              </p>
-            </div>
+            <p className="mt-3 rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[11px] text-secondary">
+              {activeEntryReviewCount} review item{activeEntryReviewCount === 1 ? "" : "s"} on this entry
+            </p>
+            <p className="mt-2 rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[11px] text-secondary">
+              <span className="font-medium text-primary">Review:</span>{" "}
+              {activeEntryReviewReason}
+            </p>
 
-            <div className="mt-3">
-              <div className="h-1.5 overflow-hidden rounded-full bg-surface-4">
-                <div
-                  className="h-full rounded-full bg-surface-5 transition-all duration-300"
-                  style={{ width: `${progressPct}%` }}
-                />
+            <details className="mt-3 rounded-lg border border-subtle bg-surface-1 p-3">
+              <summary className="cursor-pointer text-[11px] font-medium text-secondary">
+                Queue progress and navigation
+              </summary>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={goToPrevReviewable}
+                  disabled={prevReviewableIndex == null}
+                  className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Previous to review
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateToIndex(Math.max(activeIndex - 1, 0))}
+                  disabled={activeIndex === 0}
+                  className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Previous entry
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateToIndex(Math.min(activeIndex + 1, visibleEntries.length - 1))}
+                  disabled={activeIndex >= visibleEntries.length - 1}
+                  className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next entry
+                </button>
               </div>
-            </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <p className="rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-[11px] text-secondary">
+                  {reviewedPct}% reviewed for this entry
+                </p>
+                <p className="rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-[11px] text-secondary">
+                  {totalSuggestions - pendingSuggestions} decision
+                  {totalSuggestions - pendingSuggestions === 1 ? "" : "s"} already made
+                </p>
+              </div>
+
+              <div className="mt-3">
+                <div className="h-1.5 overflow-hidden rounded-full bg-surface-4">
+                  <div
+                    className="h-full rounded-full bg-surface-5 transition-all duration-300"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+              </div>
+            </details>
           </div>
         )}
 
-        {focusReviewMode !== "swipe" && totalPendingAcrossVisible === 0 && (
+        {focusReviewMode !== "swipe" && totalReviewItemsAcrossVisible === 0 && (
           <div className="relative overflow-hidden rounded-xl border border-accent-green/40 bg-accent-green/10 px-4 py-3 text-xs text-accent-green">
             <div className="pointer-events-none absolute -top-8 right-6 h-16 w-16 rounded-full bg-accent-green/15 blur-2xl" aria-hidden />
             <p className="text-[11px] font-semibold uppercase tracking-[0.08em]">Queue complete</p>
-            <p className="mt-1 text-sm font-semibold text-primary">
-              Every suggestion in this filtered queue has been reviewed.
-            </p>
+	            <p className="mt-1 text-sm font-semibold text-primary">
+	              {reviewWorkstream === "audit"
+                  ? "Audit review complete."
+                  : "Every review item in this filtered queue has been reviewed."}
+	            </p>
             <p className="mt-1 text-xs text-secondary">
-              Strong finish. You can switch filters for another pass or move to list mode for final cleanup.
+              {reviewWorkstream === "audit"
+                ? "Run Kaizen Sync, then Audit again when you want a fresh pass."
+                : "Strong finish. You can switch filters for another pass or move to list mode for final cleanup."}
             </p>
           </div>
         )}
@@ -678,26 +1418,29 @@ export function ReviewQueue({
                 className="my-2 w-full max-w-2xl rounded-2xl border border-subtle bg-surface-2/95 p-4 shadow-2xl md:my-4 md:p-5"
               >
                 <div
-                  key={`${activeEntry.id}:${activeSpotlightSuggestion?.suggestion_id ?? "none"}:${navigationDirection}`}
+                  key={`${activeEntry.id}:${activeReviewItem?.itemKey ?? "none"}:${navigationDirection}`}
                   className={
                     navigationDirection === "next"
                       ? "animate-entry-in-next"
                       : "animate-entry-in-prev"
                   }
                 >
-                  {!(totalPendingAcrossVisible === 0 && !activeSpotlightSuggestion) && (
+                  {!(totalReviewItemsAcrossVisible === 0 && !activeReviewItem) && (
                     <header className="space-y-2">
                       <div className="flex items-start justify-between gap-3">
-                        <div>
+                      <div>
                           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
                             Swipe Spotlight
                           </p>
-                          <h3 className="text-small font-semibold text-primary">{activeEntry.title}</h3>
-                          <p className="text-[11px] text-muted">
-                            Entry {activeIndex + 1}/{visibleEntries.length} · Suggestion{" "}
-                            {Math.min(totalSuggestions - pendingSuggestions + 1, totalSuggestions)}/{totalSuggestions}
-                          </p>
-                        </div>
+	                          <h3 className="text-small font-semibold text-primary">{activeEntry.title}</h3>
+	                          <p className="text-[11px] text-muted">
+	                            {totalReviewItemsAcrossVisible} left in this queue · {activeEntryReviewCount} on this entry
+	                          </p>
+	                          <p className="mt-1 text-[11px] text-secondary">
+	                            <span className="font-medium text-primary">Review:</span>{" "}
+	                            {activeEntryReviewReason}
+	                          </p>
+	                        </div>
                         {onRequestExitSwipeMode && (
                           <button
                             type="button"
@@ -709,13 +1452,10 @@ export function ReviewQueue({
                           </button>
                         )}
                       </div>
-                      <p className="text-[11px] text-secondary">
-                        {activeEntryPending} pending on this entry · {totalPendingAcrossVisible} pending in queue
-                      </p>
                     </header>
                   )}
 
-                  {activeSpotlightSuggestion ? (
+                  {activeReviewItem ? (
                     <div className="mt-4 space-y-2.5">
                       <div className="relative min-h-[200px]">
                         <div
@@ -723,35 +1463,32 @@ export function ReviewQueue({
                           style={stackedCardStyle}
                           aria-hidden
                         >
-                          {nextSpotlightSuggestion ? (
+                          {nextReviewItem ? (
                             <div className="space-y-2">
                               <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
                                 Up next
                               </p>
-                              <div className="flex items-start justify-between gap-2">
-                                <div>
-                                  <p className="text-xs font-semibold text-primary">
-                                    {nextSpotlightSuggestion.key_skill_title}
-                                  </p>
+	                              <div className="flex items-start justify-between gap-2">
+	                                <div>
+	                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+	                                    {reviewItemKindLabel(nextReviewItem.kind)}
+	                                  </p>
+	                                  <p className="text-xs font-semibold text-primary">
+	                                    {nextReviewItem.title}
+	                                  </p>
                                   <p className="text-[11px] text-muted">
-                                    CiP {nextSpotlightSuggestion.cip_number} ·{" "}
-                                    {nextSpotlightSuggestion.source === "cross_cip"
-                                      ? "Cross-CiP"
-                                      : "Linked"}
+                                    {nextReviewItem.subtitle}
                                   </p>
                                 </div>
                                 <span className="rounded-full border border-subtle bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-secondary">
-                                  {nextSpotlightSuggestion.confidence >= 0.8
-                                    ? "High"
-                                    : nextSpotlightSuggestion.confidence >= 0.7
-                                      ? "Medium"
-                                      : "Low"}{" "}
-                                  {Math.round(nextSpotlightSuggestion.confidence * 100)}%
+                                  {nextReviewItem.confidence != null
+                                    ? `${Math.round(nextReviewItem.confidence * 100)}%`
+                                    : "Queued"}
                                 </span>
                               </div>
                             </div>
                           ) : (
-                            <p className="text-[11px] text-muted">No more pending suggestions after this one.</p>
+                            <p className="text-[11px] text-muted">No more review items after this one.</p>
                           )}
                         </div>
 
@@ -763,31 +1500,104 @@ export function ReviewQueue({
                           onPointerUp={finishSpotlightSwipe}
                           onPointerCancel={finishSpotlightSwipe}
                         >
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <p className="text-xs font-semibold text-primary">
-                                  {activeSpotlightSuggestion.key_skill_title}
-                                </p>
+                            <div className="space-y-3">
+	                            <div className="flex items-start justify-between gap-2">
+	                              <div>
+	                                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+	                                  {reviewItemKindLabel(activeReviewItem.kind)}
+	                                </p>
+	                                <p className="text-xs font-semibold text-primary">
+	                                  {activeReviewItem.title}
+	                                </p>
                                 <p className="text-[11px] text-muted">
-                                  CiP {activeSpotlightSuggestion.cip_number} ·{" "}
-                                  {activeSpotlightSuggestion.source === "cross_cip"
-                                    ? "Cross-CiP"
-                                    : "Linked"}
+                                  {activeReviewItem.subtitle}
                                 </p>
                               </div>
                               <span className="rounded-full border border-subtle bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-secondary">
-                                {activeSpotlightSuggestion.confidence >= 0.8
-                                  ? "High"
-                                  : activeSpotlightSuggestion.confidence >= 0.7
-                                    ? "Medium"
-                                    : "Low"}{" "}
-                                {Math.round(activeSpotlightSuggestion.confidence * 100)}%
+                                {activeReviewItem.confidence != null
+                                  ? `${Math.round(activeReviewItem.confidence * 100)}%`
+                                  : "Review"}
                               </span>
                             </div>
-                            {activeSpotlightSuggestion.rationale && (
+                            {activeReviewItem.kind === "suggestion" && (
+                              <div className="rounded-xl border border-subtle bg-surface-2/85 px-3 py-2">
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                                    Current links
+                                  </p>
+                                  <p className="text-[11px] font-medium text-primary">
+                                    {activeEntryConfirmedCount} of {activeEntryTarget} linked
+                                  </p>
+                                  <p className="text-[11px] text-secondary">
+                                    {activeEntrySlotsRemaining} slot{activeEntrySlotsRemaining === 1 ? "" : "s"} left
+                                  </p>
+                                </div>
+                                <p className="mt-1 text-[11px] text-secondary">
+                                  Confirming this would make it {activeSuggestionProjectedCount} of {activeEntryTarget}.
+                                </p>
+                                {activeEntryLinkedTitles.length > 0 ? (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {activeEntryLinkedTitles.map((title, index) => (
+                                      <span
+                                        key={`active-linked-${activeEntry.id}-${index}-${title}`}
+                                        className="rounded-full border border-subtle bg-surface-1 px-2 py-0.5 text-[10px] font-medium text-secondary"
+                                      >
+                                        {title}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="mt-2 text-[11px] text-muted">
+                                    No links confirmed on this entry yet.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            {activeReviewItem.kind !== "suggestion" && (
+                              <div className="rounded-xl border border-subtle bg-surface-2/85 px-3 py-2">
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                                    Current links
+                                  </p>
+                                  <p className="text-[11px] font-medium text-primary">
+                                    {effectiveCurrentLinkedCount} of {activeEntryTarget} linked
+                                  </p>
+                                  <p className="text-[11px] text-secondary">
+                                    {effectiveOverCapBy > 0
+                                      ? `${effectiveOverCapBy} over cap`
+                                      : "Within target"}
+                                  </p>
+                                </div>
+                                <p className="mt-1 text-[11px] text-secondary">
+                                  {activeReviewItem.kind === "remove"
+                                    ? `Acting on this would make it ${projectedAuditLinkedCount} of ${activeEntryTarget}${
+                                        projectedAuditOverCapBy > 0 ? `, still ${projectedAuditOverCapBy} over cap` : ""
+                                      }.`
+                                    : `Replacing this would keep it at ${projectedAuditLinkedCount} of ${activeEntryTarget}${
+                                        projectedAuditOverCapBy > 0 ? `, still ${projectedAuditOverCapBy} over cap` : ""
+                                      }.`}
+                                </p>
+                                {effectiveCurrentLinkedTitles.length > 0 ? (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {effectiveCurrentLinkedTitles.map((title, index) => (
+                                      <span
+                                        key={`active-current-linked-${activeEntry.id}-${index}-${title}`}
+                                        className="rounded-full border border-subtle bg-surface-1 px-2 py-0.5 text-[10px] font-medium text-secondary"
+                                      >
+                                        {title}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="mt-2 text-[11px] text-muted">
+                                    No current links found on this entry.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            {activeReviewItem.rationale && (
                               <p className="text-[12px] leading-relaxed text-secondary">
-                                {activeSpotlightSuggestion.rationale}
+                                {activeReviewItem.rationale}
                               </p>
                             )}
                           </div>
@@ -796,44 +1606,44 @@ export function ReviewQueue({
 
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-[11px] text-muted">
-                          Swipe left to reject, right to confirm.
+                          Swipe left to {activeReviewItem.swipeLeftLabel.toLowerCase()}, right to {activeReviewItem.swipeRightLabel.toLowerCase()}.
                         </p>
-                        {nextSpotlightSuggestion ? (
+                        {nextReviewItem ? (
                           <p className="text-[11px] text-secondary">
-                            Up next: {nextSpotlightSuggestion.key_skill_title}
+                            Up next: {nextReviewItem.title}
                           </p>
                         ) : (
-                          <p className="text-[11px] text-secondary">Last suggestion for this entry.</p>
+                          <p className="text-[11px] text-secondary">Last review item for this entry.</p>
                         )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => commitSpotlightDecision("rejected")}
+                          onClick={() => commitSpotlightDecision("left")}
                           disabled={quickActionDisabled}
                           className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
                           title="Shortcut: Left Arrow"
                         >
-                          Reject (Left Arrow)
+                          {activeReviewItem.swipeLeftLabel} (Left Arrow)
                         </button>
                         <button
                           type="button"
-                          onClick={() => commitSpotlightDecision("confirmed")}
+                          onClick={() => commitSpotlightDecision("right")}
                           disabled={quickActionDisabled}
                           className="btn-primary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
                           title="Shortcut: Right Arrow"
                         >
-                          Confirm (Right Arrow)
+                          {activeReviewItem.swipeRightLabel} (Right Arrow)
                         </button>
                         <button
                           type="button"
-                          onClick={goToNextPending}
-                          disabled={nextPendingIndex == null}
+                          onClick={goToNextReviewable}
+                          disabled={nextReviewableIndex == null}
                           className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
                           title="Shortcut: N"
                         >
-                          Next pending (N)
+                          Next to review (N)
                         </button>
                         <button
                           type="button"
@@ -848,16 +1658,41 @@ export function ReviewQueue({
 
                       <details className="rounded-xl border border-subtle bg-surface-1 p-3">
                         <summary className="cursor-pointer text-[11px] font-medium text-secondary">
-                          View full entry text
+                          Entry notes
                         </summary>
-                        <div className="mt-2 max-h-64 overflow-y-auto pr-1">
-                          <p className="text-[11px] leading-relaxed text-secondary">
-                            {activeEntry.raw_text}
-                          </p>
+                        <div className="mt-3 max-h-72 overflow-y-auto pr-1">
+                          {activeEntryNarrativeSections.length > 0 ? (
+                            <div className="space-y-3">
+                              {activeEntryNarrativeSections.map((section, sectionIndex) => (
+                                <section
+                                  key={`${section.title}:${sectionIndex}`}
+                                  className={sectionIndex === 0 ? "" : "border-t border-subtle pt-3"}
+                                >
+                                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                                    {section.title}
+                                  </p>
+                                  <div className="mt-1.5 space-y-2">
+                                    {section.paragraphs.map((paragraph, paragraphIndex) => (
+                                      <p
+                                        key={`${section.title}:${paragraphIndex}`}
+                                        className="text-[12px] leading-6 text-secondary"
+                                      >
+                                        {paragraph}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </section>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[12px] leading-6 text-secondary">
+                              {cleanEntryNarrative(activeEntry.raw_text ?? "", activeEntry.title ?? "")}
+                            </p>
+                          )}
                         </div>
                       </details>
                     </div>
-                  ) : totalPendingAcrossVisible === 0 ? (
+                  ) : totalReviewItemsAcrossVisible === 0 ? (
                     <div className="relative overflow-hidden rounded-2xl border border-accent-green/45 bg-accent-green/10 p-5 animate-fade-up">
                       <div className="pointer-events-none absolute -top-10 -right-6 h-24 w-24 rounded-full bg-accent-green/18 blur-2xl" aria-hidden />
                       <div className="pointer-events-none absolute -bottom-8 -left-4 h-20 w-20 rounded-full bg-accent-blue/15 blur-2xl" aria-hidden />
@@ -870,7 +1705,7 @@ export function ReviewQueue({
                         Milestone reached
                       </p>
                       <p className="mt-1 text-base font-semibold text-primary">
-                        You reviewed every pending suggestion.
+                        You reviewed every queued item.
                       </p>
                       <p className="mt-1 text-xs text-secondary">
                         Queue complete. Great work keeping your portfolio evidence clean and current.
@@ -898,7 +1733,7 @@ export function ReviewQueue({
                     </div>
                   ) : (
                     <div className="mt-4 rounded-xl border border-subtle bg-surface-1 px-4 py-3 text-xs text-secondary">
-                      No pending suggestions on this entry. Use Next pending to continue.
+                      No review items on this entry. Use Next to review to continue.
                     </div>
                   )}
                 </div>
@@ -918,6 +1753,11 @@ export function ReviewQueue({
               entry={activeEntry}
               onUpdateSuggestion={updateSuggestionWithAutoAdvance}
               disabled={disabled}
+              auditResult={auditResultsByEntryId[activeEntry.id]}
+              onApplyAuditRecommendation={onApplyAuditRecommendation}
+              onRecordAuditReviewDecision={onRecordAuditReviewDecision}
+              pendingRemovalCount={pendingRemovalCountByEntryId[activeEntry.id] ?? 0}
+              onUnlinkKaizenSkill={onUnlinkKaizenSkill}
               expandedByDefault
               highlightSkillId={cardFocusProps(activeEntry.id).highlightSkillId}
               highlightDescriptorId={cardFocusProps(activeEntry.id).highlightDescriptorId}
@@ -939,10 +1779,13 @@ export function ReviewQueue({
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-2 rounded-xl border border-subtle bg-surface-2 px-4 py-3">
-        <h2 className="text-small font-semibold text-primary">Review queue</h2>
-        <p className="text-xs text-muted">
-          Showing {shownEntries.length} of {visibleEntries.length} entries
-        </p>
+        <div>
+          <h2 className="text-small font-semibold text-primary">Review queue</h2>
+          <p className="text-xs text-muted">
+            Showing {shownEntries.length} of {visibleEntries.length} entries
+          </p>
+        </div>
+        <p className="text-xs text-muted">List view</p>
       </div>
 
       <div className="space-y-3">
@@ -954,6 +1797,11 @@ export function ReviewQueue({
               entry={entry}
               onUpdateSuggestion={onUpdateSuggestion}
               disabled={disabled}
+              auditResult={auditResultsByEntryId[entry.id]}
+              onApplyAuditRecommendation={onApplyAuditRecommendation}
+              onRecordAuditReviewDecision={onRecordAuditReviewDecision}
+              pendingRemovalCount={pendingRemovalCountByEntryId[entry.id] ?? 0}
+              onUnlinkKaizenSkill={onUnlinkKaizenSkill}
               expandedByDefault={fp.expandedByDefault}
               highlightSkillId={fp.highlightSkillId}
               highlightDescriptorId={fp.highlightDescriptorId}

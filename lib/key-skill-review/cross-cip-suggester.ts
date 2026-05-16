@@ -1,4 +1,7 @@
-import { callGemini, stripFences } from "@/lib/ai/gemini-client";
+import {
+  callLiveModel,
+  LIVE_AUDIT_MODEL,
+} from "@/lib/ai/live-models";
 
 export type CrossCipSkillInput = {
   key_skill_id: string;
@@ -15,8 +18,10 @@ export type CrossCipSuggestion = {
 
 const MAX_SKILLS_PER_CALL = 60;
 
-const SYSTEM_PROMPT =
-  "You are an RCOG curriculum expert identifying cross-CiP skill evidence in portfolio entries. Output ONLY valid JSON — no prose, no markdown fences.";
+type CallUsage = { input_tokens: number; output_tokens: number };
+const KEY_SKILL_REVIEW_LLM_ENABLED =
+  String(process.env.KEY_SKILL_REVIEW_LLM_ENABLED ?? "").toLowerCase() ===
+  "true";
 
 function buildPrompt(
   entryText: string,
@@ -72,34 +77,55 @@ function buildPrompt(
     conservativeNote,
     "- confidence: 0.0–1.0 (use 0.8+ for explicit strong evidence, 0.6–0.79 for moderate, <0.6 only if weak)",
     "- rationale: short phrase max 8 words explaining the specific evidence",
-    "- If no skills are evidenced, output []",
-    "- Output ONLY a valid JSON array. No prose. No code fences.",
+    "- If no skills are evidenced, output just ]",
+    "- Output ONLY array items and closing ]. No prose. No code fences.",
     "",
-    "Output a JSON array. One object per evidenced skill:",
-    '  { "key_skill_id": "<id>", "cip_number": N, "confidence": 0.0, "rationale": "short phrase" }',
+    "Continue the JSON array that has already been started. Output one object per evidenced skill:",
+    '  { "key_skill_id": "<id>", "cip_number": N, "confidence": 0.0, "rationale": "short phrase" },',
   ].join("\n");
 }
 
-async function callCrossCipModel(prompt: string): Promise<{ data: unknown }> {
-  const raw = await callGemini({
-    system: SYSTEM_PROMPT,
-    user: prompt,
+async function callGemini(
+  prompt: string,
+): Promise<{ data: unknown; usage: CallUsage }> {
+  if (!KEY_SKILL_REVIEW_LLM_ENABLED) {
+    throw new Error(
+      "Key-skill review LLM is disabled. Set KEY_SKILL_REVIEW_LLM_ENABLED=true to enable.",
+    );
+  }
+  if (!process.env.GOOGLE_AI_STUDIO_API_KEY) {
+    throw new Error("GOOGLE_AI_STUDIO_API_KEY is not configured");
+  }
+
+  const message = await callLiveModel(LIVE_AUDIT_MODEL, {
+    userMessage: prompt,
     maxTokens: 2048,
     temperature: 0,
+    prefillArray: true,
   });
 
-  const jsonText = stripFences(raw).trim();
-  if (!jsonText) return { data: [] };
+  const usage: CallUsage = {
+    input_tokens: message.inputTokens,
+    output_tokens: message.outputTokens,
+  };
+  if (!message.rawText) {
+    // Model returned nothing — no cross-CiP matches
+    return { data: [], usage };
+  }
+
+  const jsonText = message.rawText.trim();
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonText);
   } catch {
     const preview = jsonText.slice(0, 400).replace(/\n/g, " ");
-    throw new Error(`Failed to parse cross-CiP response as JSON. Preview: ${preview}`);
+    throw new Error(
+      `Failed to parse cross-CiP response as JSON. Preview: ${preview}`,
+    );
   }
 
-  return { data: parsed };
+  return { data: parsed, usage };
 }
 
 export async function suggestCrossCipSkills(
@@ -126,7 +152,7 @@ export async function suggestCrossCipSkills(
       chunk,
       linkedSkillTitles,
     );
-    const { data: raw } = await callCrossCipModel(prompt);
+    const { data: raw } = await callGemini(prompt);
 
     if (!Array.isArray(raw)) continue;
 
