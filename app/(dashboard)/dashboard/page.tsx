@@ -5,14 +5,59 @@ import { DashboardNextActionsSection } from "@/components/dashboard/DashboardNex
 import { DashboardProgressGateway } from "@/components/dashboard/DashboardProgressGateway";
 import { DashboardStatsRow } from "@/components/dashboard/DashboardStatsRow";
 import { ActivityHeatmap } from "@/components/dashboard/ActivityHeatmap";
-import { GettingStartedSection } from "@/components/dashboard/GettingStartedSection";
 import { StageSelector } from "@/components/dashboard/StageSelector";
 import { RecentEntriesSection } from "@/components/dashboard/RecentEntriesSection";
 import { SyncStatusSection } from "@/components/dashboard/SyncStatusSection";
+import { UnsignedAssessmentEntriesSection } from "@/components/dashboard/UnsignedAssessmentEntriesSection";
+import { LightweightRefreshSection } from "@/components/dashboard/LightweightRefreshSection";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { calculateArcpCountdown } from "@/lib/profile/ltft";
+import {
+  classifyAssessorSignoffState,
+  requiresAssessorSignoff,
+} from "@/lib/kaizen/evidence-eligibility";
 
-export default async function DashboardPage() {
+function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readAssessmentDisplayStatus(
+  extractedFields: Record<string, unknown> | null | undefined,
+  fallbackStatus: string | null | undefined,
+) {
+  if (extractedFields && typeof extractedFields === "object") {
+    const direct =
+      extractedFields["the current status of this assessment request"] ??
+      extractedFields["current status of this assessment request"] ??
+      extractedFields["assessment request"];
+    const text = normalizeText(direct);
+    if (text) return text;
+  }
+
+  const fallback = normalizeText(fallbackStatus);
+  if (fallback) return fallback;
+  return "Unknown";
+}
+
+function readAssessmentOtherParty(
+  extractedFields: Record<string, unknown> | null | undefined,
+) {
+  if (!extractedFields || typeof extractedFields !== "object") return "";
+  const value =
+    extractedFields["assessor"] ??
+    extractedFields["trainer"] ??
+    extractedFields["supervisor"];
+  return normalizeText(value);
+}
+
+type DashboardPageProps = {
+  searchParams: Promise<{ onboarding?: string }>;
+};
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const supabase = await getServerSupabaseClient();
   const bypassAuth = isDevAuthBypassEnabled();
   const {
@@ -37,7 +82,13 @@ export default async function DashboardPage() {
         } | null,
       };
 
-  const [{ data: stages }, { data: syncLog }, { data: entries }, { count: totalEntries }] =
+  const [
+    { data: stages },
+    { data: syncLog },
+    { data: entries },
+    { count: totalEntries },
+    { data: assessmentEntries },
+  ] =
     await Promise.all([
     supabase
       .from("stages")
@@ -56,6 +107,25 @@ export default async function DashboardPage() {
     supabase
       .from("kaizen_entries")
       .select("id", { count: "exact", head: true }),
+    user
+      ? supabase
+          .from("kaizen_entries")
+          .select(
+            "id, title, kaizen_date, assessment_type, detected_entry_type, status, extracted_fields",
+          )
+          .eq("user_id", user.id)
+          .order("synced_at", { ascending: false })
+      : {
+          data: [] as Array<{
+            id: string;
+            title: string;
+            kaizen_date: string;
+            assessment_type: string;
+            detected_entry_type: string | null;
+            status: string;
+            extracted_fields: Record<string, unknown> | null;
+          }>,
+        },
   ]);
 
   const profile = profileRes.data;
@@ -89,59 +159,63 @@ export default async function DashboardPage() {
     (totalEntries ?? 0) === 0 &&
     Object.keys(lastSyncByType).length === 0;
 
-  if (hasNoData) {
-    return (
-      <div className="min-h-full">
-        <main className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-10">
-          <div className="animate-stagger flex flex-col gap-6">
-            <section className="relative overflow-hidden rounded-3xl border border-subtle bg-surface-2 p-6 md:p-8">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full"
-                style={{ background: "radial-gradient(circle, rgba(0,113,227,0.18), transparent 70%)" }}
-              />
-              <div className="relative space-y-4">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-accent-green/15">
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--accent-green)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                    <path d="M2 17l10 5 10-5" />
-                    <path d="M2 12l10 5 10-5" />
-                  </svg>
-                </div>
-                <div className="space-y-1.5">
-                  <h1 className="text-heading-1 font-bold text-primary">
-                    Welcome to PortfolioIQ
-                  </h1>
-                  <p className="max-w-2xl text-body leading-relaxed text-secondary">
-                    Connect your Kaizen ePortfolio to unlock ARCP readiness tracking,
-                    CiP coverage, and AI-assisted writing in one focused workspace.
-                  </p>
-                </div>
-              </div>
-            </section>
+  const unsignedAssessmentEntries = (assessmentEntries ?? [])
+    .filter((entry) =>
+      requiresAssessorSignoff(entry.detected_entry_type, entry.assessment_type),
+    )
+    .filter((entry) => {
+      const signoffState = classifyAssessorSignoffState({
+        status: entry.status,
+        extracted_fields: entry.extracted_fields,
+      });
+      return signoffState !== "signed_or_complete";
+    })
+    .map((entry) => ({
+      id: entry.id,
+      other_party_name: readAssessmentOtherParty(entry.extracted_fields),
+      entry_title: normalizeText(entry.title),
+      status: readAssessmentDisplayStatus(entry.extracted_fields, entry.status),
+      date: normalizeText(entry.kaizen_date),
+    }));
 
-            <GettingStartedSection
-              hasSynced={Object.keys(lastSyncByType).length > 0}
-            />
-          </div>
-        </main>
-      </div>
-    );
+  if (hasNoData) {
+    redirect("/dashboard/setup");
   }
+
+  const params = await searchParams;
+  const showOnboardingSuccess = params.onboarding === "complete";
 
   return (
     <div className="min-h-full">
       <main className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
         <div className="animate-stagger flex flex-col gap-6 md:gap-7">
+          {showOnboardingSuccess && (
+            <section className="rounded-3xl border border-emerald-300/35 bg-surface-2 p-5 md:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-700">
+                    First sync complete
+                  </p>
+                  <h2 className="text-heading-3 font-semibold text-primary">
+                    Your portfolio is in. Atlas is ready to guide the next step.
+                  </h2>
+                  <p className="max-w-2xl text-xs leading-relaxed text-secondary">
+                    We&apos;ve detected your first Kaizen sync. Start by reviewing suggested skills
+                    or open Progress Hub to see where your evidence is already strong.
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <a href="/dashboard/key-skill-review" className="btn-primary px-4 py-2 text-small">
+                    Review what Atlas found
+                  </a>
+                  <a href="/dashboard/progress" className="btn-secondary px-4 py-2 text-small">
+                    Open Progress Hub
+                  </a>
+                </div>
+              </div>
+            </section>
+          )}
+
           <header className="relative overflow-hidden rounded-3xl border border-subtle bg-surface-2 p-6 md:p-7">
             <div
               aria-hidden
@@ -272,6 +346,11 @@ export default async function DashboardPage() {
           <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <RecentEntriesSection entries={entries ?? []} />
             <div className="flex flex-col gap-5">
+              <LightweightRefreshSection />
+              <UnsignedAssessmentEntriesSection
+                entries={unsignedAssessmentEntries}
+                hasEntriesSync={Boolean(lastSyncByType.entries)}
+              />
               <ActivityHeatmap />
               <SyncStatusSection lastSyncByType={lastSyncByType} />
             </div>
