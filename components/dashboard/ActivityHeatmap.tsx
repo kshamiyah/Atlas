@@ -37,18 +37,58 @@ function cellColor(count: number, dark = false): string {
   return "#28cd41";
 }
 
-export function ActivityHeatmap() {
+type ActivityHeatmapProps = {
+  dataVersion?: string;
+};
+
+async function loadActivityEntries(): Promise<ActivityEntry[]> {
+  const response = await fetch("/api/activity");
+  const data = await response.json();
+  return (data?.entries as ActivityEntry[]) ?? [];
+}
+
+export function ActivityHeatmap({ dataVersion = "initial" }: ActivityHeatmapProps) {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/activity")
-      .then((r) => r.json())
-      .then((data) => {
-        setEntries((data?.entries as ActivityEntry[]) ?? []);
+    let active = true;
+    setIsLoading(true);
+
+    loadActivityEntries()
+      .then((nextEntries) => {
+        if (!active) return;
+        setEntries(nextEntries);
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (!active) return;
+        setIsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [dataVersion]);
+
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.source !== window || !event.data) return;
+
+      if (event.data.type === "PORTFOLIOIQ_SYNC_ALL_DONE") {
+        loadActivityEntries().then(setEntries);
+        return;
+      }
+
+      if (event.data.type !== "PORTFOLIOIQ_LIGHTWEIGHT_REFRESH_PROGRESS") return;
+      const phase = event.data.payload?.phase;
+      if (phase === "done" || phase === "error") {
+        loadActivityEntries().then(setEntries);
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
   }, []);
 
   const { grid, totalDays, entriesByDate } = useMemo(() => {
@@ -116,7 +156,7 @@ export function ActivityHeatmap() {
       <section className="card w-full rounded-lg p-5 shadow-none">
         <h2 className="text-small font-semibold text-primary">Entry activity</h2>
         <p className="mt-1 text-micro text-muted">
-          No entry dates yet — sync your portfolio to see activity.
+          No dated entries yet — sync your portfolio to see activity by entry date.
         </p>
       </section>
     );

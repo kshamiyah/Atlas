@@ -13,6 +13,7 @@ import {
   classifyAssessorSignoffState,
   requiresAssessorSignoff,
 } from "@/lib/kaizen/evidence-eligibility";
+import { compareKaizenEntryDatesDesc } from "@/lib/kaizen/kaizen-date";
 
 function normalizeText(value: unknown): string {
   return String(value ?? "")
@@ -99,8 +100,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     supabase
       .from("kaizen_entries")
       .select("*")
-      .order("synced_at", { ascending: false })
-      .limit(15),
+      .limit(500),
     supabase
       .from("kaizen_entries")
       .select("id", { count: "exact", head: true }),
@@ -126,6 +126,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   ]);
 
   const profile = profileRes.data;
+
+  const recentEntriesByEntryDate = [...(entries ?? [])]
+    .sort((left, right) => {
+      const byEntryDate = compareKaizenEntryDatesDesc(
+        left.kaizen_date,
+        right.kaizen_date,
+      );
+      if (byEntryDate !== 0) return byEntryDate;
+
+      const leftSynced = left.synced_at ? new Date(left.synced_at).getTime() : 0;
+      const rightSynced = right.synced_at ? new Date(right.synced_at).getTime() : 0;
+      return rightSynced - leftSynced;
+    })
+    .slice(0, 15);
 
   const lastSyncByType: Record<string, string> = {};
   (syncLog || []).forEach((row) => {
@@ -186,6 +200,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   const params = await searchParams;
   const showOnboardingSuccess = params.onboarding === "complete";
+
+  const activityDataVersion = [
+    totalEntries ?? 0,
+    lastSyncByType.entries ?? "",
+    lastSyncByType.dashboard ?? "",
+  ].join(":");
 
   return (
     <div className="min-h-full">
@@ -299,12 +319,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <DashboardReadinessSection stageKey={profile?.current_stage_id ?? "none"} />
 
           <EvidenceTabsSection
-            entries={entries ?? []}
+            entries={recentEntriesByEntryDate}
             unsignedEntries={unsignedAssessmentEntries}
             hasEntriesSync={Boolean(lastSyncByType.entries)}
+            totalEntries={totalEntries ?? 0}
           />
 
-          <ActivityHeatmap />
+          <ActivityHeatmap dataVersion={activityDataVersion} />
         </div>
       </main>
     </div>

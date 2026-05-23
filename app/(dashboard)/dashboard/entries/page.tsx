@@ -18,13 +18,28 @@ export default async function EntriesPage({
     redirect("/login");
   }
 
-  const query = supabase
-    .from("kaizen_entries")
-    .select("id, title, kaizen_date, assessment_type, status, synced_at")
-    .order("synced_at", { ascending: false })
-    .limit(200);
-
-  const { data: entries } = user ? await query.eq("user_id", user.id) : await query;
+  const [{ data: entries }, { count: totalSyncedCount }] = await Promise.all([
+    user
+      ? supabase
+          .from("kaizen_entries")
+          .select("id, title, kaizen_date, assessment_type, status, synced_at")
+          .eq("user_id", user.id)
+          .order("synced_at", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(500)
+      : supabase
+          .from("kaizen_entries")
+          .select("id, title, kaizen_date, assessment_type, status, synced_at")
+          .order("synced_at", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(500),
+    user
+      ? supabase
+          .from("kaizen_entries")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+      : supabase.from("kaizen_entries").select("id", { count: "exact", head: true }),
+  ]);
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialDayFilter = resolvedSearchParams?.day?.trim() ?? "";
   const initialQuery = resolvedSearchParams?.q?.trim() ?? "";
@@ -51,6 +66,7 @@ export default async function EntriesPage({
 
         <EntriesListClient
           entries={entries ?? []}
+          totalSyncedCount={totalSyncedCount ?? 0}
           initialDayFilter={initialDayFilter}
           initialQuery={initialQuery}
         />

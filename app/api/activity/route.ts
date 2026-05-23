@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { toIsoDateOrNull } from "@/lib/kaizen/kaizen-date";
 
 export async function GET() {
   const supabase = await getServerSupabaseClient();
@@ -18,33 +19,39 @@ export async function GET() {
   if (!user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const userId = user.id;
 
   const { data, error } = await supabase
-    .from("key_skill_review_entries")
-    .select("id, title, entry_type, event_date")
-    .eq("user_id", userId)
-    .not("event_date", "is", null)
-    .order("event_date", { ascending: false })
-    .limit(400);
+    .from("kaizen_entries")
+    .select("id, title, assessment_type, kaizen_date")
+    .eq("user_id", user.id)
+    .order("synced_at", { ascending: false })
+    .limit(500);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const entries = (data ?? []).map(
-    (row: {
-      id: string;
-      title: string;
-      entry_type: string;
-      event_date: string;
-    }) => ({
-      id: row.id,
-      title: row.title,
-      entryType: row.entry_type,
-      eventDate: row.event_date,
-    }),
-  );
+  const entries = (data ?? [])
+    .map(
+      (row: {
+        id: string;
+        title: string | null;
+        assessment_type: string | null;
+        kaizen_date: string | null;
+      }) => {
+        const eventDate = toIsoDateOrNull(row.kaizen_date);
+        if (!eventDate) return null;
+
+        return {
+          id: row.id,
+          title: row.title ?? "Untitled entry",
+          entryType: row.assessment_type ?? "Entry",
+          eventDate,
+        };
+      },
+    )
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+    .sort((left, right) => right.eventDate.localeCompare(left.eventDate));
 
   return NextResponse.json({ entries });
 }

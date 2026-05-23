@@ -3,6 +3,7 @@ import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { AppSidebar } from "@/components/AppSidebar";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { GlobalAuditProgressBar } from "@/components/key-skill-review/GlobalAuditProgressBar";
+import { SyncRefreshListener } from "@/components/dashboard/SyncRefreshListener";
 
 export default async function DashboardLayout({
   children,
@@ -56,6 +57,7 @@ export default async function DashboardLayout({
         profilePhotoUrl={profilePhotoUrl}
       />
       <div className="relative flex-1 overflow-y-auto">
+        <SyncRefreshListener />
         <GlobalAuditProgressBar />
         <div className="min-h-full md:px-3 md:py-4 lg:px-5">
           {children}

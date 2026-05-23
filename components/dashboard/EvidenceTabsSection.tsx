@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatRelativeSyncTime } from "@/lib/kaizen/kaizen-date";
 
 type EntryRow = {
   id: string;
@@ -11,6 +12,7 @@ type EntryRow = {
   training_year: string;
   status: string;
   key_skills_count: number | null;
+  synced_at?: string | null;
 };
 
 type UnsignedAssessmentEntry = {
@@ -25,6 +27,7 @@ type EvidenceTabsSectionProps = {
   entries: EntryRow[];
   unsignedEntries: UnsignedAssessmentEntry[];
   hasEntriesSync: boolean;
+  totalEntries: number;
 };
 
 type TabKey = "recent" | "unsigned";
@@ -118,6 +121,7 @@ export function EvidenceTabsSection({
   entries,
   unsignedEntries,
   hasEntriesSync,
+  totalEntries,
 }: EvidenceTabsSectionProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("recent");
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -150,7 +154,10 @@ export function EvidenceTabsSection({
     return actionable.filter((entry) => classifyStatus(entry.status) === filter);
   }, [actionable, filter]);
 
-  const importedLabel = `${entries.length} recent`;
+  const importedLabel =
+    totalEntries > entries.length
+      ? `${totalEntries} synced · showing ${entries.length} newest by entry date`
+      : `${entries.length} synced · newest entry date first`;
   const signatureLabel = `${actionable.length} need signature`;
 
   return (
@@ -236,16 +243,27 @@ export function EvidenceTabsSection({
                             {entry.status}
                           </span>
                         ) : null}
-                        <span className="text-[11px] tabular-nums text-muted">
-                          {entry.kaizen_date || "—"}
-                        </span>
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className="text-[11px] font-medium tabular-nums text-secondary">
+                            {entry.kaizen_date || "—"}
+                          </span>
+                          {entry.synced_at ? (
+                            <span
+                              className="text-[10px] tabular-nums text-muted"
+                              title={new Date(entry.synced_at).toLocaleString("en-GB")}
+                            >
+                              Synced {formatRelativeSyncTime(entry.synced_at)}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </li>
                   );
                 })}
               </ul>
               <p className="mt-3 text-[11px] text-muted">
-                Showing {Math.min(8, entries.length)} of {entries.length} recent entries.
+                Showing {Math.min(8, entries.length)} of {totalEntries} entries by entry date
+                {totalEntries > entries.length ? " (newest first)" : ""}.
               </p>
             </>
           )}

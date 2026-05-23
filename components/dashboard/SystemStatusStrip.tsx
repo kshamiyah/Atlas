@@ -1,23 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
-type RefreshPayload = {
-  phase?: string;
-  detail?: string;
-  scannedCount?: number;
-  newEntriesSynced?: number;
-  newCipAssessmentsSynced?: number;
-  refreshedCount?: number;
-  failedCount?: number;
-};
+import {
+  EXTENSION_AUTO_START_DELAY_MS,
+  EXTENSION_UNAVAILABLE_MESSAGE,
+  type LightweightRefreshPayload,
+} from "@/lib/extension/lightweight-refresh-client";
+import { useLightweightRefreshBridge } from "@/lib/extension/use-lightweight-refresh-bridge";
 
 type ViewState =
   | { kind: "idle" }
   | { kind: "starting"; message: string }
   | { kind: "running"; message: string }
-  | { kind: "done"; message: string; payload: RefreshPayload }
+  | { kind: "done"; message: string; payload: LightweightRefreshPayload }
   | { kind: "error"; message: string }
   | { kind: "unavailable"; message: string };
 
@@ -52,7 +48,7 @@ function formatSyncTime(iso: string) {
   }
 }
 
-function summarizeDone(payload: RefreshPayload): string {
+function summarizeDone(payload: LightweightRefreshPayload): string {
   const parts: string[] = [];
   if ((payload.newEntriesSynced ?? 0) > 0) {
     parts.push(`${payload.newEntriesSynced} new entr${payload.newEntriesSynced === 1 ? "y" : "ies"}`);
@@ -71,7 +67,7 @@ function summarizeDone(payload: RefreshPayload): string {
   return `Updated ${parts.join(", ")}.`;
 }
 
-function phaseMessage(payload: RefreshPayload): string {
+function phaseMessage(payload: LightweightRefreshPayload): string {
   switch (payload.phase) {
     case "scan_entries":
       return `${payload.scannedCount ?? 0} entries scanned`;
@@ -86,8 +82,6 @@ function phaseMessage(payload: RefreshPayload): string {
 
 export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
   const router = useRouter();
-  const ackTimerRef = useRef<number | null>(null);
-  const refreshInFlightRef = useRef(false);
   const [state, setState] = useState<ViewState>(() => {
     if (typeof window === "undefined") return { kind: "idle" };
 
@@ -95,7 +89,7 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
     if (!storedSummary) return { kind: "idle" };
 
     try {
-      const parsed = JSON.parse(storedSummary) as RefreshPayload;
+      const parsed = JSON.parse(storedSummary) as LightweightRefreshPayload;
       return {
         kind: "done",
         message: summarizeDone(parsed),
@@ -106,68 +100,14 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
     }
   });
 
-  const clearAckTimer = useCallback(() => {
-    if (ackTimerRef.current !== null) {
-      window.clearTimeout(ackTimerRef.current);
-      ackTimerRef.current = null;
-    }
-  }, []);
-
-  const startRefresh = useCallback((force: boolean) => {
-    if (typeof window === "undefined") return;
-    if (refreshInFlightRef.current) return;
-
-    refreshInFlightRef.current = true;
-    setState({ kind: "starting", message: "Starting refresh." });
-
-    clearAckTimer();
-    ackTimerRef.current = window.setTimeout(() => {
-      if (!refreshInFlightRef.current) return;
-      refreshInFlightRef.current = false;
-      setState({
-        kind: "unavailable",
-        message: "Extension not responding.",
-      });
-    }, 1800);
-
-    window.postMessage(
-      {
-        type: "PORTFOLIOIQ_LIGHTWEIGHT_REFRESH",
-        payload: { force },
-      },
-      "*",
-    );
-  }, [clearAckTimer]);
-
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      if (event.source !== window || !event.data) return;
-
-      if (event.data.type === "PORTFOLIOIQ_LIGHTWEIGHT_REFRESH_ACK") {
-        clearAckTimer();
-        const ok = Boolean(event.data.payload?.ok);
-        if (!ok) {
-          refreshInFlightRef.current = false;
-          setState({
-            kind: "error",
-            message: event.data.payload?.detail || "Could not start refresh.",
-          });
-          return;
-        }
-
-        setState({
-          kind: "running",
-          message: "Refresh running.",
-        });
+  const handleProgress = useCallback(
+    (payload: LightweightRefreshPayload) => {
+      if (payload.phase === "start") {
+        setState({ kind: "running", message: "Refresh running." });
         return;
       }
 
-      if (event.data.type !== "PORTFOLIOIQ_LIGHTWEIGHT_REFRESH_PROGRESS") return;
-      const payload = (event.data.payload || {}) as RefreshPayload;
-      clearAckTimer();
-
       if (payload.phase === "done") {
-        refreshInFlightRef.current = false;
         window.sessionStorage.setItem(SESSION_RUN_KEY, "1");
         window.sessionStorage.setItem(SESSION_SUMMARY_KEY, JSON.stringify(payload));
         setState({
@@ -180,7 +120,6 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
       }
 
       if (payload.phase === "error") {
-        refreshInFlightRef.current = false;
         setState({
           kind: "error",
           message: phaseMessage(payload),
@@ -192,14 +131,30 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
         kind: "running",
         message: phaseMessage(payload),
       });
-    }
+    },
+    [router],
+  );
 
-    window.addEventListener("message", handleMessage);
-    return () => {
-      clearAckTimer();
-      window.removeEventListener("message", handleMessage);
-    };
-  }, [clearAckTimer, router]);
+  const { startRefresh } = useLightweightRefreshBridge({
+    onAckFailed: (detail) => {
+      setState({ kind: "error", message: detail });
+    },
+    onProgress: handleProgress,
+    onUnavailable: () => {
+      setState({
+        kind: "unavailable",
+        message: EXTENSION_UNAVAILABLE_MESSAGE,
+      });
+    },
+  });
+
+  const beginRefresh = useCallback(
+    (force: boolean) => {
+      setState({ kind: "starting", message: "Starting refresh." });
+      startRefresh(force);
+    },
+    [startRefresh],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -207,26 +162,39 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
     if (hasRun) return;
 
     const timer = window.setTimeout(() => {
-      startRefresh(false);
-    }, 0);
+      beginRefresh(false);
+    }, EXTENSION_AUTO_START_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [startRefresh]);
+  }, [beginRefresh]);
 
   const syncTypes = Object.keys(SYNC_LABELS);
   const activeSyncCount = syncTypes.filter((type) => lastSyncByType[type]).length;
+  const hasSyncHistory = activeSyncCount > 0;
   const entriesSync = lastSyncByType.entries ? formatSyncTime(lastSyncByType.entries) : "never";
   const dashboardSync = lastSyncByType.dashboard ? formatSyncTime(lastSyncByType.dashboard) : "never";
   const cipSync = lastSyncByType.cip_detail ? formatSyncTime(lastSyncByType.cip_detail) : "never";
 
-  const isAttention = state.kind === "error" || state.kind === "unavailable";
+  const isExtensionOffline = state.kind === "unavailable";
+  const isAttention = state.kind === "error";
   const isRunning = state.kind === "starting" || state.kind === "running";
-  const statusLabel = isAttention ? "Needs attention" : isRunning ? "Refreshing" : "Synced";
-  const statusColor = isAttention ? "var(--accent-amber)" : "var(--accent-green)";
+  const statusLabel = isAttention
+    ? "Needs attention"
+    : isRunning
+      ? "Refreshing"
+      : isExtensionOffline && !hasSyncHistory
+        ? "Extension offline"
+        : "Synced";
+  const statusColor =
+    isAttention || (isExtensionOffline && !hasSyncHistory)
+      ? "var(--accent-amber)"
+      : "var(--accent-green)";
   const statusMessage =
     state.kind === "idle"
       ? `${activeSyncCount} sync areas active`
-      : state.message;
+      : isExtensionOffline && hasSyncHistory
+        ? "Last sync on record. Enable the extension for live refresh."
+        : state.message;
 
   return (
     <section className="rounded-lg border border-subtle bg-surface-2 px-4 py-3">
@@ -251,7 +219,7 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => startRefresh(true)}
+            onClick={() => beginRefresh(true)}
             disabled={isRunning}
             className="rounded-full border border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-medium text-primary transition hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -263,7 +231,7 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
               onClick={() => {
                 window.sessionStorage.removeItem(SESSION_RUN_KEY);
                 window.sessionStorage.removeItem(SESSION_SUMMARY_KEY);
-                startRefresh(true);
+                beginRefresh(true);
               }}
               className="rounded-full border border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-medium text-secondary transition hover:bg-surface-3"
             >
