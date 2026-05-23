@@ -34,7 +34,7 @@ function statusStyle(status: string) {
 export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
   if (entries.length === 0) {
     return (
-      <section className="card p-6">
+      <section className="card self-start rounded-lg p-5 shadow-none">
         <h2
           className="text-small font-semibold text-primary"
           style={{ letterSpacing: "-0.014em" }}
@@ -50,8 +50,8 @@ export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
   }
 
   return (
-    <section className="card p-6">
-      <div className="mb-4 flex items-center justify-between border-b border-subtle pb-3">
+    <section className="card self-start rounded-lg p-5 shadow-none">
+      <div className="mb-5 flex items-center justify-between">
         <h2
           className="text-small font-semibold text-primary"
           style={{ letterSpacing: "-0.014em" }}
@@ -60,13 +60,13 @@ export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
         </h2>
         <span className="text-[11px] text-muted">Latest 15</span>
       </div>
-      <ul className="space-y-2">
+      <ul className="divide-y divide-subtle">
         {entries.map((e) => {
           const ss = statusStyle(e.status);
           return (
             <li
               key={e.id}
-              className="flex flex-col gap-1.5 rounded-xl border border-subtle bg-surface-1 px-3 py-3 transition-colors hover:bg-surface-3"
+              className="flex flex-col gap-1.5 py-3.5 first:pt-0 last:pb-0"
             >
               <div className="flex items-center justify-between gap-2">
                 <span
@@ -83,16 +83,15 @@ export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
                 </span>
               </div>
 
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-start justify-between gap-3">
                 <span
-                  className="min-w-0 flex-1 truncate text-xs font-medium text-primary"
-                  title={e.title}
+                  className="min-w-0 flex-1 text-sm font-medium leading-6 text-primary"
                 >
                   {e.title || "—"}
                 </span>
                 {e.status && (
                   <span
-                    className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                    className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
                     style={{ background: ss.bg, color: ss.color }}
                   >
                     {e.status}

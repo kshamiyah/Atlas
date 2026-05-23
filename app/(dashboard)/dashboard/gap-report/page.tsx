@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CipListItem, type CipPriority } from "@/components/gap-report/CipListItem";
 import { KeySkillRow } from "@/components/gap-report/KeySkillRow";
+import { getStageScopeForStage } from "@/lib/profile/stage";
 import type { GapReport, GapReportCip } from "@/lib/types/gap-report";
 
 type RequirementsSummary = {
@@ -94,11 +95,32 @@ export default function GapReportPage() {
   }, []);
 
   useEffect(() => {
-    void loadReport(null);
-    fetch("/api/requirements")
-      .then((r) => r.json())
-      .then((d) => { if (d.summary) setReqSummary(d.summary); })
-      .catch(() => null);
+    let active = true;
+
+    (async () => {
+      try {
+        const requirements = await fetch("/api/requirements")
+          .then((r) => r.json())
+          .catch(() => null);
+
+        if (!active) return;
+
+        if (requirements?.summary) setReqSummary(requirements.summary);
+
+        const defaultScope = getStageScopeForStage(
+          requirements?.profile_stage?.name ?? null,
+        );
+        setSelectedStageScope(defaultScope);
+        await loadReport(defaultScope);
+      } catch {
+        if (!active) return;
+        void loadReport(null);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
   }, [loadReport]);
 
   const sortedCips = useMemo(() => {

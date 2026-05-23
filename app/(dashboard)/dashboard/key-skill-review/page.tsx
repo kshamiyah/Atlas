@@ -2052,7 +2052,7 @@ function KeySkillReviewPageContent() {
     queueAckTimer.current = setTimeout(() => {
       setIsSyncingQueue(false);
       setQueueProgressMessage(
-        "No response from the extension. Check PortfolioIQ extension is enabled on this site.",
+        "No response from the extension. Check Atlas extension is enabled on this site.",
       );
       queueAckTimer.current = null;
     }, 3500);
@@ -2098,7 +2098,7 @@ function KeySkillReviewPageContent() {
     queueAckTimer.current = setTimeout(() => {
       setIsSyncingQueue(false);
       setQueueProgressMessage(
-        "No response from the extension. Check PortfolioIQ extension is enabled on this site.",
+        "No response from the extension. Check Atlas extension is enabled on this site.",
       );
       queueAckTimer.current = null;
     }, 3500);
@@ -2291,6 +2291,8 @@ function KeySkillReviewPageContent() {
       );
       const remainingReviewItemCount = pendingSuggestionCount + remainingRebalanceCount;
       const overlinkedState = overlinkedQueueStateByEntryId[entry.id];
+      const hasQueuedSuggestionSync =
+        (queueEntriesByReviewEntryId.get(entry.id)?.length ?? 0) > 0;
 
       let reviewStatus:
         | "needs_review"
@@ -2299,6 +2301,7 @@ function KeySkillReviewPageContent() {
         | "reviewed_no_action" = "reviewed_no_action";
 
       if (remainingReviewItemCount > 0) reviewStatus = "needs_review";
+      else if (hasQueuedSuggestionSync) reviewStatus = "reviewed_queued";
       else if (overlinkedState?.queuedToResolve) reviewStatus = "reviewed_queued";
       else if (overlinkedState?.isOverlinked) reviewStatus = "reviewed_kept_over_cap";
 
@@ -2316,6 +2319,7 @@ function KeySkillReviewPageContent() {
     auditResultsByEntryId,
     entries,
     overlinkedQueueStateByEntryId,
+    queueEntriesByReviewEntryId,
   ]);
   const auditReviewSummary = useMemo(() => {
     let totalEntries = 0;

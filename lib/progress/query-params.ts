@@ -97,6 +97,8 @@ export function parseProgressScopeFromUrl(url: URL): ParsedProgressScope | { err
   return {
     scopeEcho: {
       stage_id: stageIdParam && stageIdParam.length > 0 ? stageIdParam : null,
+      stage_scope: stageScopeParam.value,
+      stage_group: stageGroupParam.value,
       date_from: dateFromParam.value,
       date_to: dateToParam.value,
       cip: cipParam.value,

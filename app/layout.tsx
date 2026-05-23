@@ -15,13 +15,13 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "PortfolioIQ",
-    template: "%s · PortfolioIQ",
+    default: "Atlas",
+    template: "%s · Atlas",
   },
   description:
     "ARCP analytics and AI-powered portfolio entry generation for RCOG O&G trainees.",
   openGraph: {
-    title: "PortfolioIQ",
+    title: "Atlas",
     description:
       "ARCP analytics and AI-powered portfolio entry generation for RCOG O&G trainees.",
     type: "website",

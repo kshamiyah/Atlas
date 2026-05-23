@@ -2,6 +2,8 @@
 
 export type ProgressSummaryScope = {
   stage_id: string | null;
+  stage_scope?: string | null;
+  stage_group?: string | null;
   date_from: string | null;
   date_to: string | null;
   cip: number | null;

@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { calculateArcpCountdown } from "@/lib/profile/ltft";
-import { normalizeStageName, stagesUpTo } from "@/lib/profile/stage";
+import {
+  getStageGroupForStage,
+  normalizeStageName,
+  resolveStageContext,
+  stageRank,
+  stagesUpTo,
+} from "@/lib/profile/stage";
 import {
   calculateKeySkillsProRataCheckpoint,
   calculateProRataProgress,
@@ -32,6 +38,7 @@ const WAYPOINT_STAGES = new Set(["ST2", "ST5"]);
 
 type ProjectionStatus = "done" | "on_track" | "watch" | "at_risk";
 type ProjectionPillarKey = "key_skills" | "osats" | "courses" | "exams";
+type PredictedOutcome = 1 | 2 | 3 | 4 | 5;
 
 const BASE_CAPACITY_PER_MONTH: Record<ProjectionPillarKey, number> = {
   key_skills: 8,
@@ -105,6 +112,13 @@ function buildPillarProjection(params: {
   };
 }
 
+function mapSeverityScoreToOutcome(score: number): Exclude<PredictedOutcome, 5> {
+  if (score >= 7) return 4;
+  if (score >= 4) return 3;
+  if (score >= 1) return 2;
+  return 1;
+}
+
 export async function GET(request: Request) {
   const supabase = await getServerSupabaseClient();
   const authHeader = request.headers.get("Authorization");
@@ -134,16 +148,42 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   let stageFromProfileId: string | null = null;
+  let stageRows:
+    | Array<{ id: string; name: string; stage_group: string | null }>
+    | null = null;
   if (profile?.current_stage_id) {
-    const { data: stage } = await supabase
+    const [{ data: stage }, { data: allStages }] = await Promise.all([
+      supabase
       .from("stages")
       .select("name")
       .eq("id", profile.current_stage_id)
-      .maybeSingle();
+      .maybeSingle(),
+      supabase.from("stages").select("id, name, stage_group"),
+    ]);
     stageFromProfileId = stage?.name ?? null;
+    stageRows = (allStages ?? []) as Array<{
+      id: string;
+      name: string;
+      stage_group: string | null;
+    }>;
   }
 
   const currentStage = normalizeStageName(stageFromProfileId ?? profile?.current_grade ?? null);
+  if (!stageRows && currentStage) {
+    const { data: allStages } = await supabase
+      .from("stages")
+      .select("id, name, stage_group");
+    stageRows = (allStages ?? []) as Array<{
+      id: string;
+      name: string;
+      stage_group: string | null;
+    }>;
+  }
+  const stageContext = resolveStageContext({
+    selectedStageId: profile?.current_stage_id ?? null,
+    selectedStageName: currentStage,
+    stageRows: stageRows ?? undefined,
+  });
   const arcpDate = profile?.arcp_date ?? null;
   const arcp = calculateArcpCountdown(arcpDate, profile?.working_percent ?? 100);
 
@@ -155,11 +195,31 @@ export async function GET(request: Request) {
   const [{ data: keySkillsCatalog }, { data: confirmedSkillRows }] =
     await Promise.all([
       supabase.from("key_skills").select("id"),
-      supabase
-        .from("key_skill_review_suggestions")
-        .select("key_skill_id")
-        .eq("user_id", userId)
-        .eq("status", "confirmed"),
+      (async () => {
+        let scopedEntryIds: string[] | null = null;
+        if (stageContext.curriculumStageIds.length > 0) {
+          const { data: scopedEntries } = await supabase
+            .from("key_skill_review_entries")
+            .select("id")
+            .eq("user_id", userId)
+            .in("stage_id", stageContext.curriculumStageIds);
+          scopedEntryIds = (scopedEntries ?? []).map((row: { id: string }) => row.id);
+        }
+
+        let query = supabase
+          .from("key_skill_review_suggestions")
+          .select("key_skill_id, review_entry_id")
+          .eq("user_id", userId)
+          .eq("status", "confirmed");
+
+        if (scopedEntryIds !== null) {
+          if (scopedEntryIds.length === 0) return { data: [] as Array<{ key_skill_id: string }> };
+          query = query.in("review_entry_id", scopedEntryIds);
+        }
+
+        const { data } = await query;
+        return { data: data ?? [] };
+      })(),
     ]);
 
   const curriculumSkillIds = new Set(
@@ -339,15 +399,26 @@ export async function GET(request: Request) {
 
   // ── Predicted outcome ──────────────────────────────────────────────────────
   const blockers: string[] = [];
-  let predictedOutcome: 1 | 2 | 3 | 5;
+  let predictedOutcome: PredictedOutcome;
   const mode: "on_track" | "predicted_outcome" = hasEsLevels ? "predicted_outcome" : "on_track";
+  const selectedStageRank = currentStage ? stageRank(currentStage) : 0;
+  const isSeniorSimulation = selectedStageRank >= 6;
+  const isMiddleGradeSimulation = selectedStageRank >= 3 && selectedStageRank <= 5;
+  const incompleteEvidence =
+    confirmedSkills < 3 &&
+    osatsComplete === 0 &&
+    coursesComplete === 0 &&
+    examsComplete === 0 &&
+    portfolioPct < 10;
 
   if (mode === "predicted_outcome" && currentStage) {
     // Mode 2: use actual ES levels
     const cipsBelowExpected: number[] = [];
+    let cipLevelGap = 0;
     for (const a of cipAssessments ?? []) {
       if (a.es_level !== null && expectedLevel !== null && a.es_level < expectedLevel) {
         cipsBelowExpected.push(a.cip_number as number);
+        cipLevelGap += expectedLevel - a.es_level;
       }
     }
 
@@ -359,41 +430,68 @@ export async function GET(request: Request) {
       if (!completedExamTypes.has("473")) blockers.push("MRCOG Part 2 not recorded — required at ST5 waypoint");
       if (!completedExamTypes.has("472")) blockers.push("MRCOG Part 3 not recorded — required at ST5 waypoint");
     } else if (cipsBelowExpected.length > 0) {
-      predictedOutcome = cipsBelowExpected.length >= 3 ? 3 : 2;
+      let severityScore = 0;
+      severityScore += cipsBelowExpected.length >= 4 ? 5 : cipsBelowExpected.length >= 2 ? 3 : 1;
+      severityScore += cipLevelGap >= 5 ? 3 : cipLevelGap >= 3 ? 2 : cipLevelGap >= 1 ? 1 : 0;
+      if (osatsComplete < osatsTotal) severityScore += 1;
+      if (coursesComplete < coursesTotal) severityScore += 1;
+      if (examsComplete < examsTotal) severityScore += 1;
+      if (isSeniorSimulation && portfolioPct < 65) severityScore += 1;
+      if (isSeniorSimulation && keySkillsPct < 50) severityScore += 1;
+      predictedOutcome = mapSeverityScoreToOutcome(severityScore);
       blockers.push(
         `${cipsBelowExpected.length} CiP${cipsBelowExpected.length > 1 ? "s" : ""} below expected Level ${expectedLevel} for ${currentStage}: CiP ${cipsBelowExpected.join(", ")}`
       );
+      if (predictedOutcome === 4) {
+        blockers.push(`The gap between your current CiP levels and ${currentStage} expectations is substantial`);
+      }
     } else if (osatsComplete < osatsTotal) {
-      predictedOutcome = 2;
+      predictedOutcome = isSeniorSimulation && osatsPct < 50 ? 3 : 2;
       blockers.push(`${osatsTotal - osatsComplete} summative OSATS incomplete`);
     } else if (coursesComplete < coursesTotal) {
-      predictedOutcome = 2;
+      predictedOutcome = isSeniorSimulation && coursesPct < 50 ? 3 : 2;
       blockers.push(`${coursesTotal - coursesComplete} mandatory course${coursesTotal - coursesComplete > 1 ? "s" : ""} not recorded`);
+    } else if (examsComplete < examsTotal) {
+      predictedOutcome = isSeniorSimulation ? 3 : 2;
+      blockers.push(`${examsTotal - examsComplete} exam${examsTotal - examsComplete > 1 ? "s" : ""} not recorded`);
     } else {
       predictedOutcome = 1;
     }
   } else {
     // Mode 1: evidence-based signals
-    const evidenceThin = keySkillsPct < 15 && osatsPct === 0 && coursesComplete === 0;
-
-    if (evidenceThin) {
+    if (incompleteEvidence) {
       predictedOutcome = 5;
-      blockers.push("Very little portfolio evidence — sync more entries from Kaizen");
+      blockers.push("Too little evidence is synced to make a reliable ARCP judgement");
     } else if (isWaypoint && currentStage === "ST2" && !completedExamTypes.has("474")) {
       predictedOutcome = 3;
       blockers.push("MRCOG Part 1 not recorded — hard requirement at ST2 waypoint");
     } else if (isWaypoint && currentStage === "ST5" && (!completedExamTypes.has("473") || !completedExamTypes.has("472"))) {
-      predictedOutcome = 3;
+      predictedOutcome = isSeniorSimulation ? 4 : 3;
       if (!completedExamTypes.has("473")) blockers.push("MRCOG Part 2 not recorded — required at ST5 waypoint");
       if (!completedExamTypes.has("472")) blockers.push("MRCOG Part 3 not recorded — required at ST5 waypoint");
     } else if (osatsComplete < osatsTotal || coursesComplete < coursesTotal || examsComplete < examsTotal) {
-      predictedOutcome = 2;
+      let severityScore = 0;
+      if (keySkillsPct < 70) severityScore += 1;
+      if (keySkillsPct < 45) severityScore += 2;
+      if (keySkillsCheckpoint.onTrack === false) severityScore += 1;
+      if (osatsComplete < osatsTotal) severityScore += osatsPct < 50 ? 2 : 1;
+      if (coursesComplete < coursesTotal) severityScore += coursesPct < 50 ? 2 : 1;
+      if (examsComplete < examsTotal) severityScore += examsPct < 50 ? 2 : 1;
+      if (isMiddleGradeSimulation) severityScore += 1;
+      if (isSeniorSimulation) severityScore += 2;
+      if (portfolioPct < 60) severityScore += 1;
+      if (portfolioPct < 40) severityScore += 1;
+
+      predictedOutcome = mapSeverityScoreToOutcome(severityScore);
       if (osatsComplete < osatsTotal)
         blockers.push(`${osatsTotal - osatsComplete} summative OSATS incomplete`);
       if (coursesComplete < coursesTotal)
         blockers.push(`${coursesTotal - coursesComplete} mandatory course${coursesTotal - coursesComplete > 1 ? "s" : ""} not recorded`);
       if (examsComplete < examsTotal)
         blockers.push(`${examsTotal - examsComplete} exam${examsTotal - examsComplete > 1 ? "s" : ""} not recorded`);
+      if (predictedOutcome >= 3) {
+        blockers.push(`Your current portfolio would be judged as below ${currentStage} expectations across multiple pillars`);
+      }
     } else {
       predictedOutcome = 1;
     }
@@ -476,6 +574,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     mode,
     current_stage: currentStage,
+    current_stage_group: getStageGroupForStage(currentStage),
+    curriculum_scope: stageContext.curriculumBandId,
     days_to_arcp: arcp.calendarDaysToArcp,
     days_to_arcp_calendar: arcp.calendarDaysToArcp,
     days_to_arcp_wte: arcp.wteDaysToArcp,

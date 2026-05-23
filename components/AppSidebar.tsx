@@ -92,8 +92,21 @@ const NAV = [
     ),
   },
   {
-    href: "/dashboard/key-skill-review",
+    href: "/dashboard/entries",
     label: "My Entries",
+    exact: false,
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 4h16v16H4z" />
+        <path d="M8 8h8" />
+        <path d="M8 12h8" />
+        <path d="M8 16h5" />
+      </svg>
+    ),
+  },
+  {
+    href: "/dashboard/key-skill-review",
+    label: "Review Entries",
     exact: false,
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -161,15 +174,7 @@ export function AppSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const { theme, toggle } = useTheme();
-  const [localAvatarUrl, setLocalAvatarUrl] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const local = window.localStorage.getItem("piq.profile.photo");
-      return sanitizeProfilePhotoUrl(local);
-    } catch {
-      return null;
-    }
-  });
+  const [localAvatarUrl, setLocalAvatarUrl] = useState<string | null>(null);
   const avatarUrl =
     sanitizeProfilePhotoUrl(profilePhotoUrlProp ?? null) ?? localAvatarUrl;
 
@@ -188,6 +193,7 @@ export function AppSidebar({
       syncFromLocalStorage();
     }
 
+    syncFromLocalStorage();
     window.addEventListener("storage", onStorage);
     window.addEventListener("piq:profile-photo-updated", syncFromLocalStorage);
     return () => {
@@ -199,7 +205,7 @@ export function AppSidebar({
     };
   }, []);
 
-  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+  const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
       return window.localStorage.getItem("piq.sidebar.collapsed") === "1";
@@ -238,12 +244,12 @@ export function AppSidebar({
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary shadow-sm">
               <span className="text-micro font-bold" style={{ color: "var(--surface-1)" }}>
-                P
+                A
               </span>
             </div>
             <div className="min-w-0">
               <p className="truncate text-small font-semibold tracking-tight text-primary">
-                PortfolioIQ
+                Atlas
               </p>
               {userEmail && (
                 <p className="truncate text-[11px] text-muted">{userEmail}</p>
@@ -356,7 +362,7 @@ export function AppSidebar({
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary shadow-sm">
                 <span className="text-micro font-bold" style={{ color: "var(--surface-1)" }}>
-                  P
+                  A
                 </span>
               </div>
               <span
@@ -367,7 +373,7 @@ export function AppSidebar({
                     : "max-w-[140px] translate-x-0 opacity-100",
                 ].join(" ")}
               >
-                PortfolioIQ
+                Atlas
               </span>
             </div>
           </div>

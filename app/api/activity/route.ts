@@ -13,7 +13,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!user && bypassAuth) {
-    return NextResponse.json({ dates: [] });
+    return NextResponse.json({ entries: [] });
   }
   if (!user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -22,14 +22,29 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("key_skill_review_entries")
-    .select("event_date")
+    .select("id, title, entry_type, event_date")
     .eq("user_id", userId)
-    .not("event_date", "is", null);
+    .not("event_date", "is", null)
+    .order("event_date", { ascending: false })
+    .limit(400);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const dates = (data ?? []).map((r: { event_date: string }) => r.event_date);
-  return NextResponse.json({ dates });
+  const entries = (data ?? []).map(
+    (row: {
+      id: string;
+      title: string;
+      entry_type: string;
+      event_date: string;
+    }) => ({
+      id: row.id,
+      title: row.title,
+      entryType: row.entry_type,
+      eventDate: row.event_date,
+    }),
+  );
+
+  return NextResponse.json({ entries });
 }

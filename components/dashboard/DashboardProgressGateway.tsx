@@ -17,9 +17,9 @@ function KpiChip({
   total: number;
 }) {
   return (
-    <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted">{label}</p>
-      <p className="mt-0.5 text-lg font-bold tabular-nums text-primary">{pct}%</p>
+    <div className="rounded-[1.15rem] border border-subtle bg-surface-1/88 px-3.5 py-3 backdrop-blur">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">{label}</p>
+      <p className="mt-1 text-[1.55rem] font-semibold tabular-nums tracking-[-0.03em] text-primary">{pct}%</p>
       <p className="text-[11px] tabular-nums text-muted">
         {covered}/{total}
       </p>
@@ -99,13 +99,13 @@ export function DashboardProgressGateway() {
   }
 
   return (
-    <section className="card flex h-full flex-col gap-4 p-6">
+    <section className="card flex h-full flex-col gap-5 p-6">
       <div>
         <h2 className="text-small font-semibold text-primary" style={{ letterSpacing: "-0.014em" }}>
           Progress overview
         </h2>
-        <p className="mt-1 text-[11px] text-muted">
-          Checkpoint trajectory and strict completion from synced entries.
+        <p className="mt-1 max-w-md text-[11px] leading-5 text-muted">
+          A compact view of curriculum coverage from synced entries, with a direct path into Progress Hub.
         </p>
       </div>
 
@@ -138,13 +138,13 @@ export function DashboardProgressGateway() {
 
       <Link
         href="/dashboard/progress"
-        className="btn-primary inline-flex justify-center px-4 py-2.5 text-small"
+        className="btn-secondary inline-flex justify-center self-start px-4 py-2.5 text-small"
         onClick={() => trackEvent("dashboard_open_progress_hub")}
       >
         Open Progress Hub
       </Link>
 
-      <div className="flex flex-wrap gap-2 border-t border-subtle pt-3">
+      <div className="flex flex-wrap gap-2 border-t border-subtle pt-4">
         <span className="w-full text-[10px] font-semibold uppercase tracking-[0.06em] text-muted">
           Jump to tab
         </span>

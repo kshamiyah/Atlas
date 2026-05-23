@@ -17,43 +17,37 @@ export function ProgressKpiStrip({
   const items = [
     {
       key: "cips_checkpoint",
-      label: "CiP checkpoint readiness",
+      label: "CiP readiness",
       sub:
         checkpoint.type === "annual"
-          ? "CiPs currently on annual ARCP trajectory"
-          : "CiPs meeting current checkpoint standard",
+          ? "CiPs on track for the current ARCP checkpoint"
+          : "CiPs meeting the current checkpoint standard",
       block: kpis.cips_checkpoint,
       accent: "var(--accent-blue)",
-    },
-    {
-      key: "cips",
-      label: "CiPs fully complete",
-      sub: "Strict stage standard (all key skills confirmed)",
-      block: kpis.cips,
-      accent: "var(--accent-primary)",
+      supporting: `${kpis.cips.covered} fully complete`,
     },
     {
       key: "key_skills",
       label: "Key skill coverage",
-      sub: "Distinct skills with confirmed evidence",
+      sub: "Key skills with confirmed evidence in this curriculum band",
       block: kpis.key_skills,
       accent: "var(--accent-green)",
     },
     {
       key: "descriptors",
       label: "Descriptor coverage",
-      sub: "Descriptors with covered=true in scope",
+      sub: "Descriptors with confirmed evidence in this curriculum band",
       block: kpis.descriptors,
       accent: "var(--accent-amber)",
     },
   ] as const;
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 md:grid-cols-3">
       {items.map((item) => (
         <div
           key={item.key}
-          className="rounded-2xl border border-subtle bg-surface-2/80 p-4 shadow-sm backdrop-blur"
+          className="rounded-2xl border border-subtle bg-surface-2/60 p-4 shadow-sm backdrop-blur"
         >
           <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
             {item.label}
@@ -78,6 +72,9 @@ export function ProgressKpiStrip({
             />
           </div>
           <p className="mt-2 text-[11px] leading-snug text-muted">{item.sub}</p>
+          {"supporting" in item && item.supporting ? (
+            <p className="mt-2 text-micro text-secondary">{item.supporting}</p>
+          ) : null}
         </div>
       ))}
     </div>
