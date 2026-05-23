@@ -331,7 +331,7 @@ export async function POST(request: Request) {
         {
           error:
             "Failed to queue replacement because the push queue action columns are unavailable: " +
-            (err as Error).message,
+            String((err as { message?: string }).message ?? "unknown error"),
         },
         { status: 503 },
       );

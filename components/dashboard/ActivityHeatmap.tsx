@@ -101,7 +101,6 @@ export function ActivityHeatmap() {
   const today = toYMD(new Date());
   const totalEntries = entries.length;
   const selectedEntries = selectedDay ? entriesByDate.get(selectedDay) ?? [] : [];
-  const hasSelectedDay = Boolean(selectedDay);
 
   if (isLoading) {
     return (
@@ -231,7 +230,7 @@ export function ActivityHeatmap() {
         <span className="text-[10px] text-muted">More</span>
       </div>
 
-      {hasSelectedDay ? (
+      {selectedDay ? (
         <div className="mt-4 rounded-lg border border-subtle bg-surface-1 p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
