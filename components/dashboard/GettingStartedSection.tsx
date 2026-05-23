@@ -22,7 +22,7 @@ export function GettingStartedSection({ hasSynced }: GettingStartedSectionProps)
     },
     {
       label: "Install the Chrome extension",
-      description: "The extension connects PortfolioIQ to your Kaizen ePortfolio.",
+      description: "The extension connects Atlas to your Kaizen ePortfolio.",
       done: hasSynced,
       href: "https://chrome.google.com/webstore",
       hrefLabel: "Chrome Web Store →",
@@ -30,7 +30,7 @@ export function GettingStartedSection({ hasSynced }: GettingStartedSectionProps)
     },
     {
       label: "Sync your Kaizen entries",
-      description: "Open any Kaizen page and click \u201cSync to PortfolioIQ\u201d in the extension.",
+      description: "Open any Kaizen page and click \u201cSync to Atlas\u201d in the extension.",
       done: hasSynced,
     },
     {

@@ -1,4 +1,4 @@
-import { stagesForScope } from "../profile/stage";
+import { getStageGroupForStage, stagesForScope } from "../profile/stage";
 import {
   classifyCipCheckpointStatus,
 } from "./checkpoint-readiness";
@@ -217,7 +217,7 @@ export function stageIdsForParams(
   }
   if (params.stageGroup) {
     const ids = stageRows
-      .filter((s) => s.stage_group === params.stageGroup)
+      .filter((s) => getStageGroupForStage(s.name) === params.stageGroup)
       .map((s) => s.id);
     return { stageIds: ids, stageFilterActive: true };
   }

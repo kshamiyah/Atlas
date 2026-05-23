@@ -4,7 +4,7 @@ test.describe("Dashboard + Progress hub (seeded auth)", () => {
   test("dashboard loads command centre", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page).not.toHaveURL(/\/login(?:\/|$)/);
-    await expect(page.getByRole("heading", { name: /Portfolio Dashboard|Welcome to PortfolioIQ/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: /Portfolio Dashboard|Welcome to Atlas/i })).toBeVisible({
       timeout: 30_000,
     });
   });

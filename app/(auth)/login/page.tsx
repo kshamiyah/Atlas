@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { LoginHashSessionBridge } from "@/components/auth/LoginHashSessionBridge";
 
 type LoginPageProps = {
-  searchParams: Promise<{ source?: string }>;
+  searchParams: Promise<{ source?: string; redirectTo?: string; next?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
@@ -15,9 +15,18 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   const params = await searchParams;
   const isExtension = params.source === "extension";
+  const requestedNext = params.redirectTo ?? params.next ?? null;
+  const safeNext =
+    requestedNext && requestedNext.startsWith("/") ? requestedNext : null;
 
   if (user) {
-    redirect(isExtension ? "/auth/extension-done" : "/dashboard");
+    if (isExtension) {
+      const extensionDoneUrl = safeNext
+        ? `/auth/extension-done?next=${encodeURIComponent(safeNext)}`
+        : "/auth/extension-done";
+      redirect(extensionDoneUrl);
+    }
+    redirect("/dashboard");
   }
 
   async function sendMagicLink(formData: FormData) {
@@ -32,10 +41,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       reqHeaders.get("x-forwarded-host") ?? reqHeaders.get("host");
     const protocol = reqHeaders.get("x-forwarded-proto") ?? "http";
     const requestOrigin = host ? `${protocol}://${host}` : null;
+    const configuredOrigin =
+      process.env.SITE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? null;
     const origin =
-      process.env.SITE_URL ??
-      process.env.NEXT_PUBLIC_SITE_URL ??
-      requestOrigin;
+      process.env.NODE_ENV === "production"
+        ? configuredOrigin ?? requestOrigin
+        : requestOrigin ?? configuredOrigin;
     if (!origin) {
       console.error(
         "[login] Missing SITE_URL/NEXT_PUBLIC_SITE_URL and could not infer request origin.",
@@ -43,14 +54,30 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       return;
     }
     const source = formData.get("source");
-    const base = `${origin}/auth/callback`;
-    const callbackUrl =
-      source === "extension" ? `${base}?source=extension` : base;
+    const nextRaw = String(formData.get("next") || "").trim();
+    const nextValue = nextRaw.startsWith("/") ? nextRaw : "";
+    const callbackUrl = new URL("/auth/callback", origin);
+    if (source === "extension") {
+      callbackUrl.searchParams.set("source", "extension");
+    }
+    if (nextValue) {
+      callbackUrl.searchParams.set("next", nextValue);
+    }
+    console.log("[login] magic link redirect debug", {
+      host,
+      protocol,
+      requestOrigin,
+      configuredOrigin,
+      chosenOrigin: origin,
+      callbackUrl: callbackUrl.toString(),
+      source: source === "extension" ? "extension" : "web",
+      nextValue: nextValue || null,
+    });
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: callbackUrl,
+        emailRedirectTo: callbackUrl.toString(),
       },
     });
 
@@ -94,10 +121,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold shadow-lg"
             style={{ backgroundColor: "rgba(255,255,255,0.92)", color: "#1c1b1a" }}
           >
-            P
+            A
           </div>
           <span className="text-sm font-semibold tracking-tight text-white">
-            PortfolioIQ
+            Atlas
           </span>
         </div>
 
@@ -177,10 +204,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             className="flex h-10 w-10 items-center justify-center rounded-xl text-base font-bold bg-accent-primary"
             style={{ color: "var(--surface-1)" }}
           >
-            P
+            A
           </div>
           <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-            PortfolioIQ
+            Atlas
           </span>
         </div>
 
@@ -203,6 +230,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             {isExtension && (
               <input type="hidden" name="source" value="extension" />
             )}
+            {safeNext && <input type="hidden" name="next" value={safeNext} />}
 
             <input
               id="email"

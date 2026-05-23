@@ -24,10 +24,10 @@ export default function HomePage() {
                 color: "var(--surface-1)",
               }}
             >
-              P
+              A
             </div>
             <span className="text-sm font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-              PortfolioIQ
+              Atlas
             </span>
           </div>
 
@@ -77,7 +77,7 @@ export default function HomePage() {
           className="mx-auto mb-10 max-w-xl text-lg leading-relaxed"
           style={{ color: "var(--text-secondary)" }}
         >
-          PortfolioIQ syncs your Kaizen data, maps entries to key skills, and
+          Atlas syncs your Kaizen data, maps entries to key skills, and
           surfaces exactly where your portfolio needs work — before your ARCP does.
         </p>
 
@@ -167,7 +167,7 @@ export default function HomePage() {
               {
                 step: "01",
                 title: "Sync your entries",
-                body: "Install the extension, open Kaizen, hit Sync. All your entries land in PortfolioIQ automatically.",
+                body: "Install the extension, open Kaizen, hit Sync. All your entries land in Atlas automatically.",
               },
               {
                 step: "02",
@@ -232,7 +232,7 @@ export default function HomePage() {
           color: "var(--text-muted)",
         }}
       >
-        PortfolioIQ is an independent tool and is not affiliated with RCOG or Kaizen.
+        Atlas is an independent tool and is not affiliated with RCOG or Kaizen.
       </footer>
     </div>
   );

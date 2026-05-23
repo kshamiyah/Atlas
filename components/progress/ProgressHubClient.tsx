@@ -17,6 +17,7 @@ import {
 import type { DescriptorsSortMode, KeySkillsSortMode } from "@/lib/progress/query-params";
 import type { ProgressSummaryResponse } from "@/lib/types/progress";
 import { trackEvent } from "@/lib/telemetry/client";
+import { STAGE_SCOPE_TO_GROUP, type StageScope } from "@/lib/profile/stage";
 
 const SCOPE_QUERY_KEYS = [
   "stage_scope",
@@ -170,16 +171,26 @@ function parseTab(raw: string | null): ProgressTabId {
   return "cips";
 }
 
-export function ProgressHubClient() {
+export function ProgressHubClient({
+  initialStageScope = null,
+}: {
+  initialStageScope?: string | null;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsString = searchParams.toString();
+  const stableSearchParams = useMemo(
+    () => new URLSearchParams(searchParamsString),
+    [searchParamsString],
+  );
 
-  const tabFromUrl = parseTab(searchParams.get("tab"));
-  const stageFromUrl = searchParams.get("stage_scope");
+  const tabFromUrl = parseTab(stableSearchParams.get("tab"));
+  const stageFromUrl = stableSearchParams.get("stage_scope");
+  const cipFromUrl = stableSearchParams.get("cip");
 
   const [selectedStageScope, setSelectedStageScope] = useState<string | null>(
-    stageFromUrl && stageFromUrl.length > 0 ? stageFromUrl : null,
+    stageFromUrl && stageFromUrl.length > 0 ? stageFromUrl : initialStageScope,
   );
   const [activeTab, setActiveTab] = useState<ProgressTabId>(tabFromUrl);
   const [data, setData] = useState<ProgressSummaryResponse | null>(null);
@@ -191,14 +202,29 @@ export function ProgressHubClient() {
   }, [tabFromUrl]);
 
   useEffect(() => {
-    setSelectedStageScope(stageFromUrl && stageFromUrl.length > 0 ? stageFromUrl : null);
-  }, [stageFromUrl]);
+    setSelectedStageScope(
+      stageFromUrl && stageFromUrl.length > 0 ? stageFromUrl : initialStageScope,
+    );
+  }, [initialStageScope, stageFromUrl]);
+
+  useEffect(() => {
+    if (stageFromUrl || !initialStageScope) return;
+    const href = buildProgressUrl(pathname, stableSearchParams, {
+      stage_scope: initialStageScope,
+      tab: activeTab,
+    });
+    router.replace(href, { scroll: false });
+  }, [activeTab, initialStageScope, pathname, router, stableSearchParams, stageFromUrl]);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const next = await fetchProgressSummaryWithRetry(searchParams);
+      const effectiveSearchParams = new URLSearchParams(stableSearchParams.toString());
+      if (!effectiveSearchParams.get("stage_scope") && initialStageScope) {
+        effectiveSearchParams.set("stage_scope", initialStageScope);
+      }
+      const next = await fetchProgressSummaryWithRetry(effectiveSearchParams);
       setData(next);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Failed to load progress");
@@ -206,7 +232,7 @@ export function ProgressHubClient() {
     } finally {
       setIsLoading(false);
     }
-  }, [searchParams]);
+  }, [initialStageScope, stableSearchParams]);
 
   useEffect(() => {
     void load();
@@ -215,20 +241,20 @@ export function ProgressHubClient() {
   const onStageScopeChange = useCallback(
     (value: string | null) => {
       setSelectedStageScope(value);
-      const href = buildProgressUrl(pathname, searchParams, {
+      const href = buildProgressUrl(pathname, stableSearchParams, {
         stage_scope: value,
         tab: activeTab,
       });
       router.replace(href, { scroll: false });
     },
-    [activeTab, pathname, router, searchParams],
+    [activeTab, pathname, router, stableSearchParams],
   );
 
   const onTabChange = useCallback(
     (tab: ProgressTabId) => {
       trackEvent("progress_tab_change", { tab });
       setActiveTab(tab);
-      const p = new URLSearchParams(searchParams.toString());
+      const p = new URLSearchParams(searchParamsString);
       p.set("tab", tab);
       if (tab !== "key-skills") {
         p.delete("gaps_only");
@@ -247,40 +273,40 @@ export function ProgressHubClient() {
       const q = p.toString();
       router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
     },
-    [pathname, router, searchParams],
+    [pathname, router, searchParamsString],
   );
 
   const onSelectCip = useCallback(
     (cipNumber: number) => {
-      const href = buildProgressUrl(pathname, searchParams, {
+      const href = buildProgressUrl(pathname, stableSearchParams, {
         tab: "cips",
         focus_cip: cipNumber,
       });
       router.replace(href, { scroll: false });
     },
-    [pathname, router, searchParams],
+    [pathname, router, stableSearchParams],
   );
 
   const onKeySkillsUrlUpdate = useCallback(
     (u: KeySkillsTabUrlUpdates) => {
-      const href = buildProgressUrl(pathname, searchParams, {
+      const href = buildProgressUrl(pathname, stableSearchParams, {
         tab: "key-skills",
         ...u,
       });
       router.replace(href, { scroll: false });
     },
-    [pathname, router, searchParams],
+    [pathname, router, stableSearchParams],
   );
 
   const onDescriptorsUrlUpdate = useCallback(
     (u: DescriptorsTabUrlUpdates) => {
-      const href = buildProgressUrl(pathname, searchParams, {
+      const href = buildProgressUrl(pathname, stableSearchParams, {
         tab: "descriptors",
         ...u,
       });
       router.replace(href, { scroll: false });
     },
-    [pathname, router, searchParams],
+    [pathname, router, stableSearchParams],
   );
 
   const updatedLabel = useMemo(() => {
@@ -293,17 +319,64 @@ export function ProgressHubClient() {
     });
   }, [data?.updated_at]);
 
+  const scopeLabel = useMemo(() => {
+    if (selectedStageScope && selectedStageScope in STAGE_SCOPE_TO_GROUP) {
+      return STAGE_SCOPE_TO_GROUP[selectedStageScope as StageScope];
+    }
+    return "All bands";
+  }, [selectedStageScope]);
+
+  const checkpointLabel = data?.checkpoint.current_stage ?? "Not set";
+  const checkpointTypeLabel =
+    data?.checkpoint.label === "Annual ARCP"
+      ? "Annual ARCP"
+      : data?.checkpoint.label ?? "Current checkpoint";
+  const activeCipScope =
+    cipFromUrl && /^\d+$/.test(cipFromUrl) ? Number.parseInt(cipFromUrl, 10) : null;
+
+  const clearCipScope = useCallback(() => {
+    const href = buildProgressUrl(pathname, stableSearchParams, {
+      cip: null,
+      focus_cip: null,
+      focus_skill: null,
+      focus_descriptor: null,
+    });
+    router.replace(href, { scroll: false });
+  }, [pathname, router, stableSearchParams]);
+
   return (
     <div className="min-h-full">
       <main className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
-        <header className="mb-6 rounded-3xl border border-subtle bg-surface-2 p-5 md:p-6">
+        <header className="mb-6 border-b border-subtle pb-5 md:pb-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h1 className="text-heading-2 font-semibold text-primary">Progress</h1>
               <p className="mt-1 max-w-xl text-small text-secondary">
-                Coverage at CiP, key skill, and descriptor level. Use the scope bar to match
-                a training band; detailed breakdowns will land in the tabs below.
+                Your current curriculum progress, key skill coverage, and CiP readiness.
               </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded-full border border-subtle bg-surface-2 px-3 py-1 text-micro text-secondary">
+                  Current checkpoint: <span className="font-medium text-primary">{checkpointLabel}</span>
+                </span>
+                <span className="rounded-full border border-subtle bg-surface-2 px-3 py-1 text-micro text-secondary">
+                  Curriculum scope: <span className="font-medium text-primary">{scopeLabel}</span>
+                </span>
+                <span className="rounded-full border border-subtle bg-surface-2 px-3 py-1 text-micro text-secondary">
+                  Review type: <span className="font-medium text-primary">{checkpointTypeLabel}</span>
+                </span>
+                {activeCipScope != null ? (
+                  <span className="inline-flex items-center gap-2 rounded-full border border-accent-primary/20 bg-accent-primary/8 px-3 py-1 text-micro text-secondary">
+                    Viewing: <span className="font-medium text-primary">CiP {activeCipScope} only</span>
+                    <button
+                      type="button"
+                      onClick={clearCipScope}
+                      className="font-medium text-accent-primary underline-offset-2 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </span>
+                ) : null}
+              </div>
             </div>
             <button
               type="button"
@@ -320,6 +393,11 @@ export function ProgressHubClient() {
             onStageScopeChange={onStageScopeChange}
             disabled={isLoading}
           />
+
+          <p className="mt-3 max-w-2xl text-[12px] leading-relaxed text-muted">
+            Atlas shows your current curriculum band by default. Switch to another band or to all
+            evidence if you want to compare coverage outside your active stage reset.
+          </p>
 
           {updatedLabel && (
             <p className="mt-3 text-[11px] text-muted">Updated {updatedLabel}</p>
@@ -348,17 +426,17 @@ export function ProgressHubClient() {
 
             <ProgressTabsShell activeTab={activeTab} onTabChange={onTabChange}>
               {activeTab === "cips" ? (
-                <ProgressCipTab searchParams={searchParams} onSelectCip={onSelectCip} />
+                <ProgressCipTab searchParams={stableSearchParams} onSelectCip={onSelectCip} />
               ) : null}
               {activeTab === "key-skills" ? (
                 <ProgressKeySkillsTab
-                  searchParams={searchParams}
+                  searchParams={stableSearchParams}
                   onUrlUpdate={onKeySkillsUrlUpdate}
                 />
               ) : null}
               {activeTab === "descriptors" ? (
                 <ProgressDescriptorsTab
-                  searchParams={searchParams}
+                  searchParams={stableSearchParams}
                   onUrlUpdate={onDescriptorsUrlUpdate}
                 />
               ) : null}

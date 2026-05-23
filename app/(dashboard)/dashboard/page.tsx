@@ -1,18 +1,60 @@
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { DashboardReadinessSection } from "@/components/dashboard/DashboardReadinessSection";
-import { DashboardNextActionsSection } from "@/components/dashboard/DashboardNextActionsSection";
-import { DashboardProgressGateway } from "@/components/dashboard/DashboardProgressGateway";
-import { DashboardStatsRow } from "@/components/dashboard/DashboardStatsRow";
+import { DashboardSummaryCard } from "@/components/dashboard/DashboardSummaryCard";
 import { ActivityHeatmap } from "@/components/dashboard/ActivityHeatmap";
-import { GettingStartedSection } from "@/components/dashboard/GettingStartedSection";
 import { StageSelector } from "@/components/dashboard/StageSelector";
-import { RecentEntriesSection } from "@/components/dashboard/RecentEntriesSection";
-import { SyncStatusSection } from "@/components/dashboard/SyncStatusSection";
+import { EvidenceTabsSection } from "@/components/dashboard/EvidenceTabsSection";
+import { SystemStatusStrip } from "@/components/dashboard/SystemStatusStrip";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { calculateArcpCountdown } from "@/lib/profile/ltft";
+import { resolveStageContext } from "@/lib/profile/stage";
+import {
+  classifyAssessorSignoffState,
+  requiresAssessorSignoff,
+} from "@/lib/kaizen/evidence-eligibility";
 
-export default async function DashboardPage() {
+function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readAssessmentDisplayStatus(
+  extractedFields: Record<string, unknown> | null | undefined,
+  fallbackStatus: string | null | undefined,
+) {
+  if (extractedFields && typeof extractedFields === "object") {
+    const direct =
+      extractedFields["the current status of this assessment request"] ??
+      extractedFields["current status of this assessment request"] ??
+      extractedFields["assessment request"];
+    const text = normalizeText(direct);
+    if (text) return text;
+  }
+
+  const fallback = normalizeText(fallbackStatus);
+  if (fallback) return fallback;
+  return "Unknown";
+}
+
+function readAssessmentOtherParty(
+  extractedFields: Record<string, unknown> | null | undefined,
+) {
+  if (!extractedFields || typeof extractedFields !== "object") return "";
+  const value =
+    extractedFields["assessor"] ??
+    extractedFields["trainer"] ??
+    extractedFields["supervisor"];
+  return normalizeText(value);
+}
+
+type DashboardPageProps = {
+  searchParams: Promise<{ onboarding?: string }>;
+};
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const supabase = await getServerSupabaseClient();
   const bypassAuth = isDevAuthBypassEnabled();
   const {
@@ -37,7 +79,13 @@ export default async function DashboardPage() {
         } | null,
       };
 
-  const [{ data: stages }, { data: syncLog }, { data: entries }, { count: totalEntries }] =
+  const [
+    { data: stages },
+    { data: syncLog },
+    { data: entries },
+    { count: totalEntries },
+    { data: assessmentEntries },
+  ] =
     await Promise.all([
     supabase
       .from("stages")
@@ -56,6 +104,25 @@ export default async function DashboardPage() {
     supabase
       .from("kaizen_entries")
       .select("id", { count: "exact", head: true }),
+    user
+      ? supabase
+          .from("kaizen_entries")
+          .select(
+            "id, title, kaizen_date, assessment_type, detected_entry_type, status, extracted_fields",
+          )
+          .eq("user_id", user.id)
+          .order("synced_at", { ascending: false })
+      : {
+          data: [] as Array<{
+            id: string;
+            title: string;
+            kaizen_date: string;
+            assessment_type: string;
+            detected_entry_type: string | null;
+            status: string;
+            extracted_fields: Record<string, unknown> | null;
+          }>,
+        },
   ]);
 
   const profile = profileRes.data;
@@ -83,109 +150,106 @@ export default async function DashboardPage() {
   const currentStage = (stages ?? []).find(
     (s) => s.id === profile?.current_stage_id,
   );
+  const stageContext = resolveStageContext({
+    selectedStageId: profile?.current_stage_id ?? null,
+    selectedStageName: currentStage?.name ?? null,
+    stageRows: stages ?? [],
+  });
 
   const hasNoData =
     !bypassAuth &&
     (totalEntries ?? 0) === 0 &&
     Object.keys(lastSyncByType).length === 0;
 
-  if (hasNoData) {
-    return (
-      <div className="min-h-full">
-        <main className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-10">
-          <div className="animate-stagger flex flex-col gap-6">
-            <section className="relative overflow-hidden rounded-3xl border border-subtle bg-surface-2 p-6 md:p-8">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full"
-                style={{ background: "radial-gradient(circle, rgba(0,113,227,0.18), transparent 70%)" }}
-              />
-              <div className="relative space-y-4">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-accent-green/15">
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--accent-green)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                    <path d="M2 17l10 5 10-5" />
-                    <path d="M2 12l10 5 10-5" />
-                  </svg>
-                </div>
-                <div className="space-y-1.5">
-                  <h1 className="text-heading-1 font-bold text-primary">
-                    Welcome to PortfolioIQ
-                  </h1>
-                  <p className="max-w-2xl text-body leading-relaxed text-secondary">
-                    Connect your Kaizen ePortfolio to unlock ARCP readiness tracking,
-                    CiP coverage, and AI-assisted writing in one focused workspace.
-                  </p>
-                </div>
-              </div>
-            </section>
+  const unsignedAssessmentEntries = (assessmentEntries ?? [])
+    .filter((entry) =>
+      requiresAssessorSignoff(entry.detected_entry_type, entry.assessment_type),
+    )
+    .filter((entry) => {
+      const signoffState = classifyAssessorSignoffState({
+        status: entry.status,
+        extracted_fields: entry.extracted_fields,
+      });
+      return signoffState !== "signed_or_complete";
+    })
+    .map((entry) => ({
+      id: entry.id,
+      other_party_name: readAssessmentOtherParty(entry.extracted_fields),
+      entry_title: normalizeText(entry.title),
+      status: readAssessmentDisplayStatus(entry.extracted_fields, entry.status),
+      date: normalizeText(entry.kaizen_date),
+    }));
 
-            <GettingStartedSection
-              hasSynced={Object.keys(lastSyncByType).length > 0}
-            />
-          </div>
-        </main>
-      </div>
-    );
+  if (hasNoData) {
+    redirect("/dashboard/setup");
   }
+
+  const params = await searchParams;
+  const showOnboardingSuccess = params.onboarding === "complete";
 
   return (
     <div className="min-h-full">
-      <main className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
-        <div className="animate-stagger flex flex-col gap-6 md:gap-7">
-          <header className="relative overflow-hidden rounded-3xl border border-subtle bg-surface-2 p-6 md:p-7">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(560px 220px at 20% -12%, rgba(0,113,227,0.13), transparent 68%), radial-gradient(520px 220px at 92% 0%, rgba(22,163,74,0.12), transparent 70%)",
-              }}
-            />
-
-            <div className="relative flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                  Overview
-                </p>
+      <main className="mx-auto max-w-6xl px-4 py-5 md:px-6 md:py-7">
+        <div className="animate-stagger flex flex-col gap-5 md:gap-6">
+          {showOnboardingSuccess && (
+            <section className="rounded-[2rem] border border-emerald-300/35 bg-surface-2/94 p-5 shadow-[0_18px_60px_rgba(15,23,42,0.05)] backdrop-blur md:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-1.5">
-                  <h1 className="text-heading-1 font-bold text-primary">
-                    Portfolio Dashboard
-                  </h1>
-                  <p className="max-w-2xl text-small leading-relaxed text-secondary">
-                    Your command centre for next actions, ARCP signals, and quick links — open Progress for full CiP, skill, and
-                    descriptor coverage.
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-700">
+                    First sync complete
+                  </p>
+                  <h2 className="text-heading-3 font-semibold text-primary">
+                    Your portfolio is in. Atlas is ready to guide the next step.
+                  </h2>
+                  <p className="max-w-2xl text-xs leading-relaxed text-secondary">
+                    We&apos;ve detected your first Kaizen sync. Start by reviewing suggested skills
+                    or open Progress Hub to see where your evidence is already strong.
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="rounded-full border border-subtle bg-surface-1 px-3 py-1.5">
-                    <StageSelector
-                      currentStageId={profile?.current_stage_id ?? null}
-                      stages={stages ?? []}
-                    />
-                  </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <a href="/dashboard/key-skill-review" className="btn-primary px-4 py-2 text-small">
+                    Review what Atlas found
+                  </a>
+                  <a href="/dashboard/progress" className="btn-secondary px-4 py-2 text-small">
+                    Open Progress Hub
+                  </a>
+                </div>
+              </div>
+            </section>
+          )}
+
+          <header className="relative z-20 flex flex-col gap-4 border-b border-subtle pb-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                Overview
+              </p>
+              <h1 className="text-3xl font-semibold text-primary md:text-4xl">
+                Atlas Dashboard
+              </h1>
+              <p className="max-w-2xl text-sm leading-6 text-secondary">
+                Next actions, readiness signals, and portfolio momentum in one place.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 lg:items-end">
+              <div className="flex flex-wrap items-center gap-2">
+                <StageSelector
+                  currentStageId={profile?.current_stage_id ?? null}
+                  stages={stages ?? []}
+                />
                   <span
-                    className="rounded-full border px-3 py-1.5 text-xs font-medium"
+                    className="rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
                     style={{
                       borderColor: isLtft ? "rgba(245,158,11,0.35)" : "var(--border-subtle)",
                       color: isLtft ? "var(--accent-amber)" : "var(--text-secondary)",
-                      background: isLtft ? "rgba(245,158,11,0.10)" : "var(--surface-1)",
+                      background: isLtft ? "rgba(245,158,11,0.10)" : "var(--surface-2)",
                     }}
                   >
                     {isLtft ? `LTFT ${workingPercent}% WTE` : "Working pattern 100%"}
                   </span>
                   {daysToArcp !== null && (
                     <span
-                      className="rounded-full border px-3 py-1.5 text-xs font-medium"
+                      className="rounded-lg border px-2.5 py-1.5 text-[11px] font-medium"
                       style={{
                         borderColor:
                           (badgeDaysToArcp ?? 0) < 30
@@ -204,7 +268,7 @@ export default async function DashboardPage() {
                             ? "rgba(220,38,38,0.08)"
                             : (badgeDaysToArcp ?? 0) < 90
                               ? "rgba(245,158,11,0.10)"
-                              : "var(--surface-1)",
+                              : "var(--surface-2)",
                       }}
                     >
                       {daysToArcp > 0
@@ -215,67 +279,32 @@ export default async function DashboardPage() {
                     </span>
                   )}
                   {!currentStage && daysToArcp === null && (
-                    <span className="rounded-full border border-subtle bg-surface-1 px-3 py-1.5 text-xs text-muted">
+                    <span className="rounded-lg border border-subtle bg-surface-2 px-2.5 py-1.5 text-[11px] text-muted">
                       Add stage and ARCP date to personalize insights
                     </span>
                   )}
-                </div>
-              </div>
-
-              <div className="flex shrink-0 flex-wrap gap-2">
-                <a href="/dashboard/progress" className="btn-secondary px-4 py-2 text-small">
-                  Progress Hub
-                </a>
-                <a href="/dashboard/key-skill-review" className="btn-secondary px-4 py-2 text-small">
-                  Review Skills
-                </a>
-                <a href="/dashboard/generate" className="btn-primary px-4 py-2 text-small">
-                  Generate Entry
-                </a>
               </div>
             </div>
           </header>
 
-          <section className="space-y-3">
-            <div className="px-1">
-              <h2 className="text-small font-semibold text-primary">What should I do now?</h2>
-              <p className="mt-0.5 text-[11px] text-muted">Highest-impact tasks and a snapshot of curriculum coverage.</p>
-            </div>
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-stretch">
-              <DashboardNextActionsSection />
-              <DashboardProgressGateway />
-            </div>
-          </section>
+          <DashboardSummaryCard
+            totalEntries={totalEntries ?? 0}
+            daysToArcp={daysToArcp}
+            currentStageScope={stageContext.curriculumBandId}
+            currentStageGroupLabel={stageContext.curriculumBandLabel}
+          />
 
-          <section className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h2 className="text-small font-semibold text-primary">At a glance</h2>
-              <span className="text-[11px] text-muted">Entries &amp; ARCP</span>
-            </div>
-            <DashboardStatsRow
-              totalEntries={totalEntries ?? 0}
-              calendarDaysToArcp={daysToArcp}
-              wteDaysToArcp={wteDaysToArcp}
-              workingPercent={workingPercent}
-              arcpDate={profile?.arcp_date ?? null}
-            />
-          </section>
+          <SystemStatusStrip lastSyncByType={lastSyncByType} />
 
-          <section className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h2 className="text-small font-semibold text-primary">ARCP readiness</h2>
-              <span className="text-[11px] text-muted">Prediction from portfolio weighting</span>
-            </div>
-            <DashboardReadinessSection />
-          </section>
+          <DashboardReadinessSection stageKey={profile?.current_stage_id ?? "none"} />
 
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-            <RecentEntriesSection entries={entries ?? []} />
-            <div className="flex flex-col gap-5">
-              <ActivityHeatmap />
-              <SyncStatusSection lastSyncByType={lastSyncByType} />
-            </div>
-          </section>
+          <EvidenceTabsSection
+            entries={entries ?? []}
+            unsignedEntries={unsignedAssessmentEntries}
+            hasEntriesSync={Boolean(lastSyncByType.entries)}
+          />
+
+          <ActivityHeatmap />
         </div>
       </main>
     </div>

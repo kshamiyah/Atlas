@@ -118,39 +118,39 @@ export function PriorityActionStrip({ cips, pendingSuggestionCount, isLoading }:
 
   return (
     <div className="card flex h-full flex-col p-6">
-      <div className="mb-4 space-y-1 border-b border-subtle pb-3">
+      <div className="mb-5 space-y-1">
         <h3
           className="text-small font-semibold text-primary"
           style={{ letterSpacing: "-0.014em" }}
         >
           Next actions
         </h3>
-        <p className="text-xs text-muted">
-          Highest-impact tasks to improve coverage this week.
+        <p className="max-w-md text-xs leading-5 text-muted">
+          Highest-impact tasks to improve coverage without losing time in the detail.
         </p>
       </div>
       <div className="flex flex-col gap-4">
         {actions.map((action, i) => {
           const style = PRIORITY_STYLES[action.priority];
           return (
-            <div key={i} className="rounded-xl border border-subtle bg-surface-1 p-3.5">
+            <div key={i} className="rounded-[1.2rem] border border-subtle bg-surface-1/88 p-4 backdrop-blur">
               <div className="flex gap-3">
               <span
-                className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold tabular-nums"
+                className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold tabular-nums"
                 style={{ background: style.bg, color: style.color }}
               >
                 {i + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium leading-snug text-primary">
+                <p className="text-[13px] font-medium leading-5 text-primary">
                   {action.title}
                 </p>
-                <p className="mt-0.5 text-[11px] leading-snug text-muted">
+                <p className="mt-1 text-[11px] leading-5 text-muted">
                   {action.sub}
                 </p>
                 <a
                   href={action.href}
-                  className="mt-1.5 inline-block text-[11px] font-medium underline-offset-2 hover:underline"
+                  className="mt-2 inline-block text-[11px] font-medium underline-offset-2 hover:underline"
                   style={{ color: "var(--accent-blue)" }}
                 >
                   {action.cta} →

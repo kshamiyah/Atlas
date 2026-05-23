@@ -24,24 +24,26 @@ export function ProgressMessageCentre({ messages }: { messages: ProgressMessage[
   if (messages.length === 0) {
     return (
       <section
-        className="mt-6 rounded-2xl border border-subtle bg-surface-2/50 px-4 py-5 md:px-5"
-        aria-label="Message centre"
+        className="mt-6 rounded-2xl border border-subtle bg-surface-2/40 px-4 py-5 md:px-5"
+        aria-label="What needs attention"
       >
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-          Message centre
+          What needs attention
         </p>
-        <p className="mt-2 text-small text-secondary">No urgent gaps right now.</p>
+        <p className="mt-2 text-small text-secondary">
+          No urgent gaps right now. Your current curriculum band looks steady.
+        </p>
       </section>
     );
   }
 
   return (
     <section
-      className="mt-6 rounded-2xl border border-subtle bg-surface-2/50 px-4 py-4 md:px-5"
-      aria-label="Message centre"
+      className="mt-6 rounded-2xl border border-subtle bg-surface-2/40 px-4 py-4 md:px-5"
+      aria-label="What needs attention"
     >
       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-        Message centre
+        What needs attention
       </p>
       <ul className="mt-3 space-y-3">
         {messages.map((m) => {

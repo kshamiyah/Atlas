@@ -1,13 +1,13 @@
-# PortfolioIQ — Figma Design Handover
+# Atlas — Figma Design Handover
 **Version:** March 2026
-**Product:** PortfolioIQ — RCOG Obstetrics & Gynaecology training portfolio tracker
+**Product:** Atlas — RCOG Obstetrics & Gynaecology training portfolio tracker
 **Stack for reference:** Next.js 16, React 19, TypeScript, Tailwind v4, Geist Sans font
 
 ---
 
-## 1. What is PortfolioIQ?
+## 1. What is Atlas?
 
-PortfolioIQ is a premium web app for RCOG (Royal College of Obstetricians and Gynaecologists) surgical trainees. It syncs with their NHS training portal (Kaizen/ePortfolio) and shows them:
+Atlas is a premium web app for RCOG (Royal College of Obstetricians and Gynaecologists) surgical trainees. It syncs with their NHS training portal (Kaizen/ePortfolio) and shows them:
 
 - **ARCP Readiness** — How close they are to meeting their annual review targets (key skills confirmed)
 - **CiP Progress** — Progress across each Capability in Practice (curriculum competency)
@@ -153,7 +153,7 @@ Follows 4px base unit. Key values: 4, 8, 12, 16, 20, 24, 32, 40, 48, 64
 
 #### Logo area (top, p-16)
 - Logo mark: 28×28px, `border-radius: 8px`, `bg: accent-green`, white "P" centered (font-size 14px, font-weight 700)
-- Wordmark: "PortfolioIQ" — `text-small`, `font-weight 600`, `text-primary`
+- Wordmark: "Atlas" — `text-small`, `font-weight 600`, `text-primary`
 - Arranged horizontally with 8px gap
 
 #### Nav section
@@ -299,7 +299,7 @@ Centered message: "Sync your portfolio to see CiP progress" with extension CTA
 - Card shadow: `0 8px 32px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.06)`
 
 #### Card content (top to bottom)
-1. Logo mark (40px, centered, `bg: accent-green`, `border-radius: 10px`) + "PortfolioIQ" (`text-heading-2`, `font-weight 700`, centered)
+1. Logo mark (40px, centered, `bg: accent-green`, `border-radius: 10px`) + "Atlas" (`text-heading-2`, `font-weight 700`, centered)
 2. Subtitle: "Your RCOG training portfolio, intelligently organised." — `text-body`, `text-secondary`, centered, `mt-8`
 3. Divider `mt-24`
 4. Label: "Email address" — `text-small`, `font-weight 500`, `text-primary`

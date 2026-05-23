@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callGemini, stripFences } from "./gemini-client";
 
 export type KeySkillCandidate = {
   key_skill_id: string;
@@ -42,8 +42,6 @@ export async function matchKeySkills(params: {
   candidates: KeySkillCandidate[];
   pinned_key_skill_ids?: string[];
 }): Promise<KeySkillMatchResult> {
-  const client = new Anthropic();
-
   const userMessage = JSON.stringify(
     {
       entry_type: params.entry_type,
@@ -54,25 +52,20 @@ export async function matchKeySkills(params: {
     2
   );
 
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 800,
+  const raw = await callGemini({
     system: MATCH_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
+    user: userMessage,
+    maxTokens: 800,
+    jsonObject: true,
   });
 
-  const block = response.content[0];
-  const raw = block?.type === "text" ? block.text : "";
-  if (!raw)
-    throw new Error("Empty response from Claude (key skill match)");
+  if (!raw) throw new Error("Empty response from Gemini (key skill match)");
 
   let parsed: KeySkillMatchResult;
   try {
     parsed = JSON.parse(raw) as KeySkillMatchResult;
   } catch {
-    // If Claude wraps in markdown fences, strip them
-    const stripped = raw.replace(/```json\n?|\n?```/g, "").trim();
-    parsed = JSON.parse(stripped) as KeySkillMatchResult;
+    parsed = JSON.parse(stripFences(raw)) as KeySkillMatchResult;
   }
 
   parsed.suggested_key_skill_ids = Array.isArray(parsed.suggested_key_skill_ids)

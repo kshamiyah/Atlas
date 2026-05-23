@@ -3,6 +3,14 @@
 import Link from "next/link";
 import type { ProgressDescriptorCipGroup, ProgressDescriptorRow } from "@/lib/types/progress";
 
+function buildEntriesHref(title: string, day: string | null): string {
+  const p = new URLSearchParams();
+  if (title.trim()) p.set("q", title.trim());
+  if (day) p.set("day", day);
+  const q = p.toString();
+  return q ? `/dashboard/entries?${q}` : "/dashboard/entries";
+}
+
 type ProgressDescriptorDetailProps = {
   cip: ProgressDescriptorCipGroup;
   skillTitle: string;
@@ -69,7 +77,7 @@ export function ProgressDescriptorDetail({
             {row.supporting_entries.map((e) => (
               <li key={e.review_entry_id}>
                 <Link
-                  href="/dashboard/key-skill-review"
+                  href={buildEntriesHref(e.title, e.event_date)}
                   className="block rounded-lg border border-subtle bg-surface-1/80 px-3 py-2 text-left text-[11px] transition-colors hover:border-accent-primary/40 hover:bg-surface-2"
                 >
                   <span className="font-medium text-primary">{e.title}</span>
@@ -82,7 +90,7 @@ export function ProgressDescriptorDetail({
             href={reviewHref}
             className="mt-3 inline-block text-[11px] font-medium text-accent-primary underline-offset-2 hover:underline"
           >
-            Open supporting entries in My Entries
+            Review this descriptor in Review Entries
           </Link>
         </section>
       )}
@@ -93,7 +101,7 @@ export function ProgressDescriptorDetail({
             href={reviewHref}
             className="inline-flex rounded-lg border border-accent-primary bg-accent-primary px-4 py-2 text-micro font-semibold text-surface-1 transition-opacity hover:opacity-90"
           >
-            Review in My Entries
+            Review in Review Entries
           </Link>
         </div>
       )}

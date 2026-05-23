@@ -32,9 +32,9 @@ export function SyncStatusSection({ lastSyncByType }: SyncStatusSectionProps) {
 
   if (!hasAny) {
     return (
-      <section className="rounded-lg border border-subtle bg-surface-2 p-5">
+      <section className="rounded-lg border border-subtle bg-surface-2 p-4">
         <h2 className="text-small font-semibold text-primary">Sync status</h2>
-        <p className="mt-2 text-micro text-muted">
+        <p className="mt-2 text-[11px] leading-5 text-muted">
           No syncs recorded yet. Connect the extension and sync from Kaizen.
         </p>
       </section>
@@ -42,13 +42,18 @@ export function SyncStatusSection({ lastSyncByType }: SyncStatusSectionProps) {
   }
 
   return (
-    <section className="rounded-lg border border-subtle bg-surface-2 p-5">
-      <h2 className="text-small font-semibold text-primary mb-3">Sync status</h2>
-      <ul className="space-y-1.5">
+    <section className="rounded-lg border border-subtle bg-surface-2 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-small font-semibold text-primary">Sync status</h2>
+        <span className="rounded-full border border-subtle bg-surface-1 px-2.5 py-1 text-[10px] font-medium text-secondary">
+          {types.filter((type) => lastSyncByType[type]).length} active
+        </span>
+      </div>
+      <ul className="space-y-2">
         {types.map((type) => {
           const at = lastSyncByType[type];
           return (
-            <li key={type} className="flex justify-between gap-2 text-micro text-muted">
+            <li key={type} className="flex items-center justify-between gap-3 text-[11px] text-muted">
               <span>{LABELS[type] ?? type}</span>
               <span className="tabular-nums text-secondary">
                 {at ? formatSyncTime(at) : "Never"}

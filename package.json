@@ -13,7 +13,8 @@
     "test:e2e:smoke": "playwright test tests/e2e/dashboard-and-progress.spec.ts tests/e2e/sync-progress-review-journey.spec.ts",
     "test:e2e:a11y": "playwright test tests/e2e/a11y.spec.ts",
     "test:e2e": "npm run test:e2e:smoke && npm run test:e2e:a11y",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "test:models": "ts-node --project tsconfig.tests.json scripts/model-comparison/run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

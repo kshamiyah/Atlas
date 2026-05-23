@@ -1,12 +1,20 @@
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import {
+  extractKaizenIdFromLinkedSkillRaw,
+  normalizeSkillTitle,
+  stripCipPrefixAndId,
+} from "@/lib/key-skill-review/linked-skill-resolver";
+import { parseAuditReviewDecisions } from "@/lib/key-skill-review/audit-review-decisions";
 import type {
   ReviewEntry,
   SkillSuggestion,
   KeySkillCoverage,
   DescriptorCoverage,
+  KaizenLinkedSkill,
 } from "@/lib/types/key-skill-review";
+import type { AuditEntryResult } from "@/lib/types/audit-entry-result";
 import type { QueueResponse } from "@/lib/types/key-skill-review-api";
 
 type EntryRow = {
@@ -16,6 +24,7 @@ type EntryRow = {
   linked_cip_number: number;
   event_date: string | null;
   entry_text: string;
+  metadata: Record<string, unknown> | null;
 };
 
 type SuggestionRow = {
@@ -26,12 +35,15 @@ type SuggestionRow = {
   status: SkillSuggestion["status"];
   confidence: number;
   rationale: string;
+  suggested_action: "add" | "replace" | null;
+  replace_key_skill_id: string | null;
 };
 
 type KeySkillRow = {
   id: string;
   title: string;
   cip_id: string | null;
+  kaizen_ids: string[] | null;
 };
 
 type CipRow = {
@@ -53,6 +65,32 @@ type DescriptorDetailRow = {
   text: string;
   sort_order: number;
 };
+
+type KaizenEntryLinkedRow = {
+  source_entry_id: string | null;
+  extracted_fields: Record<string, unknown> | null;
+};
+
+function parseLinkedKeySkillsRaw(raw: unknown): string[] {
+  if (typeof raw !== "string") return [];
+  return raw
+    .split("|")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function isMissingSuggestionActionColumnsError(error: {
+  code?: string;
+  message?: string;
+} | null): boolean {
+  if (!error) return false;
+  if (error.code !== "42703") return false;
+  const message = String(error.message ?? "");
+  return (
+    message.includes("suggested_action") ||
+    message.includes("replace_key_skill_id")
+  );
+}
 
 export async function GET() {
   const supabase = await getServerSupabaseClient();
@@ -84,7 +122,7 @@ export async function GET() {
   const { data: entryRows, error: entriesError } = await supabase
     .from("key_skill_review_entries")
     .select(
-      "id, title, entry_type, linked_cip_number, event_date, entry_text",
+      "id, title, entry_type, linked_cip_number, event_date, entry_text, metadata",
     )
     .eq("user_id", userId)
     .order("last_seen_at", { ascending: false });
@@ -105,13 +143,40 @@ export async function GET() {
 
   const entryIds = entries.map((e) => e.id);
 
-  const { data: suggestionRows, error: suggestionsError } = await supabase
+  let suggestionRows:
+    | Array<Record<string, unknown>>
+    | null
+    | undefined;
+  let suggestionsError:
+    | { code?: string; message?: string }
+    | null
+    | undefined;
+  const suggestionsWithNewColumns = await supabase
     .from("key_skill_review_suggestions")
     .select(
-      "id, review_entry_id, key_skill_id, suggestion_source, status, confidence, rationale",
+      "id, review_entry_id, key_skill_id, suggestion_source, status, confidence, rationale, suggested_action, replace_key_skill_id",
     )
     .in("review_entry_id", entryIds)
     .eq("user_id", userId);
+
+  if (isMissingSuggestionActionColumnsError(suggestionsWithNewColumns.error)) {
+    const fallbackSuggestions = await supabase
+      .from("key_skill_review_suggestions")
+      .select(
+        "id, review_entry_id, key_skill_id, suggestion_source, status, confidence, rationale",
+      )
+      .in("review_entry_id", entryIds)
+      .eq("user_id", userId);
+    suggestionRows = fallbackSuggestions.data as Array<Record<string, unknown>> | null;
+    suggestionsError = fallbackSuggestions.error as
+      | { code?: string; message?: string }
+      | null;
+  } else {
+    suggestionRows = suggestionsWithNewColumns.data as Array<Record<string, unknown>> | null;
+    suggestionsError = suggestionsWithNewColumns.error as
+      | { code?: string; message?: string }
+      | null;
+  }
 
   if (suggestionsError) {
     return NextResponse.json(
@@ -128,6 +193,14 @@ export async function GET() {
     status: row.status as SkillSuggestion["status"],
     confidence: Number(row.confidence ?? 0),
     rationale: String(row.rationale ?? ""),
+    suggested_action:
+      row.suggested_action === "add" || row.suggested_action === "replace"
+        ? row.suggested_action
+        : null,
+    replace_key_skill_id:
+      typeof row.replace_key_skill_id === "string"
+        ? row.replace_key_skill_id
+        : null,
   }));
 
   // Load descriptor coverage for all entries
@@ -155,23 +228,16 @@ export async function GET() {
     evidence_quote: typeof row.evidence_quote === "string" ? row.evidence_quote : null,
   }));
 
-  // Combine key_skill_ids from suggestions AND coverage (coverage may reference
-  // candidate skills that never made it into suggestions)
-  const keySkillIds = Array.from(
-    new Set([
-      ...suggestions.map((s) => s.key_skill_id),
-      ...coverageRows.map((c) => c.key_skill_id),
-    ]),
-  );
   const keySkillById = new Map<string, KeySkillRow>();
+  const keySkillByKaizenId = new Map<string, KeySkillRow>();
+  const keySkillByNormalizedTitle = new Map<string, KeySkillRow>();
   const cipNumberById = new Map<string, number>();
   const descriptorById = new Map<string, DescriptorDetailRow>();
 
-  if (keySkillIds.length > 0) {
+  {
     const { data: keySkillRows, error: keySkillsError } = await supabase
       .from("key_skills")
-      .select("id, title, cip_id")
-      .in("id", keySkillIds);
+      .select("id, title, cip_id, kaizen_ids");
 
     if (keySkillsError) {
       return NextResponse.json(
@@ -184,9 +250,26 @@ export async function GET() {
       id: String(row.id),
       title: String(row.title ?? ""),
       cip_id: row.cip_id ? String(row.cip_id) : null,
+      kaizen_ids: Array.isArray(row.kaizen_ids)
+        ? row.kaizen_ids.map((value) => String(value))
+        : null,
     }));
 
-    keySkills.forEach((ks) => keySkillById.set(ks.id, ks));
+    keySkills.forEach((ks) => {
+      keySkillById.set(ks.id, ks);
+      const normalizedTitle = normalizeSkillTitle(ks.title);
+      if (normalizedTitle && !keySkillByNormalizedTitle.has(normalizedTitle)) {
+        keySkillByNormalizedTitle.set(normalizedTitle, ks);
+      }
+      if (Array.isArray(ks.kaizen_ids)) {
+        ks.kaizen_ids.forEach((kaizenId) => {
+          const normalizedKaizenId = String(kaizenId || "").trim();
+          if (normalizedKaizenId && !keySkillByKaizenId.has(normalizedKaizenId)) {
+            keySkillByKaizenId.set(normalizedKaizenId, ks);
+          }
+        });
+      }
+    });
 
     const cipIds = Array.from(
       new Set(
@@ -245,9 +328,112 @@ export async function GET() {
     }
   }
 
+  const sourceEntryIds = Array.from(
+    new Set(
+      entries
+        .map((entry) => {
+          const metadata =
+            entry.metadata && typeof entry.metadata === "object" ? entry.metadata : null;
+          const sourceEntryIdFromMeta =
+            metadata && typeof metadata.source_entry_id === "string"
+              ? metadata.source_entry_id.trim()
+              : "";
+          return sourceEntryIdFromMeta;
+        })
+        .filter(Boolean),
+    ),
+  );
+
+  const linkedRawBySourceEntryId = new Map<string, string>();
+  if (sourceEntryIds.length > 0) {
+    const { data: kaizenRows, error: kaizenError } = await supabase
+      .from("kaizen_entries")
+      .select("source_entry_id, extracted_fields")
+      .eq("user_id", userId)
+      .in("source_entry_id", sourceEntryIds);
+
+    if (kaizenError) {
+      return NextResponse.json(
+        { error: "Failed to load Kaizen entry snapshots: " + kaizenError.message },
+        { status: 500 },
+      );
+    }
+
+    ((kaizenRows ?? []) as KaizenEntryLinkedRow[]).forEach((row) => {
+      const sourceEntryId =
+        typeof row.source_entry_id === "string" ? row.source_entry_id.trim() : "";
+      if (!sourceEntryId) return;
+      const extracted = row.extracted_fields ?? {};
+      const linkedRaw =
+        extracted && typeof extracted === "object"
+          ? String(extracted["linked key skills"] ?? "")
+          : "";
+      linkedRawBySourceEntryId.set(sourceEntryId, linkedRaw);
+    });
+  }
+
   const byEntry: Record<string, ReviewEntry> = {};
 
   entries.forEach((e) => {
+    const metadata =
+      e.metadata && typeof e.metadata === "object" ? e.metadata : null;
+    const rawAuditResult =
+      metadata &&
+      typeof metadata.audit_last_result === "object" &&
+      metadata.audit_last_result !== null
+        ? (metadata.audit_last_result as Record<string, unknown>)
+        : null;
+    const auditResult: AuditEntryResult | undefined = rawAuditResult
+      ? ({
+          ...rawAuditResult,
+          audit_input_fingerprint:
+            typeof rawAuditResult.audit_input_fingerprint === "string"
+              ? rawAuditResult.audit_input_fingerprint
+              : typeof metadata?.audit_last_input_fingerprint === "string"
+                ? metadata.audit_last_input_fingerprint
+                : null,
+          review_entry_id:
+            typeof rawAuditResult.review_entry_id === "string"
+              ? rawAuditResult.review_entry_id
+              : e.id,
+        } as AuditEntryResult)
+      : undefined;
+    const sourceEntryIdFromMeta =
+      metadata && typeof metadata.source_entry_id === "string"
+        ? metadata.source_entry_id.trim()
+        : "";
+    const linkedKeySkillsRaw = linkedRawBySourceEntryId.get(sourceEntryIdFromMeta) ?? "";
+    const linkedKeySkillsParsed = parseLinkedKeySkillsRaw(linkedKeySkillsRaw);
+    const currentKaizenLinkedSkills: KaizenLinkedSkill[] = [];
+
+    linkedKeySkillsParsed.forEach((rawSkill) => {
+      const kaizenId = extractKaizenIdFromLinkedSkillRaw(rawSkill);
+      let matched: KeySkillRow | null = null;
+      let matchMethod: KaizenLinkedSkill["match_method"] | null = null;
+
+      if (kaizenId) {
+        matched = keySkillByKaizenId.get(kaizenId) ?? null;
+        if (matched) matchMethod = "kaizen_id";
+      }
+
+      if (!matched) {
+        const normalized = normalizeSkillTitle(stripCipPrefixAndId(rawSkill));
+        matched = normalized ? keySkillByNormalizedTitle.get(normalized) ?? null : null;
+        if (matched) matchMethod = "title_exact";
+      }
+
+      if (!matched || !matchMethod) return;
+
+      currentKaizenLinkedSkills.push({
+        raw: rawSkill,
+        key_skill_id: matched.id,
+        key_skill_title: matched.title,
+        cip_number: matched.cip_id ? (cipNumberById.get(matched.cip_id) ?? 0) : 0,
+        kaizen_id: kaizenId,
+        match_method: matchMethod,
+      });
+    });
+
     byEntry[e.id] = {
       id: e.id,
       title: e.title ?? "",
@@ -257,6 +443,9 @@ export async function GET() {
       raw_text: e.entry_text ?? "",
       linked_cip_suggestions: [],
       cross_cip_suggestions: [],
+      audit_review_decisions: parseAuditReviewDecisions(metadata),
+      kaizen_linked_skills: currentKaizenLinkedSkills,
+      ...(auditResult ? { audit_result: auditResult } : {}),
     };
   });
 
@@ -276,6 +465,8 @@ export async function GET() {
       rationale: s.rationale,
       status: s.status,
       source: s.suggestion_source,
+      suggested_action: s.suggested_action,
+      replace_key_skill_id: s.replace_key_skill_id,
     };
     if (s.suggestion_source === "linked_cip") {
       entry.linked_cip_suggestions.push(suggestion);

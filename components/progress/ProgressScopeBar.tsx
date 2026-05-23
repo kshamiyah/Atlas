@@ -1,7 +1,7 @@
 "use client";
 
 export const PROGRESS_STAGE_TABS = [
-  { label: "All", sub: null as string | null, value: null as string | null },
+  { label: "All bands", sub: null as string | null, value: null as string | null },
   { label: "Stage One", sub: "ST1–ST2", value: "BAND_ST1_2" },
   { label: "Stage Two", sub: "ST3–ST5", value: "BAND_ST3_5" },
   { label: "Stage Three", sub: "ST6–ST7", value: "BAND_ST6_7" },

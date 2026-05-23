@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callGemini, stripFences } from "@/lib/ai/gemini-client";
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -78,8 +78,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const client = new Anthropic();
-
   const contextParts: string[] = [];
   contextParts.push(`Entry type: ${body.entry_type}`);
   if (body.raw_input) {
@@ -98,29 +96,27 @@ export async function POST(request: Request) {
     `Field to regenerate: "${body.field_label}" (id: ${body.field_id})`,
   );
   contextParts.push(
-    `Length target: ${body.length ?? "standard"} (short≈100-150w, standard≈250-350w, detailed≈450-600w). Non-narrative fields should stay brief.`,
+    `Length target: ${body.length ?? "standard"} (short≈50-120w, standard≈80-200w, detailed≈180-350w). Non-narrative fields should stay brief.`,
   );
 
   const userMessage = contextParts.join("\n\n");
 
   try {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 800,
+    const raw = await callGemini({
       system: FIELD_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userMessage }],
+      user: userMessage,
+      maxTokens: 800,
+      temperature: 0.35,
+      jsonObject: true,
     });
 
-    const raw =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
     if (!raw) throw new Error("Empty response");
 
     let parsed: { value: string };
     try {
       parsed = JSON.parse(raw);
     } catch {
-      const stripped = raw.replace(/```json\n?|\n?```/g, "").trim();
-      parsed = JSON.parse(stripped);
+      parsed = JSON.parse(stripFences(raw));
     }
 
     if (typeof parsed.value !== "string") {

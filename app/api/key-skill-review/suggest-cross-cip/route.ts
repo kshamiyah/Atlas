@@ -5,6 +5,10 @@ import {
   suggestCrossCipSkills,
   type CrossCipSkillInput,
 } from "@/lib/key-skill-review/cross-cip-suggester";
+import {
+  buildSupervisorMeetingKey,
+  isSupervisorMeetingReviewEntry,
+} from "@/lib/key-skill-review/supervisor-meetings";
 import type {
   SuggestCrossCipBody,
   SuggestCrossCipResponse,
@@ -13,9 +17,11 @@ import type {
 type EntryRow = {
   id: string;
   user_id: string;
+  title: string | null;
   entry_type: string | null;
   entry_text: string;
   linked_cip_number: number;
+  event_date: string | null;
   metadata: Record<string, unknown> | null;
   updated_at: string;
 };
@@ -237,7 +243,7 @@ export async function POST(request: Request) {
   let entryQuery = supabase
     .from("key_skill_review_entries")
     .select(
-      "id, user_id, entry_type, entry_text, linked_cip_number, metadata, updated_at",
+      "id, user_id, title, entry_type, entry_text, linked_cip_number, event_date, metadata, updated_at",
     )
     .eq("user_id", user.id);
 
@@ -266,6 +272,27 @@ export async function POST(request: Request) {
     };
     return NextResponse.json(empty);
   }
+
+  const { data: supervisorMeetingRows, error: supervisorMeetingsError } = await supabase
+    .from("kaizen_supervisor_meetings")
+    .select("title,date")
+    .eq("user_id", user.id);
+
+  if (supervisorMeetingsError) {
+    return NextResponse.json(
+      {
+        error:
+          "Failed to load supervisor meetings: " + supervisorMeetingsError.message,
+      },
+      { status: 500 },
+    );
+  }
+
+  const supervisorMeetingKeys = new Set(
+    ((supervisorMeetingRows ?? []) as Array<{ title: string | null; date: string | null }>).map(
+      (row) => buildSupervisorMeetingKey(row.title, row.date),
+    ),
+  );
 
   const entryIds = entries.map((e) => e.id);
 
@@ -357,6 +384,60 @@ export async function POST(request: Request) {
 
   try {
     for (const entry of entries) {
+      if (isSupervisorMeetingReviewEntry(entry.title, entry.event_date, supervisorMeetingKeys)) {
+        const { error: cleanupError } = await supabase
+          .from("key_skill_review_suggestions")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("review_entry_id", entry.id)
+          .eq("suggestion_source", "cross_cip")
+          .eq("method", "ai")
+          .neq("status", "confirmed");
+
+        if (cleanupError) {
+          return NextResponse.json(
+            {
+              error:
+                "Failed to clear supervisor meeting cross-CiP suggestions: " +
+                cleanupError.message,
+            },
+            { status: 500 },
+          );
+        }
+
+        const { error: stampError } = await supabase
+          .from("key_skill_review_entries")
+          .update({
+            metadata: {
+              ...asRecord(entry.metadata),
+              [CROSS_CIP_LAST_RUN_AT_KEY]: new Date().toISOString(),
+              [CROSS_CIP_LAST_FINGERPRINT_KEY]: buildCrossCipInputFingerprint({
+                entry_text: entry.entry_text ?? "",
+                entry_type: entry.entry_type ?? null,
+                linked_cip_number: entry.linked_cip_number,
+                linked_skill_ids: [],
+                candidate_skill_ids: [],
+              }),
+            },
+          })
+          .eq("id", entry.id)
+          .eq("user_id", user.id);
+
+        if (stampError) {
+          return NextResponse.json(
+            {
+              error:
+                "Failed to store supervisor meeting cross-CiP marker: " +
+                stampError.message,
+            },
+            { status: 500 },
+          );
+        }
+
+        skipped++;
+        continue;
+      }
+
       const linkedSkillIds = new Set(
         suggestions
           .filter(

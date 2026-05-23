@@ -29,6 +29,12 @@ type PushQueueRow = {
   attempt_count: number | null;
   last_error: string | null;
   updated_at: string;
+  synced_at: string | null;
+  action_type: string | null;
+  group_id: string | null;
+  sequence_index: number | null;
+  kaizen_skill_id: string | null;
+  payload: Record<string, unknown> | null;
 };
 
 type ReviewEntryRow = {
@@ -53,6 +59,7 @@ type CipRow = {
 type KaizenEntryRow = {
   source_entry_id: string | null;
   source_url: string | null;
+  synced_at: string | null;
 };
 
 type PushQueueGroup = {
@@ -60,12 +67,14 @@ type PushQueueGroup = {
   title: string;
   date: string;
   entry_edit_url: string | null;
+  source_entry_id: string | null;
   suggestion_ids: string[];
   skills: PushQueueEntry["skills"];
   statuses: PushQueueStatus[];
   attempt_count: number;
   last_error: string | null;
   updated_at: string;
+  latest_queue_synced_at: string | null;
 };
 
 const STATUS_ORDER: Record<PushQueueStatus, number> = {
@@ -186,6 +195,20 @@ function isMissingColumn(error: unknown, columnName: string): boolean {
   );
 }
 
+function isMissingPushQueueActionColumnsError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { code?: string; message?: string; details?: string };
+  if (err.code !== "42703") return false;
+  const haystack = `${err.message ?? ""} ${err.details ?? ""}`.toLowerCase();
+  return [
+    "action_type",
+    "group_id",
+    "sequence_index",
+    "kaizen_skill_id",
+    "payload",
+  ].some((column) => haystack.includes(column));
+}
+
 async function getAuthFromRequest(request: Request): Promise<
   | { userId: string; supabase: SupabaseClient }
   | { response: NextResponse }
@@ -286,13 +309,30 @@ export async function GET() {
     }
   }
 
-  const { data: queueRows, error: queueError } = await supabase
+  let queueRows: Array<Record<string, unknown>> | null | undefined;
+  let queueError: { code?: string; message?: string } | null | undefined;
+  const queueWithActionColumns = await supabase
     .from("key_skill_review_push_queue")
     .select(
-      "id, suggestion_id, review_entry_id, key_skill_id, status, attempt_count, last_error, updated_at",
+      "id, suggestion_id, review_entry_id, key_skill_id, status, attempt_count, last_error, updated_at, synced_at, action_type, group_id, sequence_index, kaizen_skill_id, payload",
     )
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
+
+  if (isMissingPushQueueActionColumnsError(queueWithActionColumns.error)) {
+    const fallbackQueue = await supabase
+      .from("key_skill_review_push_queue")
+      .select(
+        "id, suggestion_id, review_entry_id, key_skill_id, status, attempt_count, last_error, updated_at, synced_at",
+      )
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false });
+    queueRows = fallbackQueue.data as Array<Record<string, unknown>> | null;
+    queueError = fallbackQueue.error as { code?: string; message?: string } | null;
+  } else {
+    queueRows = queueWithActionColumns.data as Array<Record<string, unknown>> | null;
+    queueError = queueWithActionColumns.error as { code?: string; message?: string } | null;
+  }
 
   if (queueError) {
     if (isQueueTableMissing(queueError)) {
@@ -315,8 +355,38 @@ export async function GET() {
       attempt_count: row.attempt_count != null ? Number(row.attempt_count) : 0,
       last_error: typeof row.last_error === "string" ? row.last_error : null,
       updated_at: String(row.updated_at ?? new Date().toISOString()),
+      synced_at:
+        typeof row.synced_at === "string" && row.synced_at.trim()
+          ? row.synced_at
+          : null,
+      action_type:
+        row.action_type === "remove" ||
+        row.action_type === "replace_remove" ||
+        row.action_type === "replace_add"
+          ? row.action_type
+          : "add",
+      group_id: typeof row.group_id === "string" && row.group_id.trim() ? row.group_id : null,
+      sequence_index:
+        typeof row.sequence_index === "number" && Number.isInteger(row.sequence_index)
+          ? row.sequence_index
+          : row.sequence_index != null && Number.isFinite(Number(row.sequence_index))
+            ? Number(row.sequence_index)
+            : null,
+      kaizen_skill_id:
+        typeof row.kaizen_skill_id === "string" && row.kaizen_skill_id.trim()
+          ? row.kaizen_skill_id
+          : null,
+      payload:
+        row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+          ? (row.payload as Record<string, unknown>)
+          : null,
     }))
-    .filter((row) => confirmedSet.has(row.suggestion_id));
+    .filter(
+      (row) =>
+        confirmedSet.has(row.suggestion_id) ||
+        row.action_type === "remove" ||
+        row.action_type === "replace_remove",
+    );
 
   if (queue.length === 0) {
     return NextResponse.json(emptyResponse(true));
@@ -402,10 +472,11 @@ export async function GET() {
   );
 
   const kaizenSourceUrlBySourceId = new Map<string, string>();
+  const kaizenSyncedAtBySourceId = new Map<string, string | null>();
   if (sourceEntryIds.length > 0) {
     const withUrl = await supabase
       .from("kaizen_entries")
-      .select("source_entry_id, source_url")
+      .select("source_entry_id, source_url, synced_at")
       .eq("user_id", userId)
       .in("source_entry_id", sourceEntryIds);
 
@@ -431,13 +502,14 @@ export async function GET() {
 
     (kaizenRows ?? []).forEach((row) => {
       const typed = row as KaizenEntryRow;
-      if (
-        typeof typed.source_entry_id === "string" &&
-        typed.source_entry_id &&
-        typeof typed.source_url === "string" &&
-        typed.source_url
-      ) {
-        kaizenSourceUrlBySourceId.set(typed.source_entry_id, typed.source_url);
+      if (typeof typed.source_entry_id === "string" && typed.source_entry_id) {
+        if (typeof typed.source_url === "string" && typed.source_url) {
+          kaizenSourceUrlBySourceId.set(typed.source_entry_id, typed.source_url);
+        }
+        kaizenSyncedAtBySourceId.set(
+          typed.source_entry_id,
+          typeof typed.synced_at === "string" && typed.synced_at ? typed.synced_at : null,
+        );
       }
     });
   }
@@ -485,6 +557,11 @@ export async function GET() {
         kaizen_id: kaizenId,
         kaizen_ids: kaizenIds,
         display_value: displayValue,
+        action_type: row.action_type,
+        group_id: row.group_id,
+        sequence_index: row.sequence_index,
+        kaizen_skill_id: row.kaizen_skill_id,
+        payload: row.payload,
       });
       existing.statuses.push(row.status);
       existing.attempt_count = Math.max(existing.attempt_count, row.attempt_count ?? 0);
@@ -497,6 +574,13 @@ export async function GET() {
       if (!existing.entry_edit_url && entryEditUrl) {
         existing.entry_edit_url = entryEditUrl;
       }
+      if (
+        row.status === "synced" &&
+        row.synced_at &&
+        (!existing.latest_queue_synced_at || row.synced_at > existing.latest_queue_synced_at)
+      ) {
+        existing.latest_queue_synced_at = row.synced_at;
+      }
       continue;
     }
 
@@ -505,6 +589,7 @@ export async function GET() {
       title: entry?.title ?? "Untitled entry",
       date: entry?.event_date ?? "",
       entry_edit_url: entryEditUrl,
+      source_entry_id: sourceEntryId,
       suggestion_ids: [row.suggestion_id],
       skills: [
         {
@@ -515,12 +600,18 @@ export async function GET() {
           kaizen_id: kaizenId,
           kaizen_ids: kaizenIds,
           display_value: displayValue,
+          action_type: row.action_type,
+          group_id: row.group_id,
+          sequence_index: row.sequence_index,
+          kaizen_skill_id: row.kaizen_skill_id,
+          payload: row.payload,
         },
       ],
       statuses: [row.status],
       attempt_count: row.attempt_count ?? 0,
       last_error: row.last_error,
       updated_at: row.updated_at,
+      latest_queue_synced_at: row.status === "synced" ? row.synced_at : null,
     });
   }
 
@@ -548,18 +639,32 @@ export async function GET() {
   }
 
   const entries: PushQueueEntry[] = Array.from(grouped.values())
-    .map((group) => ({
-      review_entry_id: group.review_entry_id,
-      title: group.title,
-      date: group.date,
-      entry_edit_url: group.entry_edit_url,
-      status: aggregateStatus(group.statuses),
-      attempt_count: group.attempt_count,
-      last_error: group.last_error,
-      updated_at: group.updated_at,
-      suggestion_ids: group.suggestion_ids,
-      skills: group.skills,
-    }))
+    .map((group) => {
+      const status = aggregateStatus(group.statuses);
+      const snapshotSyncedAt = group.source_entry_id
+        ? kaizenSyncedAtBySourceId.get(group.source_entry_id) ?? null
+        : null;
+      const needsSnapshotRefresh =
+        status === "synced" &&
+        !!group.latest_queue_synced_at &&
+        (!snapshotSyncedAt || snapshotSyncedAt < group.latest_queue_synced_at);
+
+      return {
+        review_entry_id: group.review_entry_id,
+        title: group.title,
+        date: group.date,
+        entry_edit_url: group.entry_edit_url,
+        status,
+        attempt_count: group.attempt_count,
+        last_error: group.last_error,
+        updated_at: group.updated_at,
+        latest_queue_synced_at: group.latest_queue_synced_at,
+        snapshot_synced_at: snapshotSyncedAt,
+        needs_snapshot_refresh: needsSnapshotRefresh,
+        suggestion_ids: group.suggestion_ids,
+        skills: group.skills,
+      };
+    })
     .sort((a, b) => {
       const byStatus = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
       if (byStatus !== 0) return byStatus;

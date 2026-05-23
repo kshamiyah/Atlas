@@ -19,7 +19,7 @@ type CoverageRow = {
 };
 
 const PROGRESS_PATH = "/dashboard/progress";
-const KEY_SKILL_REVIEW_PATH = "/dashboard/key-skill-review";
+const ENTRIES_PATH = "/dashboard/entries";
 
 const STALE_LOOKBACK_DAYS = 30;
 const CIP_DESCRIPTOR_RISK_PCT = 60;
@@ -56,16 +56,8 @@ function buildProgressHref(
   return q ? `${PROGRESS_PATH}?${q}` : PROGRESS_PATH;
 }
 
-function buildKeySkillReviewHref(preserve: ProgressLinkPreservation): string {
-  const p = new URLSearchParams();
-  if (preserve.stage_scope) p.set("stage_scope", preserve.stage_scope);
-  if (preserve.stage_group) p.set("stage_group", preserve.stage_group);
-  if (preserve.stage_id) p.set("stage_id", preserve.stage_id);
-  if (preserve.date_from) p.set("date_from", preserve.date_from);
-  if (preserve.date_to) p.set("date_to", preserve.date_to);
-  if (preserve.cip) p.set("cip", preserve.cip);
-  const q = p.toString();
-  return q ? `${KEY_SKILL_REVIEW_PATH}?${q}` : KEY_SKILL_REVIEW_PATH;
+function buildEntriesHref(): string {
+  return ENTRIES_PATH;
 }
 
 type Candidate = ProgressMessage & { _gap: number };
@@ -264,7 +256,7 @@ export function buildProgressMessages(params: {
         title: "Refresh your evidence",
         body: `No portfolio entry in this scope within the last ${STALE_LOOKBACK_DAYS} days (latest ${latest}).`,
         cta_label: "Go to My Entries",
-        cta_href: buildKeySkillReviewHref(linkPreserve),
+        cta_href: buildEntriesHref(),
         _gap: STALE_LOOKBACK_DAYS,
       });
     }

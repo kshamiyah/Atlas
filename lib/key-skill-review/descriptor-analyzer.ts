@@ -1,4 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
+import {
+  callLiveModel,
+  LIVE_AUDIT_MODEL,
+} from "@/lib/ai/live-models";
 
 export type AnalyzerKeySkill = {
   key_skill_id: string;
@@ -21,6 +24,17 @@ export type DescriptorResult = {
   evidence_quote: string | null;
 };
 
+export type DescriptorAnalyzerMetrics = {
+  api_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+};
+
+export type AnalyzeDescriptorsWithMetricsResult = {
+  results: DescriptorResult[];
+  metrics: DescriptorAnalyzerMetrics;
+};
+
 type PromptDescriptor = {
   descriptor_id: string;
   key_skill_id: string;
@@ -29,13 +43,87 @@ type PromptDescriptor = {
 };
 
 const MAX_DESCRIPTORS_PER_CALL = 30;
-const MODEL_NAME = "claude-haiku-4-5-20251001";
+const REQUEST_TIMEOUT_MS = 45_000;
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 600;
 
 type CallUsage = { input_tokens: number; output_tokens: number };
+const KEY_SKILL_REVIEW_LLM_ENABLED =
+  String(process.env.KEY_SKILL_REVIEW_LLM_ENABLED ?? "").toLowerCase() ===
+  "true";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+type ErrorLike = {
+  status?: number;
+  code?: string | number;
+  name?: string;
+  message?: string;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractErrorLike(err: unknown): ErrorLike {
+  return err && typeof err === "object" ? (err as ErrorLike) : {};
+}
+
+function formatError(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  const fallback = extractErrorLike(err).message;
+  return fallback ? String(fallback) : "Unknown error";
+}
+
+function getErrorStatus(err: unknown): number | null {
+  const status = extractErrorLike(err).status;
+  return Number.isFinite(status) ? Number(status) : null;
+}
+
+function isRetryableError(err: unknown): boolean {
+  const message = formatError(err).toLowerCase();
+  const status = getErrorStatus(err);
+  if (status === 408 || status === 409 || status === 425 || status === 429) {
+    return true;
+  }
+  if (status != null && status >= 500) {
+    return true;
+  }
+  if (
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("rate limit") ||
+    message.includes("temporar") ||
+    message.includes("overloaded") ||
+    message.includes("econnreset") ||
+    message.includes("network") ||
+    message.includes("failed to parse gemini 2.5 flash response as json")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+async function withTimeout<T>(
+  work: () => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(
+            new Error(
+              `Gemini 2.5 Flash request timed out after ${timeoutMs}ms`,
+            ),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
 
 function buildPrompt(
   entry: AnalyzerEntry,
@@ -77,54 +165,76 @@ function buildPrompt(
   ].join("\n");
 }
 
-async function callAnthropic(prompt: string): Promise<{ data: unknown; usage: CallUsage }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is not configured");
-  }
-
-  // Prefill the assistant turn with "[" so the model is forced to continue
-  // a JSON array directly — no prose, no code fences possible.
-  const message = await anthropic.messages.create({
-    model: MODEL_NAME,
-    max_tokens: 8192,
+async function callGeminiOnce(
+  prompt: string,
+): Promise<{ data: unknown; usage: CallUsage }> {
+  const message = await callLiveModel(LIVE_AUDIT_MODEL, {
+    userMessage: prompt,
+    maxTokens: 8192,
     temperature: 0,
-    messages: [
-      { role: "user", content: prompt },
-      { role: "assistant", content: "[" },
-    ],
+    prefillArray: true,
+    timeoutMs: REQUEST_TIMEOUT_MS,
   });
 
   const usage: CallUsage = {
-    input_tokens: message.usage.input_tokens,
-    output_tokens: message.usage.output_tokens,
+    input_tokens: message.inputTokens,
+    output_tokens: message.outputTokens,
   };
-
-  const textPart = message.content.find(
-    (c) => c.type === "text",
-  ) as { type: "text"; text: string } | undefined;
-
-  if (!textPart?.text) {
-    throw new Error("Anthropic response missing text content");
+  if (!message.rawText) {
+    throw new Error("Gemini 2.5 Flash response missing text content");
   }
 
-  // The model continues from "[", so prepend it to get the full array
-  const jsonText = "[" + textPart.text.trim();
+  const jsonText = message.rawText.trim();
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonText);
   } catch {
     const preview = jsonText.slice(0, 400).replace(/\n/g, " ");
-    throw new Error(`Failed to parse Anthropic response as JSON. Preview: ${preview}`);
+    throw new Error(
+      `Failed to parse Gemini 2.5 Flash response as JSON. Preview: ${preview}`,
+    );
   }
 
   return { data: parsed, usage };
 }
 
-export async function analyzeDescriptors(
+async function callGemini(
+  prompt: string,
+): Promise<{ data: unknown; usage: CallUsage }> {
+  if (!KEY_SKILL_REVIEW_LLM_ENABLED) {
+    throw new Error(
+      "Key-skill review LLM is disabled. Set KEY_SKILL_REVIEW_LLM_ENABLED=true to enable.",
+    );
+  }
+  if (!process.env.GOOGLE_AI_STUDIO_API_KEY) {
+    throw new Error("GOOGLE_AI_STUDIO_API_KEY is not configured");
+  }
+
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await withTimeout(
+        () => callGeminiOnce(prompt),
+        REQUEST_TIMEOUT_MS,
+      );
+    } catch (err) {
+      lastError = err;
+      const shouldRetry = attempt < MAX_ATTEMPTS && isRetryableError(err);
+      if (!shouldRetry) break;
+      await sleep(RETRY_BASE_DELAY_MS * attempt);
+    }
+  }
+
+  throw new Error(
+    `Descriptor analyzer failed after ${MAX_ATTEMPTS} attempts: ${formatError(lastError)}`,
+  );
+}
+
+export async function analyzeDescriptorsWithMetrics(
   entry: AnalyzerEntry,
   keySkills: AnalyzerKeySkill[],
-): Promise<DescriptorResult[]> {
+): Promise<AnalyzeDescriptorsWithMetricsResult> {
   const promptDescriptors: PromptDescriptor[] = [];
 
   for (const ks of keySkills) {
@@ -139,7 +249,14 @@ export async function analyzeDescriptors(
   }
 
   if (promptDescriptors.length === 0) {
-    return [];
+    return {
+      results: [],
+      metrics: {
+        api_calls: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+      },
+    };
   }
 
   const chunks: PromptDescriptor[][] = [];
@@ -148,41 +265,74 @@ export async function analyzeDescriptors(
   }
 
   const results: DescriptorResult[] = [];
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let apiCalls = 0;
 
   for (const chunk of chunks) {
     const prompt = buildPrompt(entry, chunk);
-    const { data: raw } = await callAnthropic(prompt);
+    try {
+      const { data: raw, usage } = await callGemini(prompt);
+      totalInputTokens += usage.input_tokens;
+      totalOutputTokens += usage.output_tokens;
+      apiCalls += 1;
 
-    if (!Array.isArray(raw)) {
-      continue;
-    }
+      if (!Array.isArray(raw)) {
+        continue;
+      }
 
-    for (const item of raw) {
-      if (!item || typeof item !== "object") continue;
-      const parsedItem = item as Record<string, unknown>;
+      for (const item of raw) {
+        if (!item || typeof item !== "object") continue;
+        const parsedItem = item as Record<string, unknown>;
 
-      const descriptor_id = String(parsedItem.descriptor_id ?? "");
-      if (!descriptor_id) continue;
+        const descriptor_id = String(parsedItem.descriptor_id ?? "");
+        if (!descriptor_id) continue;
 
-      const meta = chunk.find((d) => d.descriptor_id === descriptor_id);
-      if (!meta) continue;
+        const meta = chunk.find((d) => d.descriptor_id === descriptor_id);
+        if (!meta) continue;
 
-      const covered = Boolean(parsedItem.covered);
-      const confidenceRaw = Number(parsedItem.confidence ?? 0);
-      const confidence =
-        Number.isFinite(confidenceRaw) && confidenceRaw >= 0 && confidenceRaw <= 1
-          ? confidenceRaw
-          : 0;
+        const covered = Boolean(parsedItem.covered);
+        const confidenceRaw = Number(parsedItem.confidence ?? 0);
+        const confidence =
+          Number.isFinite(confidenceRaw) && confidenceRaw >= 0 && confidenceRaw <= 1
+            ? confidenceRaw
+            : 0;
 
-      results.push({
-        key_skill_id: meta.key_skill_id,
-        descriptor_id,
-        covered,
-        confidence,
-        evidence_quote: null, // not requested from LLM to avoid JSON escaping issues
-      });
+        results.push({
+          key_skill_id: meta.key_skill_id,
+          descriptor_id,
+          covered,
+          confidence,
+          evidence_quote: null, // not requested from LLM to avoid JSON escaping issues
+        });
+      }
+    } catch (err) {
+      const error = new Error(
+        `Descriptor analyzer failed for chunk: ${formatError(err)}`,
+      ) as Error & { metrics?: DescriptorAnalyzerMetrics };
+      error.metrics = {
+        api_calls: apiCalls,
+        input_tokens: totalInputTokens,
+        output_tokens: totalOutputTokens,
+      };
+      throw error;
     }
   }
 
-  return results;
+  return {
+    results,
+    metrics: {
+      api_calls: apiCalls,
+      input_tokens: totalInputTokens,
+      output_tokens: totalOutputTokens,
+    },
+  };
+}
+
+export async function analyzeDescriptors(
+  entry: AnalyzerEntry,
+  keySkills: AnalyzerKeySkill[],
+): Promise<DescriptorResult[]> {
+  const detailed = await analyzeDescriptorsWithMetrics(entry, keySkills);
+  return detailed.results;
 }

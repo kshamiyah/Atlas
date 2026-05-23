@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
-import { stagesForScope } from "@/lib/profile/stage";
+import { getStageNamesForGroup, stagesForScope } from "@/lib/profile/stage";
 import type {
   GapReport,
   GapReportCip,
@@ -19,6 +19,7 @@ type CoverageRow = {
   covered: boolean;
   confidence: number | null;
   evidence_quote: string | null;
+  review_entry_id: string;
 };
 
 export async function GET(req: NextRequest) {
@@ -101,7 +102,7 @@ export async function GET(req: NextRequest) {
     if (scopedStageNames) {
       stageQuery = stageQuery.in("name", [...scopedStageNames]);
     } else if (stageGroup) {
-      stageQuery = stageQuery.eq("stage_group", stageGroup);
+      stageQuery = stageQuery.in("name", [...getStageNamesForGroup(stageGroup as "Stage One" | "Stage Two" | "Stage Three")]);
     }
 
     const { data: stageRows } = await stageQuery;
@@ -161,7 +162,7 @@ export async function GET(req: NextRequest) {
   // --- Query C: Descriptor coverage ---
   const { data: coverageRows, error: coverageError } = await supabase
     .from("key_skill_descriptor_coverage")
-    .select("key_skill_id, descriptor_id, covered, confidence, evidence_quote")
+    .select("key_skill_id, descriptor_id, covered, confidence, evidence_quote, review_entry_id")
     .eq("user_id", userId);
 
   if (coverageError) {
@@ -174,6 +175,9 @@ export async function GET(req: NextRequest) {
   const coverageList = (coverageRows ?? []) as CoverageRow[];
   const coverageByDescriptor = new Map<string, CoverageRow>();
   for (const row of coverageList) {
+    if (entryIdFilter !== null && !entryIdFilter.includes(String(row.review_entry_id))) {
+      continue;
+    }
     const key = `${row.key_skill_id}:${row.descriptor_id}`;
     const existing = coverageByDescriptor.get(key);
     if (!existing) {

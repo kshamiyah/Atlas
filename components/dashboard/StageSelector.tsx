@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
+import { getStageGroupForStage } from "@/lib/profile/stage";
 
 export type StageItem = {
   id: string;
@@ -49,7 +50,7 @@ export function StageSelector({ currentStageId, stages }: StageSelectorProps) {
 
   const currentStage = stages.find((s) => s.id === currentStageId);
   const groups = stages.reduce<Record<string, StageItem[]>>((acc, s) => {
-    const g = s.stage_group || "Other";
+    const g = getStageGroupForStage(s.name) ?? s.stage_group ?? "Other";
     if (!acc[g]) acc[g] = [];
     acc[g].push(s);
     return acc;
@@ -58,39 +59,55 @@ export function StageSelector({ currentStageId, stages }: StageSelectorProps) {
   if (!currentStageId) return null;
 
   return (
-    <div>
-      {/* Inline stage display */}
-      <div className="flex items-center gap-2">
+    <div className="relative z-50">
+      <button
+        type="button"
+        onClick={() => setShowPicker((v) => !v)}
+        disabled={saving}
+        className="inline-flex items-center gap-2 rounded-lg border border-subtle bg-surface-2 px-2.5 py-1.5 text-[11px] font-medium text-secondary transition hover:bg-surface-3 disabled:opacity-50"
+      >
         <div className="h-1.5 w-1.5 rounded-full bg-accent-green" />
-        <span className="text-micro text-muted">
-          {currentStage?.name ?? "—"}
-          <span className="mx-1 opacity-40">·</span>
-          {currentStage?.stage_group}
-        </span>
-        <button
-          type="button"
-          onClick={() => setShowPicker((v) => !v)}
-          disabled={saving}
-          className="text-micro text-muted underline-offset-2 hover:text-secondary transition-colors disabled:opacity-50"
+        <span className="truncate">{currentStage?.name ?? "—"}</span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`transition-transform ${showPicker ? "rotate-180" : ""}`}
         >
-          {saving ? "Saving…" : "Change"}
-        </button>
-      </div>
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
 
-      {/* Stage picker — expands inline */}
       {showPicker && (
-        <div
-          className="mt-3 pt-3 space-y-3 border-t"
-          style={{ borderColor: "var(--border-subtle)" }}
-        >
-          <p className="text-micro text-muted">
-            Select your current training stage:
-          </p>
-          <div className="flex flex-wrap gap-3">
+        <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(22rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] rounded-lg border border-subtle bg-surface-2 p-3 shadow-[0_18px_50px_rgba(15,23,42,0.16)]">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                Training stage
+              </p>
+              <p className="mt-1 text-[12px] text-secondary">
+                {getStageGroupForStage(currentStage?.name) ?? currentStage?.stage_group ?? "Current stage"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPicker(false)}
+              className="text-[11px] font-medium text-muted transition hover:text-secondary"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="space-y-2.5">
             {Object.entries(groups).map(([groupName, groupStages]) => (
               <div key={groupName} className="space-y-1.5">
                 <p
-                  className="text-micro font-semibold uppercase tracking-wide"
+                  className="text-[10px] font-semibold uppercase tracking-[0.1em]"
                   style={{ color: "var(--text-muted)" }}
                 >
                   {groupName}
@@ -104,12 +121,12 @@ export function StageSelector({ currentStageId, stages }: StageSelectorProps) {
                         type="button"
                         disabled={saving}
                         onClick={() => handleSelect(stage.id)}
-                        className="rounded-full px-3 py-1 text-micro font-medium transition-colors disabled:opacity-50"
+                        className="rounded-full px-2.5 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-50"
                         style={
                           isActive
                             ? {
-                                backgroundColor: "var(--accent-primary)",
-                                color: "var(--surface-2)",
+                                backgroundColor: "var(--text-primary)",
+                                color: "var(--surface-1)",
                                 border: "1px solid transparent",
                               }
                             : {
@@ -127,14 +144,6 @@ export function StageSelector({ currentStageId, stages }: StageSelectorProps) {
               </div>
             ))}
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowPicker(false)}
-            className="text-micro text-muted underline-offset-2 hover:underline"
-          >
-            Cancel
-          </button>
         </div>
       )}
     </div>

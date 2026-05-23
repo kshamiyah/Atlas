@@ -1,4 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
+import {
+  callLiveModel,
+  LIVE_AUDIT_MODEL,
+} from "@/lib/ai/live-models";
 
 export type CrossCipSkillInput = {
   key_skill_id: string;
@@ -14,13 +17,11 @@ export type CrossCipSuggestion = {
 };
 
 const MAX_SKILLS_PER_CALL = 60;
-const MODEL_NAME = "claude-haiku-4-5-20251001";
 
 type CallUsage = { input_tokens: number; output_tokens: number };
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const KEY_SKILL_REVIEW_LLM_ENABLED =
+  String(process.env.KEY_SKILL_REVIEW_LLM_ENABLED ?? "").toLowerCase() ===
+  "true";
 
 function buildPrompt(
   entryText: string,
@@ -84,39 +85,35 @@ function buildPrompt(
   ].join("\n");
 }
 
-async function callAnthropic(
+async function callGemini(
   prompt: string,
 ): Promise<{ data: unknown; usage: CallUsage }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is not configured");
+  if (!KEY_SKILL_REVIEW_LLM_ENABLED) {
+    throw new Error(
+      "Key-skill review LLM is disabled. Set KEY_SKILL_REVIEW_LLM_ENABLED=true to enable.",
+    );
+  }
+  if (!process.env.GOOGLE_AI_STUDIO_API_KEY) {
+    throw new Error("GOOGLE_AI_STUDIO_API_KEY is not configured");
   }
 
-  // Prefill "[" so the model continues the JSON array directly
-  const message = await anthropic.messages.create({
-    model: MODEL_NAME,
-    max_tokens: 2048,
+  const message = await callLiveModel(LIVE_AUDIT_MODEL, {
+    userMessage: prompt,
+    maxTokens: 2048,
     temperature: 0,
-    messages: [
-      { role: "user", content: prompt },
-      { role: "assistant", content: "[" },
-    ],
+    prefillArray: true,
   });
 
   const usage: CallUsage = {
-    input_tokens: message.usage.input_tokens,
-    output_tokens: message.usage.output_tokens,
+    input_tokens: message.inputTokens,
+    output_tokens: message.outputTokens,
   };
-
-  const textPart = message.content.find(
-    (c) => c.type === "text",
-  ) as { type: "text"; text: string } | undefined;
-
-  if (!textPart?.text) {
+  if (!message.rawText) {
     // Model returned nothing — no cross-CiP matches
     return { data: [], usage };
   }
 
-  const jsonText = "[" + textPart.text.trim();
+  const jsonText = message.rawText.trim();
 
   let parsed: unknown;
   try {
@@ -155,7 +152,7 @@ export async function suggestCrossCipSkills(
       chunk,
       linkedSkillTitles,
     );
-    const { data: raw } = await callAnthropic(prompt);
+    const { data: raw } = await callGemini(prompt);
 
     if (!Array.isArray(raw)) continue;
 

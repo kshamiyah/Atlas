@@ -9,6 +9,14 @@ function statusLabel(status: ProgressRagStatus, checkpointType: ProgressCipRow["
   return checkpointType === "annual" ? "Off trajectory" : "At risk";
 }
 
+function buildEntriesHref(title: string, day: string | null): string {
+  const p = new URLSearchParams();
+  if (title.trim()) p.set("q", title.trim());
+  if (day) p.set("day", day);
+  const q = p.toString();
+  return q ? `/dashboard/entries?${q}` : "/dashboard/entries";
+}
+
 type ProgressCipDetailProps = {
   row: ProgressCipRow;
 };
@@ -84,7 +92,7 @@ export function ProgressCipDetail({ row }: ProgressCipDetailProps) {
       )}
 
       <section>
-        <h4 className="text-micro font-semibold text-primary">Top contributing entries</h4>
+        <h4 className="text-micro font-semibold text-primary">Recent entries in this CiP scope</h4>
         {row.top_entries.length === 0 ? (
           <p className="mt-1 text-[11px] text-muted">No entries in this scope for this CiP.</p>
         ) : (
@@ -92,7 +100,7 @@ export function ProgressCipDetail({ row }: ProgressCipDetailProps) {
             {row.top_entries.map((e) => (
               <li key={e.review_entry_id}>
                 <Link
-                  href="/dashboard/key-skill-review"
+                  href={buildEntriesHref(e.title, e.event_date)}
                   className="block rounded-lg border border-subtle bg-surface-1/80 px-3 py-2 text-left text-[11px] transition-colors hover:border-accent-primary/40 hover:bg-surface-2"
                 >
                   <span className="font-medium text-primary">{e.title}</span>

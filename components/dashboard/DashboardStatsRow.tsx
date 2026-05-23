@@ -19,33 +19,21 @@ function StatCard({ label, value, sub, accent = "default" }: Stat) {
           ? "var(--accent-blue)"
           : "var(--text-primary)";
 
-  const accentBar =
-    accent === "green"
-      ? "var(--accent-green)"
-      : accent === "amber"
-        ? "var(--accent-amber)"
-        : accent === "blue"
-          ? "var(--accent-blue)"
-          : "var(--border-subtle)";
-
   return (
     <div
-      className="card relative flex min-h-[132px] flex-col gap-1 overflow-hidden p-5"
-      style={{ boxShadow: "0 1px 0 rgba(0,0,0,0.03), 0 10px 28px rgba(0,0,0,0.06)" }}
+      className="card flex min-h-[150px] flex-col justify-between gap-3 p-6"
+      style={{ boxShadow: "0 1px 0 rgba(0,0,0,0.03), 0 10px 28px rgba(0,0,0,0.05)" }}
     >
-      <div
-        aria-hidden
-        className="absolute left-0 top-0 h-1 w-full"
-        style={{ background: accentBar }}
-      />
-      <span className="mt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">{label}</span>
-      <span
-        className="text-[2.5rem] font-bold tabular-nums leading-none tracking-tight"
-        style={{ color: valueColor }}
-      >
-        {value}
-      </span>
-      {sub && <span className="text-xs text-muted">{sub}</span>}
+      <div className="space-y-1">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">{label}</span>
+        <span
+          className="block text-[2.7rem] font-semibold tabular-nums leading-none tracking-[-0.04em]"
+          style={{ color: valueColor }}
+        >
+          {value}
+        </span>
+      </div>
+      {sub && <span className="text-[11px] leading-5 text-muted">{sub}</span>}
     </div>
   );
 }
@@ -104,32 +92,20 @@ export function DashboardStatsRow({
       : "var(--text-muted)";
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <StatCard label="Total entries" value={totalEntries} sub="synced from Kaizen" />
 
       {/* Days to ARCP */}
       <div
-        className="card relative flex min-h-[132px] flex-col gap-1 overflow-hidden p-5"
-        style={{ boxShadow: "0 1px 0 rgba(0,0,0,0.03), 0 10px 28px rgba(0,0,0,0.06)" }}
+        className="card flex min-h-[150px] flex-col justify-between gap-3 p-6"
+        style={{ boxShadow: "0 1px 0 rgba(0,0,0,0.03), 0 10px 28px rgba(0,0,0,0.05)" }}
       >
-        <div
-          aria-hidden
-          className="absolute left-0 top-0 h-1 w-full"
-          style={{
-            background:
-              focusDaysToArcp !== null && focusDaysToArcp < 30
-                ? "var(--accent-red)"
-                : focusDaysToArcp !== null && focusDaysToArcp < 90
-                  ? "var(--accent-amber)"
-                  : "var(--border-subtle)",
-          }}
-        />
-        <span className="mt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
           Days to ARCP
         </span>
 
         {editingArcp ? (
-          <form onSubmit={saveArcpDate} className="flex flex-col gap-2 mt-1">
+          <form onSubmit={saveArcpDate} className="mt-1 flex flex-col gap-2">
             <input
               type="date"
               name="arcp_date"
@@ -157,7 +133,7 @@ export function DashboardStatsRow({
         ) : focusDaysToArcp !== null ? (
           <div className="flex items-end gap-1.5">
             <span
-              className="text-[2.5rem] font-bold tabular-nums leading-none tracking-tight"
+              className="text-[2.7rem] font-semibold tabular-nums leading-none tracking-[-0.04em]"
               style={{ color: arcpValueColor }}
             >
               {focusDaysToArcp < 0 ? "Past" : focusDaysToArcp}
@@ -200,13 +176,13 @@ export function DashboardStatsRow({
           </button>
         )}
         {focusDaysToArcp !== null && isLtft && (
-          <span className="text-[11px] text-muted">
+          <span className="text-[11px] leading-5 text-muted">
             {workingPercent}% LTFT · {calendarDaysToArcp ?? "—"} calendar day
             {(calendarDaysToArcp ?? 0) === 1 ? "" : "s"}
           </span>
         )}
         {focusDaysToArcp === null && isLtft && (
-          <span className="text-[11px] text-muted">
+          <span className="text-[11px] leading-5 text-muted">
             LTFT mode active ({workingPercent}% WTE). Add ARCP date to show adjusted countdown.
           </span>
         )}

@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 const WEEKS = 52;
 const DAYS = 7;
+
+type ActivityEntry = {
+  id: string;
+  title: string;
+  entryType: string;
+  eventDate: string;
+};
 
 // Returns YYYY-MM-DD for the Sunday that starts the 52-week window ending today
 function getStartDate(): Date {
@@ -30,25 +38,28 @@ function cellColor(count: number, dark = false): string {
 }
 
 export function ActivityHeatmap() {
-  const [dates, setDates] = useState<string[]>([]);
+  const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/activity")
       .then((r) => r.json())
       .then((data) => {
-        setDates((data?.dates as string[]) ?? []);
+        setEntries((data?.entries as ActivityEntry[]) ?? []);
       })
       .finally(() => setIsLoading(false));
   }, []);
 
-  const { grid, totalDays } = useMemo(() => {
+  const { grid, totalDays, entriesByDate } = useMemo(() => {
     const startDate = getStartDate();
     const countByDate = new Map<string, number>();
+    const byDate = new Map<string, ActivityEntry[]>();
 
-    for (const d of dates) {
-      const key = d.slice(0, 10); // YYYY-MM-DD
+    for (const entry of entries) {
+      const key = entry.eventDate.slice(0, 10);
       countByDate.set(key, (countByDate.get(key) ?? 0) + 1);
+      byDate.set(key, [...(byDate.get(key) ?? []), entry]);
     }
 
     // Build grid[week][day]
@@ -66,8 +77,8 @@ export function ActivityHeatmap() {
     }
 
     const totalDays = countByDate.size;
-    return { grid, totalDays };
-  }, [dates]);
+    return { grid, totalDays, entriesByDate: byDate };
+  }, [entries]);
 
   // Month labels: figure out which week each month starts
   const monthLabels = useMemo(() => {
@@ -88,21 +99,23 @@ export function ActivityHeatmap() {
   }, [grid]);
 
   const today = toYMD(new Date());
-  const totalEntries = dates.length;
+  const totalEntries = entries.length;
+  const selectedEntries = selectedDay ? entriesByDate.get(selectedDay) ?? [] : [];
+  const hasSelectedDay = Boolean(selectedDay);
 
   if (isLoading) {
     return (
-      <section className="card p-6">
+      <section className="card w-full rounded-lg p-5 shadow-none">
         <div className="h-4 w-32 animate-pulse rounded bg-surface-3" />
         <div className="mt-4 h-24 w-full animate-pulse rounded bg-surface-3" />
       </section>
     );
   }
 
-  if (dates.length === 0) {
+  if (entries.length === 0) {
     return (
-      <section className="card p-6">
-        <h2 className="text-small font-semibold text-primary">Evidence Activity</h2>
+      <section className="card w-full rounded-lg p-5 shadow-none">
+        <h2 className="text-small font-semibold text-primary">Entry activity</h2>
         <p className="mt-1 text-micro text-muted">
           No entry dates yet — sync your portfolio to see activity.
         </p>
@@ -110,29 +123,28 @@ export function ActivityHeatmap() {
     );
   }
 
-  const cellW = 12;
-  const cellH = 12;
+  const cellW = 10;
+  const cellH = 10;
   const gap = 2;
-  const dayLabelW = 28;
+  const dayLabelW = 24;
   const totalW = dayLabelW + WEEKS * (cellW + gap);
   const topPad = 18; // room for month labels
   const totalH = topPad + DAYS * (cellH + gap);
 
   return (
-    <section className="card p-6">
-      <div className="mb-4 flex items-baseline justify-between border-b border-subtle pb-3">
-        <h2 className="text-small font-semibold text-primary">Evidence Activity</h2>
+    <section className="card w-full rounded-lg p-5 shadow-none">
+      <div className="mb-4 flex flex-col gap-1 border-b border-subtle pb-3 sm:flex-row sm:items-baseline sm:justify-between">
+        <h2 className="text-small font-semibold text-primary">Entry activity</h2>
         <span className="text-micro text-muted">
           {totalEntries} entr{totalEntries !== 1 ? "ies" : "y"} logged ·{" "}
           {totalDays} day{totalDays !== 1 ? "s" : ""} active
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-subtle bg-surface-1 p-3">
+      <div className="rounded-lg border border-subtle bg-surface-1 px-4 py-3">
         <svg
-          width={totalW}
-          height={totalH}
-          className="block"
+          viewBox={`0 0 ${totalW} ${totalH}`}
+          className="block h-auto max-h-44 w-full"
         >
           {/* Month labels */}
           {monthLabels.map(({ label, week }) => (
@@ -177,12 +189,28 @@ export function ActivityHeatmap() {
                     height={cellH}
                     rx={2}
                     fill={cellColor(count)}
-                    stroke={isToday ? "var(--accent-green)" : "none"}
-                    strokeWidth={isToday ? 1.5 : 0}
+                    stroke={
+                      selectedDay === ymd
+                        ? "var(--accent-primary)"
+                        : isToday
+                          ? "var(--accent-green)"
+                          : "none"
+                    }
+                    strokeWidth={selectedDay === ymd ? 1.5 : isToday ? 1.5 : 0}
+                    className="cursor-pointer transition-opacity hover:opacity-80"
+                    onClick={() =>
+                      setSelectedDay((current) => (current === ymd ? null : ymd))
+                    }
                   />
-                  {count > 0 && (
-                    <title>{`${ymd}: ${count} entr${count !== 1 ? "ies" : "y"}`}</title>
-                  )}
+                  <title>
+                    {new Date(ymd).toLocaleDateString("en-GB", {
+                      weekday: "short",
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                    {`: ${count} entr${count !== 1 ? "ies" : "y"}`}
+                  </title>
                 </g>
               );
             })
@@ -202,6 +230,59 @@ export function ActivityHeatmap() {
         ))}
         <span className="text-[10px] text-muted">More</span>
       </div>
+
+      {hasSelectedDay ? (
+        <div className="mt-4 rounded-lg border border-subtle bg-surface-1 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                Selected day
+              </p>
+              <h3 className="mt-1 text-sm font-semibold text-primary">
+                {new Date(selectedDay).toLocaleDateString("en-GB", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+              </h3>
+              <p className="mt-1 text-[12px] text-muted">
+                {selectedEntries.length} entr
+                {selectedEntries.length !== 1 ? "ies" : "y"} logged
+              </p>
+            </div>
+
+            <Link
+              href={`/dashboard/entries?day=${selectedDay}`}
+              className="btn-secondary w-fit px-3 py-1.5 text-[11px]"
+            >
+              Open in My Entries
+            </Link>
+          </div>
+
+          {selectedEntries.length === 0 ? (
+            <p className="mt-3 text-[12px] text-muted">No entries logged on this day.</p>
+          ) : (
+            <ul className="mt-3 divide-y divide-subtle">
+              {selectedEntries.slice(0, 5).map((entry) => (
+                <li
+                  key={entry.id}
+                  className="grid gap-2 py-3 first:pt-0 last:pb-0 md:grid-cols-[10rem_minmax(0,1fr)]"
+                >
+                  <span className="inline-flex w-fit max-w-full rounded-md bg-surface-4 px-1.5 py-0.5 text-[11px] font-medium text-secondary">
+                    <span className="truncate">
+                      {entry.entryType?.trim() || "Entry"}
+                    </span>
+                  </span>
+                  <span className="min-w-0 text-sm leading-6 text-primary">
+                    {entry.title?.trim() || "Untitled entry"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -12,6 +12,9 @@ type ReviewFiltersProps = {
   source: SourceFilter;
   confidence: ConfidenceFilter;
   query: string;
+  showTitle?: boolean;
+  showFacetFilters?: boolean;
+  helperText?: string | null;
   onStatusChange: (value: StatusFilter) => void;
   onSourceChange: (value: SourceFilter) => void;
   onConfidenceChange: (value: ConfidenceFilter) => void;
@@ -23,6 +26,9 @@ export function ReviewFilters({
   source,
   confidence,
   query,
+  showTitle = true,
+  showFacetFilters = true,
+  helperText = null,
   onStatusChange,
   onSourceChange,
   onConfidenceChange,
@@ -59,10 +65,12 @@ export function ReviewFilters({
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-col gap-3 border-b border-subtle pb-3">
-        <h2 className="text-small font-semibold text-primary">
-          Review filters
-        </h2>
+      <div className={`flex flex-col gap-3 ${showFacetFilters ? "border-b border-subtle pb-3" : ""}`}>
+        {showTitle && (
+          <h2 className="text-small font-semibold text-primary">
+            Review filters
+          </h2>
+        )}
         <div>
           <label className="block text-xs font-medium uppercase tracking-wide text-muted">
             Search
@@ -74,8 +82,12 @@ export function ReviewFilters({
             placeholder="Search title, text, or key skill…"
             className="mt-1 w-full rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-xs text-primary placeholder:text-muted focus:border-accent-blue focus:outline-none focus:ring-1 focus:ring-accent-blue"
           />
+          {helperText && (
+            <p className="mt-1 text-[11px] text-muted">{helperText}</p>
+          )}
         </div>
       </div>
+      {showFacetFilters && (
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
           <label className="block text-xs font-medium uppercase tracking-wide text-muted">
@@ -128,6 +140,7 @@ export function ReviewFilters({
           </select>
         </div>
       </div>
+      )}
     </section>
   );
 }
