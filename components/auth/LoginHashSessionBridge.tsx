@@ -33,7 +33,13 @@ export function LoginHashSessionBridge() {
         if (error || cancelled) return;
 
         const source = searchParams.get("source");
-        const target = source === "extension" ? "/auth/extension-done" : "/dashboard";
+        const requestedNext =
+          searchParams.get("redirectTo") ?? searchParams.get("next");
+        const safeNext =
+          requestedNext && requestedNext.startsWith("/")
+            ? requestedNext
+            : "/dashboard";
+        const target = source === "extension" ? "/auth/extension-done" : safeNext;
         window.history.replaceState({}, document.title, "/login");
         router.replace(target);
       } catch {
