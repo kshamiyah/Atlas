@@ -1606,12 +1606,12 @@ function KeySkillReviewPageContent() {
     setIsMutating(true);
     setErrorMessage(null);
     try {
-      await batchedRequests(toConfirm, ({ suggestionId }) =>
-        fetchJson<{ ok: true }>("/api/key-skill-review/status", {
+      await batchedRequests(toConfirm, async ({ suggestionId }) => {
+        await fetchJson<{ ok: true }>("/api/key-skill-review/status", {
           method: "PATCH",
           body: JSON.stringify({ suggestion_id: suggestionId, status: "confirmed" }),
-        }),
-      );
+        });
+      });
       await reloadAllQueues();
       addToast({
         message: `${toConfirm.length} ${batchScopeLabel(scope)} suggestion${toConfirm.length !== 1 ? "s" : ""} confirmed`,
@@ -1646,12 +1646,12 @@ function KeySkillReviewPageContent() {
     setIsMutating(true);
     setErrorMessage(null);
     try {
-      await batchedRequests(toReject, ({ suggestionId }) =>
-        fetchJson<{ ok: true }>("/api/key-skill-review/status", {
+      await batchedRequests(toReject, async ({ suggestionId }) => {
+        await fetchJson<{ ok: true }>("/api/key-skill-review/status", {
           method: "PATCH",
           body: JSON.stringify({ suggestion_id: suggestionId, status: "rejected" }),
-        }),
-      );
+        });
+      });
       await reloadAllQueues();
       addToast({
         message: `${toReject.length} low-confidence ${batchScopeLabel(scope)} suggestion${toReject.length !== 1 ? "s" : ""} rejected`,
@@ -1677,12 +1677,12 @@ function KeySkillReviewPageContent() {
     setIsMutating(true);
     setErrorMessage(null);
     try {
-      await batchedRequests(toReset, ({ suggestionId }) =>
-        fetchJson<{ ok: true }>("/api/key-skill-review/status", {
+      await batchedRequests(toReset, async ({ suggestionId }) => {
+        await fetchJson<{ ok: true }>("/api/key-skill-review/status", {
           method: "PATCH",
           body: JSON.stringify({ suggestion_id: suggestionId, status: "suggested" }),
-        }),
-      );
+        });
+      });
       await reloadAllQueues();
       addToast({ message: `${toReset.length} suggestion${toReset.length !== 1 ? "s" : ""} reset to suggested` });
     } catch (err) {

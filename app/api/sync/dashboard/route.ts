@@ -11,6 +11,12 @@ export type DashboardSyncBody = {
     percentage: number | null;
     status_colour: string | null;
   }>;
+  outgoing_assessments?: Array<{
+    assessor_name: string;
+    entry_title: string;
+    status: string;
+    date: string;
+  }>;
 };
 
 export async function POST(request: Request) {
@@ -30,7 +36,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { cips } = body;
+  const { cips, outgoing_assessments } = body;
   if (!Array.isArray(cips)) {
     return NextResponse.json(
       { error: "Body must include cips array" },
@@ -90,6 +96,53 @@ export async function POST(request: Request) {
     }
   }
 
+  const { error: deleteAssessmentRequestsError } = await supabase
+    .from("kaizen_assessment_requests")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("direction", "outgoing");
+
+  if (deleteAssessmentRequestsError) {
+    return NextResponse.json(
+      {
+        error:
+          "Failed to clear existing outgoing assessment requests: " +
+          deleteAssessmentRequestsError.message,
+      },
+      { status: 500 },
+    );
+  }
+
+  const outgoingAssessments = Array.isArray(outgoing_assessments)
+    ? outgoing_assessments
+    : [];
+
+  if (outgoingAssessments.length > 0) {
+    const assessmentRequestRows = outgoingAssessments.map((item) => ({
+      user_id: user.id,
+      direction: "outgoing" as const,
+      other_party_name: item.assessor_name ?? "",
+      entry_title: item.entry_title ?? "",
+      status: item.status ?? "",
+      date: item.date ?? "",
+    }));
+
+    const { error: insertAssessmentRequestsError } = await supabase
+      .from("kaizen_assessment_requests")
+      .insert(assessmentRequestRows);
+
+    if (insertAssessmentRequestsError) {
+      return NextResponse.json(
+        {
+          error:
+            "Failed to insert outgoing assessment requests: " +
+            insertAssessmentRequestsError.message,
+        },
+        { status: 500 },
+      );
+    }
+  }
+
   const dataHash = JSON.stringify(
     cips.map((c) => [c.cip_number, c.percentage]).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0))
   );
@@ -102,5 +155,6 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     synced: cips.length,
+    synced_outgoing_assessments: outgoingAssessments.length,
   });
 }

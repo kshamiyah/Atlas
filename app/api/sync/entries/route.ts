@@ -4,6 +4,7 @@ import {
   createSupabaseClientWithToken,
 } from "@/lib/supabase/api-client";
 import { inferOsatsStorageFields } from "@/lib/requirements/osats-evidence";
+import { isUnsignedAssessorEvidence } from "@/lib/kaizen/evidence-eligibility";
 
 export type EntriesSyncBody = {
   entries: Array<{
@@ -197,6 +198,7 @@ export async function POST(request: Request) {
   const supabase = createSupabaseClientWithToken(accessToken);
   let acceptedCount = 0;
   let skippedLowSignalCount = 0;
+  let skippedUnsignedAssessorCount = 0;
 
   if (entries.length > 0) {
     const rowsByKey = new Map<string, NormalisedEntryRow>();
@@ -255,12 +257,68 @@ export async function POST(request: Request) {
       });
     });
 
-    let rows = Array.from(rowsByKey.values());
+    const allIncomingRows = Array.from(rowsByKey.values());
+
+    const incomingSourceEntryIds = Array.from(
+      new Set(
+        allIncomingRows
+          .map((r) => r.source_entry_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      ),
+    );
+    if (incomingSourceEntryIds.length > 0) {
+      const { error: scopedDeleteByIdError } = await supabase
+        .from("kaizen_entries")
+        .delete()
+        .eq("user_id", user.id)
+        .in("source_entry_id", incomingSourceEntryIds);
+      if (scopedDeleteByIdError) {
+        return NextResponse.json(
+          { error: "Failed to replace incoming entries by ID: " + scopedDeleteByIdError.message },
+          { status: 500 }
+        );
+      }
+    }
+
+    const incomingSourceUrlsWithoutId = Array.from(
+      new Set(
+        allIncomingRows
+          .filter((r) => !r.source_entry_id)
+          .map((r) => r.source_url)
+          .filter((url): url is string => typeof url === "string" && url.length > 0),
+      ),
+    );
+    if (incomingSourceUrlsWithoutId.length > 0) {
+      const { error: scopedDeleteByUrlError } = await supabase
+        .from("kaizen_entries")
+        .delete()
+        .eq("user_id", user.id)
+        .is("source_entry_id", null)
+        .in("source_url", incomingSourceUrlsWithoutId);
+      if (scopedDeleteByUrlError) {
+        return NextResponse.json(
+          { error: "Failed to replace incoming entries by URL: " + scopedDeleteByUrlError.message },
+          { status: 500 }
+        );
+      }
+    }
+
+    let rows = allIncomingRows;
 
     const filteredRows: NormalisedEntryRow[] = [];
     const skippedLowSignalRows: NormalisedEntryRow[] = [];
+    const skippedUnsignedAssessorRows: NormalisedEntryRow[] = [];
     for (const row of rows) {
-      if (isLowSignalEntryRow(row)) {
+      if (
+        isUnsignedAssessorEvidence({
+          detected_entry_type: row.detected_entry_type,
+          assessment_type: row.assessment_type,
+          status: row.status,
+          extracted_fields: row.extracted_fields,
+        })
+      ) {
+        skippedUnsignedAssessorRows.push(row);
+      } else if (isLowSignalEntryRow(row)) {
         skippedLowSignalRows.push(row);
       } else {
         filteredRows.push(row);
@@ -268,6 +326,7 @@ export async function POST(request: Request) {
     }
     rows = filteredRows;
     skippedLowSignalCount = skippedLowSignalRows.length;
+    skippedUnsignedAssessorCount = skippedUnsignedAssessorRows.length;
     acceptedCount = rows.length;
 
     if (skippedLowSignalRows.length > 0) {
@@ -279,6 +338,20 @@ export async function POST(request: Request) {
           detected_entry_type: row.detected_entry_type,
           extraction_status: row.extraction_status,
           entry_text_preview: row.entry_text.slice(0, 80),
+        })),
+      );
+    }
+
+    if (skippedUnsignedAssessorRows.length > 0) {
+      console.warn(
+        "[sync/entries] skipped unsigned/expired assessor evidence rows:",
+        skippedUnsignedAssessorRows.map((row) => ({
+          source_entry_id: row.source_entry_id,
+          source_url: row.source_url,
+          detected_entry_type: row.detected_entry_type,
+          assessment_type: row.assessment_type,
+          status: row.status,
+          title: row.title,
         })),
       );
     }
@@ -319,50 +392,6 @@ export async function POST(request: Request) {
       }
     }
 
-    const incomingSourceEntryIds = Array.from(
-      new Set(
-        rows
-          .map((r) => r.source_entry_id)
-          .filter((id): id is string => typeof id === "string" && id.length > 0),
-      ),
-    );
-    if (incomingSourceEntryIds.length > 0) {
-      const { error: scopedDeleteByIdError } = await supabase
-        .from("kaizen_entries")
-        .delete()
-        .eq("user_id", user.id)
-        .in("source_entry_id", incomingSourceEntryIds);
-      if (scopedDeleteByIdError) {
-        return NextResponse.json(
-          { error: "Failed to replace incoming entries by ID: " + scopedDeleteByIdError.message },
-          { status: 500 }
-        );
-      }
-    }
-
-    const incomingSourceUrlsWithoutId = Array.from(
-      new Set(
-        rows
-          .filter((r) => !r.source_entry_id)
-          .map((r) => r.source_url)
-          .filter((url): url is string => typeof url === "string" && url.length > 0),
-      ),
-    );
-    if (incomingSourceUrlsWithoutId.length > 0) {
-      const { error: scopedDeleteByUrlError } = await supabase
-        .from("kaizen_entries")
-        .delete()
-        .eq("user_id", user.id)
-        .is("source_entry_id", null)
-        .in("source_url", incomingSourceUrlsWithoutId);
-      if (scopedDeleteByUrlError) {
-        return NextResponse.json(
-          { error: "Failed to replace incoming entries by URL: " + scopedDeleteByUrlError.message },
-          { status: 500 }
-        );
-      }
-    }
-
     if (rows.length > 0) {
       const { error: insertError } = await supabase
         .from("kaizen_entries")
@@ -388,5 +417,6 @@ export async function POST(request: Request) {
     synced: acceptedCount,
     received: entries.length,
     skipped_low_signal: skippedLowSignalCount,
+    skipped_unsigned_assessor: skippedUnsignedAssessorCount,
   });
 }

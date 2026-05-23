@@ -7,6 +7,7 @@ import {
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  PushQueueActionType,
   PushQueueEntry,
   PushQueueResponse,
   PushQueueStatus,
@@ -30,7 +31,7 @@ type PushQueueRow = {
   last_error: string | null;
   updated_at: string;
   synced_at: string | null;
-  action_type: string | null;
+  action_type: PushQueueActionType;
   group_id: string | null;
   sequence_index: number | null;
   kaizen_skill_id: string | null;

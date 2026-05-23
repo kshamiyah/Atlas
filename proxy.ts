@@ -9,7 +9,7 @@ export const config = {
   matcher: [
     "/dashboard/:path*",
     "/login",
-    "/callback",
+    "/auth/callback",
     "/auth/extension-done",
   ],
 };
