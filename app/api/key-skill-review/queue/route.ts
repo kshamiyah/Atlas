@@ -354,7 +354,7 @@ export async function GET() {
 
     if (kaizenError) {
       return NextResponse.json(
-        { error: "Failed to load Kaizen entry snapshots: " + kaizenError.message },
+        { error: "Failed to load ePortfolio entry snapshots: " + kaizenError.message },
         { status: 500 },
       );
     }

@@ -172,7 +172,7 @@ export async function POST(request: Request) {
           method: "rule",
           status: "confirmed",
           confidence: 1,
-          rationale: "Current Kaizen link placeholder for replace action",
+          rationale: "Current ePortfolio link placeholder for replace action",
         },
         { onConflict: "review_entry_id,key_skill_id,suggestion_source" },
       )

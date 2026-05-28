@@ -10,6 +10,7 @@ import { ProgressKeySkillsTab } from "@/components/progress/ProgressKeySkillsTab
 import { ProgressKpiStrip } from "@/components/progress/ProgressKpiStrip";
 import { ProgressMessageCentre } from "@/components/progress/ProgressMessageCentre";
 import { ProgressYearBar } from "@/components/progress/ProgressYearBar";
+import { ProgressSnapshotView } from "@/components/progress/ProgressSnapshotView";
 import { ProgressPrioritiesView } from "@/components/progress/ProgressPrioritiesView";
 import {
   ProgressTabsShell,
@@ -22,6 +23,10 @@ import {
   curriculumBandLabelForYear,
   curriculumBandScopeForYear,
 } from "@/lib/progress/scope-dimensions";
+import {
+  defaultViewForYear,
+  isRetrospectiveYear,
+} from "@/lib/progress/year-portfolio";
 import {
   normalizeStageName,
   type StageName,
@@ -52,8 +57,10 @@ function syncCurriculumScopeFromYear(
   else params.delete("stage_scope");
 }
 
+type ProgressViewId = "snapshot" | "priorities" | "overview";
+
 type ProgressUrlUpdates = {
-  view?: "overview" | "priorities";
+  view?: ProgressViewId;
   year?: StageName | null;
   tab?: ProgressTabId;
   cip?: number | null;
@@ -201,8 +208,10 @@ function parseTab(raw: string | null): ProgressTabId {
   return "cips";
 }
 
-function parseView(raw: string | null): "overview" | "priorities" {
-  return raw === "overview" ? "overview" : "priorities";
+function parseView(raw: string | null): ProgressViewId {
+  if (raw === "overview") return "overview";
+  if (raw === "snapshot") return "snapshot";
+  return "priorities";
 }
 
 export function ProgressHubClient({
@@ -229,7 +238,7 @@ export function ProgressHubClient({
   const [selectedYear, setSelectedYear] = useState<StageName | null>(
     yearFromUrl ?? initialYear,
   );
-  const [activeView, setActiveView] = useState<"overview" | "priorities">(viewFromUrl);
+  const [activeView, setActiveView] = useState<ProgressViewId>(viewFromUrl);
   const [activeTab, setActiveTab] = useState<ProgressTabId>(tabFromUrl);
   const [data, setData] = useState<ProgressSummaryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -286,14 +295,16 @@ export function ProgressHubClient({
   const onYearChange = useCallback(
     (year: StageName) => {
       setSelectedYear(year);
+      const nextView = defaultViewForYear(year, currentYear);
+      setActiveView(nextView);
       const href = buildProgressUrl(pathname, stableSearchParams, {
-        view: activeView,
+        view: nextView,
         year,
         tab: activeTab,
       });
       router.replace(href, { scroll: false });
     },
-    [activeTab, activeView, pathname, router, stableSearchParams],
+    [activeTab, currentYear, pathname, router, stableSearchParams],
   );
 
   const selectedStageScope = useMemo((): StageScope | null => {
@@ -333,7 +344,7 @@ export function ProgressHubClient({
   );
 
   const onViewChange = useCallback(
-    (view: "overview" | "priorities") => {
+    (view: ProgressViewId) => {
       setActiveView(view);
       const href = buildProgressUrl(pathname, stableSearchParams, {
         view,
@@ -395,8 +406,49 @@ export function ProgressHubClient({
     ? curriculumBandLabelForYear(selectedYear)
     : null;
   const checkpointLabel = currentYear ?? data?.checkpoint.current_stage ?? "Not set";
+  const viewingRetrospective = isRetrospectiveYear(selectedYear, currentYear);
   const activeCipScope =
     cipFromUrl && /^\d+$/.test(cipFromUrl) ? Number.parseInt(cipFromUrl, 10) : null;
+
+  const viewOptions = useMemo(() => {
+    const snapshot = {
+      id: "snapshot" as const,
+      label: "Snapshot",
+      sub: "Year portfolio summary",
+    };
+    const priorities = {
+      id: "priorities" as const,
+      label: "Priorities",
+      sub: "What to do next",
+    };
+    const overview = {
+      id: "overview" as const,
+      label: "Overview",
+      sub: "Coverage drill-downs",
+    };
+    return viewingRetrospective
+      ? [snapshot, overview, priorities]
+      : [priorities, overview];
+  }, [viewingRetrospective]);
+
+  useEffect(() => {
+    if (activeView !== "snapshot") return;
+    if (!viewingRetrospective) {
+      setActiveView("priorities");
+      const href = buildProgressUrl(pathname, stableSearchParams, {
+        view: "priorities",
+        tab: activeTab,
+      });
+      router.replace(href, { scroll: false });
+    }
+  }, [
+    activeTab,
+    activeView,
+    pathname,
+    router,
+    stableSearchParams,
+    viewingRetrospective,
+  ]);
 
   const clearCipScope = useCallback(() => {
     const href = buildProgressUrl(pathname, stableSearchParams, {
@@ -469,19 +521,8 @@ export function ProgressHubClient({
             disabled={isLoading}
           />
 
-          <div className="mt-4 inline-flex gap-0.5 rounded-full bg-surface-3 p-0.5">
-            {[
-              {
-                id: "priorities" as const,
-                label: "Priorities",
-                sub: "What to do next",
-              },
-              {
-                id: "overview" as const,
-                label: "Overview",
-                sub: "Coverage and drill-downs",
-              },
-            ].map((view) => (
+          <div className="mt-4 inline-flex flex-wrap gap-0.5 rounded-full bg-surface-3 p-0.5">
+            {viewOptions.map((view) => (
               <button
                 key={view.id}
                 type="button"
@@ -519,18 +560,30 @@ export function ProgressHubClient({
           </div>
         )}
 
-            {activeView === "priorities" ? (
-              <ProgressPrioritiesView
-                selectedYear={selectedYear}
-                selectedStageScope={selectedStageScope}
-              />
-            ) : isLoading && !data ? (
+        {activeView === "snapshot" ? (
+          <ProgressSnapshotView
+            selectedYear={selectedYear}
+            currentYear={currentYear}
+            selectedStageScope={selectedStageScope}
+            progressData={data}
+            isLoadingProgress={isLoading}
+          />
+        ) : activeView === "priorities" ? (
+          <ProgressPrioritiesView
+            selectedYear={selectedYear}
+            selectedStageScope={selectedStageScope}
+          />
+        ) : isLoading && !data ? (
           <div className="flex justify-center py-12 text-small text-muted">Loading metrics…</div>
         ) : data ? (
           <>
-            <section aria-label="Progress snapshot">
-              <h2 className="sr-only">Progress snapshot</h2>
-              <ProgressKpiStrip kpis={data.kpis} checkpoint={data.checkpoint} />
+            <section aria-label="Progress overview">
+              <h2 className="sr-only">Progress overview</h2>
+              <ProgressKpiStrip
+                kpis={data.kpis}
+                checkpoint={data.checkpoint}
+                showBandCoverageHint={selectedStageScope === "BAND_ST1_2"}
+              />
             </section>
 
             <ProgressMessageCentre messages={data.messages} />

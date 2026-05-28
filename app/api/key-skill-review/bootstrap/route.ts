@@ -34,7 +34,7 @@ function toIsoDateOrNull(value: string | null | undefined): string | null {
   // Already ISO date format.
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
 
-  // Common Kaizen format: DD/MM/YYYY.
+  // Common ePortfolio format: DD/MM/YYYY.
   const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (dmy) {
     const day = Number(dmy[1]);

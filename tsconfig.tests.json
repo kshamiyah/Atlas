@@ -21,6 +21,8 @@
     "lib/key-skill-review/progress-focus.ts",
     "lib/types/key-skill-review.ts",
     "lib/types/progress.ts",
+    "lib/kaizen/kaizen-date.ts",
+    "lib/progress/year-portfolio.ts",
     "lib/progress/summary-metrics.ts",
     "lib/progress/cip-metrics.ts",
     "lib/progress/key-skill-metrics.ts",

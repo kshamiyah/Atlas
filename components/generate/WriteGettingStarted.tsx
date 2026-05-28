@@ -76,22 +76,22 @@ export function WriteGettingStarted({
       ? "Add your clinical notes"
       : !hasGenerated
         ? "Ready to generate"
-        : "Entry generated — copy to Kaizen next";
+        : "Entry generated — copy to ePortfolio next";
 
   const subhead = !hasEntryType
-    ? "Pick the Kaizen form you need in Entry settings (left on desktop, below notes on mobile)."
+    ? "Pick the ePortfolio form you need in Entry settings (left on desktop, below notes on mobile)."
     : !hasNotes
       ? "Write what happened in plain language. Atlas structures it for the form you chose."
       : !hasGenerated
         ? "Optional: set date, length, and target key skills, then tap Generate entry."
-        : "Review and edit the fields below, then use Fill in Kaizen with the Atlas extension open.";
+        : "Review and edit the fields below, then use Fill in ePortfolio with the Atlas extension open.";
 
   const steps: GuideStep[] = [
     {
       id: "type",
       title: "Choose entry type",
       description:
-        "Pick the Kaizen form you want (e.g. Reflective Practice, Procedure log, OSATS). Atlas will not guess.",
+        "Pick the ePortfolio form you want (e.g. Reflective Practice, Procedure log, OSATS). Atlas will not guess.",
       status: hasEntryType ? "complete" : "current",
     },
     {
@@ -105,7 +105,7 @@ export function WriteGettingStarted({
       id: "generate",
       title: "Generate & edit",
       description:
-        "Each field can be regenerated or copied individually before you send it to Kaizen.",
+        "Each field can be regenerated or copied individually before you send it to ePortfolio.",
       status:
         !hasEntryType || !hasNotes
           ? "upcoming"
@@ -115,9 +115,9 @@ export function WriteGettingStarted({
     },
     {
       id: "kaizen",
-      title: "Fill in Kaizen",
+      title: "Fill in ePortfolio",
       description:
-        "Use Fill in Kaizen. The Atlas extension queues your fields and opens the matching new-entry form.",
+        "Use Fill in ePortfolio. The Atlas extension queues your fields and opens the matching new-entry form.",
       status: hasGenerated ? "current" : "upcoming",
     },
   ];

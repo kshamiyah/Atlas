@@ -176,27 +176,68 @@ export function DashboardReadinessSection({
   stageKey = "none",
 }: DashboardReadinessSectionProps) {
   const [readiness, setReadiness] = useState<ArcpReadiness | null>(null);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setLoadState("loading");
 
     fetch("/api/arcp-readiness", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (active && !d.error) setReadiness(d);
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Failed to load readiness");
+        }
+        return response.json();
       })
-      .catch(() => {});
+      .then((data) => {
+        if (!active) return;
+        if (data.error) {
+          setLoadState("error");
+          return;
+        }
+        setReadiness(data);
+        setLoadState("ready");
+      })
+      .catch(() => {
+        if (active) setLoadState("error");
+      });
 
     return () => {
       active = false;
     };
-  }, [stageKey]);
+  }, [stageKey, retryKey]);
 
-  if (!readiness) {
+  if (loadState === "loading") {
     return (
       <div className="card overflow-hidden rounded-lg shadow-none">
         <div className="h-48 animate-pulse bg-surface-3/80" />
       </div>
+    );
+  }
+
+  if (loadState === "error" || !readiness) {
+    return (
+      <section className="card overflow-hidden rounded-lg shadow-none">
+        <div className="flex flex-col gap-4 px-5 py-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1.5">
+            <h2 className="text-small font-semibold text-primary" style={{ letterSpacing: "-0.014em" }}>
+              ARCP Prediction
+            </h2>
+            <p className="text-xs leading-relaxed text-secondary">
+              We couldn&apos;t load your readiness signals right now. Your other dashboard data is
+              still available.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRetryKey((value) => value + 1)}
+            className="btn-secondary w-fit px-4 py-2 text-small"
+          >
+            Try again
+          </button>
+        </div>
+      </section>
     );
   }
 

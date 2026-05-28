@@ -1317,10 +1317,10 @@ export function ReviewCard({
 
             <div className="mt-3 rounded-lg border border-subtle bg-surface-2 px-3 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                Currently linked in Kaizen
+                Currently linked in ePortfolio
               </p>
               <p className="mt-1 text-[11px] text-muted">
-                Official links currently present on the Kaizen entry.
+                Official links currently present on the ePortfolio entry.
               </p>
               {kaizenLinkedSkills.length > 0 ? (
                 <ul className="mt-2 space-y-1.5">
@@ -1338,7 +1338,7 @@ export function ReviewCard({
                             </p>
                             <p className="mt-0.5 text-[10px] text-muted">
                               CiP {skill.cip_number}
-                              {skillKaizenId ? ` · Kaizen ID ${skillKaizenId}` : ""}
+                              {skillKaizenId ? ` · ePortfolio ID ${skillKaizenId}` : ""}
                             </p>
                           </div>
                           {skillKaizenId && onUnlinkKaizenSkill && (
@@ -1357,7 +1357,7 @@ export function ReviewCard({
                               )
                             }
                               className="inline-flex min-h-6 items-center rounded-md border border-rose-300/45 bg-rose-300/10 px-2 py-0.5 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-50"
-                              title="Queue removal of this link for Kaizen sync"
+                              title="Queue removal of this link for ePortfolio sync"
                             >
                               {pendingUnlinkSkillId ===
                               `${skill.key_skill_id}:${skillKaizenId}`
@@ -1383,7 +1383,7 @@ export function ReviewCard({
                 </ul>
               ) : (
                 <p className="mt-2 text-[11px] italic text-muted">
-                  No skills currently linked in Kaizen for this entry.
+                  No skills currently linked in ePortfolio for this entry.
                 </p>
               )}
             </div>
@@ -1469,7 +1469,7 @@ export function ReviewCard({
                     <div className="rounded-lg border border-accent-amber/25 bg-accent-amber/10 px-3 py-2">
                       <p className="text-[11px] font-medium text-secondary">
                         {pendingRemovalCount} queued change
-                        {pendingRemovalCount === 1 ? "" : "s"} already waiting for Kaizen sync.
+                        {pendingRemovalCount === 1 ? "" : "s"} already waiting for ePortfolio sync.
                       </p>
                       <p className="mt-1 text-[11px] text-muted">
                         You can keep reviewing the remaining recommendations for this entry, then
@@ -1696,9 +1696,9 @@ export function ReviewCard({
                           stripRecommendation.replace_skill_id
                         }" with "${stripRecommendation.key_skill_title}".`
                       : stripRecommendation.action === "remove"
-                        ? `Recommended action: remove "${stripRecommendation.key_skill_title}" from the Kaizen entry.`
+                        ? `Recommended action: remove "${stripRecommendation.key_skill_title}" from the ePortfolio entry.`
                         : `Recommended action: link "${stripRecommendation.key_skill_title}".`
-                    : "No automatic add/remove/replace recommendation yet. Review the current Kaizen links below."}
+                    : "No automatic add/remove/replace recommendation yet. Review the current ePortfolio links below."}
                 </p>
               )}
               {!isRecommendationReviewMode &&

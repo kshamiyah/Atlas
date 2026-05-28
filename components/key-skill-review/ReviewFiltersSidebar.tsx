@@ -140,7 +140,7 @@ export function ReviewFiltersSidebar({
         <div className="shrink-0 border-t border-subtle bg-surface-1/80 px-4 py-2.5">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] text-muted">
-              Kaizen queue:{" "}
+              ePortfolio queue:{" "}
               <span className="font-medium text-secondary">{queuePending} pending</span>
               {queueFailed > 0 ? (
                 <>

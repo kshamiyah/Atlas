@@ -93,7 +93,7 @@ export function DashboardStatsRow({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <StatCard label="Total entries" value={totalEntries} sub="synced from Kaizen" />
+      <StatCard label="Total entries" value={totalEntries} sub="synced from ePortfolio" />
 
       {/* Days to ARCP */}
       <div

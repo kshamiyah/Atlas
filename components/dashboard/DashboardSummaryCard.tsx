@@ -199,7 +199,7 @@ export function DashboardSummaryCard({
       {
         label: "Entries",
         value: String(totalEntries),
-        detail: "Synced from Kaizen",
+        detail: "Synced from ePortfolio",
       },
       {
         label: "ARCP",

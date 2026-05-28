@@ -496,7 +496,7 @@ export async function GET() {
 
     if (kaizenRowsError) {
       return NextResponse.json(
-        { error: "Failed to load Kaizen entry URLs: " + kaizenRowsError.message },
+        { error: "Failed to load ePortfolio entry URLs: " + kaizenRowsError.message },
         { status: 500 },
       );
     }
@@ -765,7 +765,7 @@ export async function PATCH(request: Request) {
         updatePayload.last_error = null;
       } else if (item.status === "failed") {
         updatePayload.synced_at = null;
-        updatePayload.last_error = item.error ?? "Push to Kaizen failed";
+        updatePayload.last_error = item.error ?? "Push to ePortfolio failed";
       } else {
         updatePayload.last_error = null;
       }

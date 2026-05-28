@@ -233,7 +233,7 @@ function needsPlanReview(params: {
   }
 
   if (params.unresolvedLinkedSkills.length > 0) {
-    reasons.push("Current Kaizen links include unresolved skills");
+    reasons.push("Current ePortfolio links include unresolved skills");
   }
 
   const riskyOutgoing = draftPlan.skills.filter(
@@ -1238,7 +1238,7 @@ export async function POST(request: Request) {
 
     if (kaizenError) {
       return NextResponse.json(
-        { error: "Failed to load Kaizen entries: " + kaizenError.message },
+        { error: "Failed to load ePortfolio entries: " + kaizenError.message },
         { status: 500 },
       );
     }

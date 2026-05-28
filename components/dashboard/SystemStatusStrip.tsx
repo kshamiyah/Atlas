@@ -76,7 +76,7 @@ function phaseMessage(payload: LightweightRefreshPayload): string {
     case "error":
       return payload.detail || "Refresh failed.";
     default:
-      return "Refreshing Kaizen changes.";
+      return "Refreshing ePortfolio changes.";
   }
 }
 
@@ -206,7 +206,7 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
                 className="h-1.5 w-1.5 rounded-full"
                 style={{ background: statusColor }}
               />
-              Kaizen status
+              ePortfolio status
             </span>
             <span className="text-[11px] text-muted">{statusLabel}</span>
             <span className="text-[11px] text-muted">{statusMessage}</span>

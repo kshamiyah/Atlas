@@ -88,27 +88,27 @@ export function ReviewGettingStarted({
     : !hasAuditData
       ? "Your entries are in — run an audit next"
       : reviewComplete && syncNeedsAction
-        ? "Review complete — sync changes to Kaizen"
+        ? "Review complete — sync changes to ePortfolio"
         : reviewComplete
           ? "You're all caught up on this pass"
           : "Almost ready to review";
 
   const subhead = !entriesSynced
-    ? "Import Kaizen entries with the Atlas extension, then work through the steps below."
+    ? "Import ePortfolio entries with the Atlas extension, then work through the steps below."
     : !hasAuditData
       ? "An audit finds over-linked entries, gaps, and new skill suggestions to review."
       : reviewComplete && syncNeedsAction
-        ? "Confirmed changes are queued. Push them back to Kaizen when you're ready."
+        ? "Confirmed changes are queued. Push them back to ePortfolio when you're ready."
         : reviewComplete
-          ? "Run Kaizen Sync after your next review session, or run Audit again for a fresh pass."
+          ? "Run ePortfolio sync after your next review session, or run Audit again for a fresh pass."
           : "Finish the steps below to open your review queue.";
 
   const steps: GuideStep[] = [
     {
       id: "sync",
-      title: "Sync entries from Kaizen",
+      title: "Sync entries from ePortfolio",
       description:
-        "Use the Atlas Chrome extension on Kaizen to import your portfolio entries.",
+        "Use the Atlas Chrome extension on ePortfolio to import your portfolio entries.",
       status: entriesSynced ? "complete" : "current",
       action: !entriesSynced ? (
         <Link href="/dashboard/entries" className="btn-secondary text-xs">
@@ -170,9 +170,9 @@ export function ReviewGettingStarted({
     },
     {
       id: "push",
-      title: "Sync back to Kaizen",
+      title: "Sync back to ePortfolio",
       description:
-        "Push confirmed cross-CiP skills and queued link changes to your Kaizen portfolio.",
+        "Push confirmed cross-CiP skills and queued link changes to your RCOG ePortfolio.",
       status: !reviewComplete
         ? "upcoming"
         : syncNeedsAction
@@ -186,7 +186,7 @@ export function ReviewGettingStarted({
             disabled={!canSyncToKaizen}
             className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isSyncing ? "Syncing..." : "Sync to Kaizen"}
+            {isSyncing ? "Syncing..." : "Sync to ePortfolio"}
           </button>
         ) : reviewComplete ? (
           <p className="text-[11px] text-muted">Nothing waiting to sync.</p>

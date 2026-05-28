@@ -10,21 +10,28 @@ function formatPct(pct: number): string {
 export function ProgressKpiStrip({
   kpis,
   checkpoint,
+  showBandCoverageHint = false,
 }: {
   kpis: Kpis;
   checkpoint: Checkpoint;
+  /** When viewing a year within a shared curriculum band (e.g. ST1 vs ST2). */
+  showBandCoverageHint?: boolean;
 }) {
+  const isWaypoint = checkpoint.type === "waypoint";
+  const isStageEnd = checkpoint.type === "stage_end";
+
   const items = [
     {
       key: "cips_checkpoint",
-      label: "CiP readiness",
-      sub:
-        checkpoint.type === "annual"
-          ? `CiPs on track for ${checkpoint.current_stage ?? "this"} ARCP expectations`
-          : `CiPs meeting the ${checkpoint.current_stage ?? "checkpoint"} standard`,
+      label: isWaypoint || isStageEnd ? "Waypoint-ready CiPs" : "CiP readiness",
+      sub: isWaypoint
+        ? `${checkpoint.current_stage ?? "This year"} is a waypoint ARCP — each CiP needs 100% key skills and descriptors to count as ready`
+        : isStageEnd
+          ? `${checkpoint.current_stage ?? "This year"} stage-end ARCP — each CiP needs full completion to count as ready`
+          : `CiPs on track for ${checkpoint.current_stage ?? "this"} annual ARCP expectations`,
       block: kpis.cips_checkpoint,
       accent: "var(--accent-blue)",
-      supporting: `${kpis.cips.covered} fully complete`,
+      supporting: `${kpis.cips.covered} CiPs · all key skills confirmed · ${kpis.key_skills.pct}% key skill coverage in band`,
     },
     {
       key: "key_skills",
@@ -43,7 +50,16 @@ export function ProgressKpiStrip({
   ] as const;
 
   return (
-    <div className="grid gap-3 md:grid-cols-3">
+    <div className="space-y-3">
+      {showBandCoverageHint ? (
+        <p className="rounded-xl border border-subtle bg-surface-2/70 px-3 py-2 text-[11px] leading-relaxed text-secondary">
+          Key skill and descriptor coverage is shared across the ST1–ST2 curriculum band — your
+          ST1 evidence counts here too. The first card only measures{" "}
+          <span className="font-medium text-primary">waypoint-ready</span> CiPs, which uses a
+          stricter bar than ST1 annual pacing.
+        </p>
+      ) : null}
+      <div className="grid gap-3 md:grid-cols-3">
       {items.map((item) => (
         <div
           key={item.key}
@@ -77,6 +93,7 @@ export function ProgressKpiStrip({
           ) : null}
         </div>
       ))}
+      </div>
     </div>
   );
 }

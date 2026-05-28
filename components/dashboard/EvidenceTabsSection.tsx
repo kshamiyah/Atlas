@@ -208,7 +208,7 @@ export function EvidenceTabsSection({
         <div className="pt-4">
           {entries.length === 0 ? (
             <p className="text-[12px] leading-5 text-muted">
-              No entries synced yet. Sync the entries list from Kaizen using the extension.
+              No entries synced yet. Sync the entries list from ePortfolio using the extension.
             </p>
           ) : (
             <>
@@ -272,7 +272,7 @@ export function EvidenceTabsSection({
         <div className="pt-4">
           {!hasEntriesSync && actionable.length === 0 ? (
             <p className="text-[12px] leading-5 text-muted">
-              Sync your Kaizen entries to list assessor-dependent assessments that are not yet complete or signed.
+              Sync your ePortfolio entries to list assessor-dependent assessments that are not yet complete or signed.
             </p>
           ) : actionable.length === 0 ? (
             <p className="text-[12px] leading-5 text-muted">

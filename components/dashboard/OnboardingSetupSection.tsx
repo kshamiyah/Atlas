@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SetupAutoRefresh } from "@/components/dashboard/SetupAutoRefresh";
+import { CHROME_EXTENSION_INSTALL_URL } from "@/lib/constants/extension";
 
 type OnboardingSetupSectionProps = {
   connected: boolean;
@@ -50,28 +51,28 @@ export function OnboardingSetupSection({
   const activeStep = !extensionReady
     ? "Install the Chrome extension"
     : !syncComplete
-      ? "Sync your Kaizen portfolio"
+      ? "Sync your ePortfolio"
       : "Review your summary";
 
   const steps: Step[] = [
     {
       title: "Account ready",
-      body: "You’re signed in. Next we’ll connect Kaizen and build your first summary.",
+      body: "You’re signed in. Next we’ll connect your ePortfolio and build your first summary.",
       status: "done",
     },
     {
       title: "Install the Chrome extension",
-      body: "The Atlas extension handles Kaizen sync and form-fill actions from your browser.",
+      body: "The Atlas extension handles ePortfolio sync and form-fill actions from your browser.",
       status: extensionReady ? "done" : "next",
     },
     {
       title: "Connect Atlas to this browser",
-      body: "Authorize Atlas so the extension can send your Kaizen data into your workspace.",
+      body: "Authorize Atlas so the extension can send your ePortfolio data into your workspace.",
       status: extensionReady ? "done" : "waiting",
     },
     {
-      title: "Sync your Kaizen portfolio",
-      body: "Open your Kaizen dashboard and run Sync Everything in the Atlas extension popup.",
+      title: "Sync your ePortfolio",
+      body: "Open your RCOG ePortfolio and run Sync Everything in the Atlas extension popup.",
       status: syncComplete ? "done" : extensionReady ? "next" : "waiting",
     },
     {
@@ -107,12 +108,12 @@ export function OnboardingSetupSection({
                     First session
                   </p>
                   <h1 className="max-w-2xl text-[2.35rem] font-semibold leading-[1.02] tracking-[-0.04em] text-primary md:text-[3.4rem]">
-                  Connect Kaizen once. Get your ARCP picture clearly.
+                  Connect your ePortfolio once. Get your ARCP picture clearly.
                   </h1>
                 </div>
                 <p className="max-w-[44rem] text-[15px] leading-7 text-secondary md:text-[17px]">
                   Atlas is best when it can see your portfolio. We&apos;ll guide you through
-                  extension setup, Kaizen sync, and your first summary so you&apos;re never guessing
+                  extension setup, ePortfolio sync, and your first summary so you&apos;re never guessing
                   what to do next.
                 </p>
               </div>
@@ -144,13 +145,13 @@ export function OnboardingSetupSection({
                       Install the Atlas extension
                     </h2>
                     <p className="max-w-xl text-[14px] leading-6 text-secondary">
-                      Start here. The extension handles Kaizen sync and lets Atlas bring your
+                      Start here. The extension handles ePortfolio sync and lets Atlas bring your
                       portfolio into one place.
                     </p>
                   </div>
                   <div className="mt-5 flex flex-wrap gap-3">
                     <a
-                      href="https://chrome.google.com/webstore"
+                      href={CHROME_EXTENSION_INSTALL_URL}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="rounded-full bg-[var(--text-primary)] px-5 py-2.5 text-sm font-medium text-[var(--surface-1)] transition hover:opacity-90"
@@ -175,13 +176,13 @@ export function OnboardingSetupSection({
                       Atlas is connected
                     </h2>
                     <p className="max-w-xl text-[14px] leading-6 text-secondary">
-                      Open your Kaizen dashboard, then click <span className="font-semibold text-primary">Sync Everything</span> in the Atlas extension popup.
+                      Open your RCOG ePortfolio, then click <span className="font-semibold text-primary">Sync Everything</span> in the Atlas extension popup.
                       We&apos;ll keep checking here and move you into your dashboard once the first sync arrives.
                     </p>
                   </div>
                   <div className="mt-5 grid gap-2.5 sm:grid-cols-3">
                     {[
-                      "Open your Kaizen dashboard",
+                      "Open your RCOG ePortfolio",
                       "Click the Atlas extension",
                       "Press Sync Everything",
                     ].map((instruction, index) => (

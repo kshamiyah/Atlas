@@ -24,7 +24,7 @@ export default async function GeneratePage() {
               Write an entry
             </h1>
             <p className="max-w-2xl text-small text-secondary">
-              Describe your case in plain language. Atlas structures it for Kaizen and
+              Describe your case in plain language. Atlas structures it for ePortfolio and
               suggests key skills to link.
             </p>
           </div>
@@ -32,7 +32,7 @@ export default async function GeneratePage() {
             {[
               "Choose entry type",
               "Describe the case",
-              "Generate & copy to Kaizen",
+              "Generate & copy to ePortfolio",
             ].map((step, index) => (
               <li
                 key={step}

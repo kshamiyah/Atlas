@@ -1349,7 +1349,7 @@ export function ReviewQueue({
 	            </p>
             <p className="mt-1 text-xs text-secondary">
               {reviewWorkstream === "audit"
-                ? "Run Kaizen Sync, then Audit again when you want a fresh pass."
+                ? "Run ePortfolio sync, then Audit again when you want a fresh pass."
                 : "Strong finish. You can switch filters for another pass or move to list mode for final cleanup."}
             </p>
           </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CHROME_EXTENSION_INSTALL_URL } from "@/lib/constants/extension";
 
 type Step = {
   label: string;
@@ -22,15 +23,15 @@ export function GettingStartedSection({ hasSynced }: GettingStartedSectionProps)
     },
     {
       label: "Install the Chrome extension",
-      description: "The extension connects Atlas to your Kaizen ePortfolio.",
+      description: "The extension connects Atlas to your RCOG ePortfolio.",
       done: hasSynced,
-      href: "https://chrome.google.com/webstore",
+      href: CHROME_EXTENSION_INSTALL_URL,
       hrefLabel: "Chrome Web Store →",
       external: true,
     },
     {
-      label: "Sync your Kaizen entries",
-      description: "Open any Kaizen page and click \u201cSync to Atlas\u201d in the extension.",
+      label: "Sync your ePortfolio entries",
+      description: "Open any ePortfolio page and click \u201cSync to Atlas\u201d in the extension.",
       done: hasSynced,
     },
     {

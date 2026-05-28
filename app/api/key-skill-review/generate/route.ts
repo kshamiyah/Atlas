@@ -167,7 +167,7 @@ export async function POST(request: Request) {
     kaizen_ids: Array.isArray(ks.kaizen_ids) ? ks.kaizen_ids : null,
   }));
 
-  // kaizen-direct: deterministic ID-based matches from Kaizen's own linked key skill
+  // kaizen-direct: deterministic ID-based matches from ePortfolio's own linked key skill
   // data. First-time matches default to confirmed; preserve any user-reviewed
   // status on reruns.
   // Cross-CiP suggestions are handled separately by /api/key-skill-review/suggest-cross-cip

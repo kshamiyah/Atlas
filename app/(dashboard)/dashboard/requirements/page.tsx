@@ -312,7 +312,7 @@ function getStatus(item: RequirementItem): { label: string; tone: "done" | "warn
     return { label: `${remainingOsats} OSATS remaining`, tone: "pending" };
   }
 
-  return { label: "Pending in Kaizen", tone: "pending" };
+  return { label: "Pending in ePortfolio", tone: "pending" };
 }
 
 function statusPillStyles(tone: "done" | "warn" | "pending") {
@@ -367,14 +367,14 @@ function getAllItems(data: RequirementsData): RequirementItem[] {
 
 function getHelpText(item: RequirementItem): string {
   if (item.kind === "procedures") {
-    return `${item.name}: add or complete Summative OSATS in Kaizen. Requirement is ${item.osats_target} sign-offs including at least 1 consultant.`;
+    return `${item.name}: add or complete Summative OSATS in ePortfolio. Requirement is ${item.osats_target} sign-offs including at least 1 consultant.`;
   }
 
   if (item.kind === "courses") {
-    return `${item.name}: in Kaizen add this as Other Evidence and ensure the title/evidence type clearly matches the course name.`;
+    return `${item.name}: in ePortfolio add this as Other Evidence and ensure the title/evidence type clearly matches the course name.`;
   }
 
-  return `${item.name}: in Kaizen add MRCOG result as Other Evidence using the correct MRCOG evidence type.`;
+  return `${item.name}: in ePortfolio add MRCOG result as Other Evidence using the correct MRCOG evidence type.`;
 }
 
 function getDeadlineHint(requiredByStage: string, currentStageName: string | null): string {
@@ -1849,7 +1849,7 @@ export default function RequirementsPage() {
       )}
 
       <div className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-        Data source: synced Kaizen entries. Percentages and task list follow the selected stage scope
+        Data source: synced ePortfolio entries. Percentages and task list follow the selected stage scope
         {isLtft
           ? ` with LTFT profile setting (${workingPercent}% WTE${calendarDaysToArcp != null && wteDaysToArcp != null ? `, ${wteDaysToArcp} WTE days / ${calendarDaysToArcp} calendar days to ARCP` : ""}).`
           : "."}

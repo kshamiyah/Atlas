@@ -32,7 +32,7 @@ export default async function GeneratePage() {
             </h1>
             <p className="max-w-3xl text-small leading-relaxed text-secondary">
               Use the left panel to set structure and targets, then describe your case.
-              The generated output on the right is editable and ready to copy into Kaizen.
+              The generated output on the right is editable and ready to copy into ePortfolio.
             </p>
           </div>
         </header>

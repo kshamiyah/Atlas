@@ -1,12 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import {
   formatRelativeSyncTime,
   matchesKaizenDayFilter,
   toIsoDateOrNull,
 } from "@/lib/kaizen/kaizen-date";
 import { parseLinkedKeySkillsRaw } from "@/lib/key-skill-review/kaizen-key-skill-parser";
+import {
+  filterKaizenEntriesForYear,
+  listAvailableTrainingYears,
+  resolveYearScopeContext,
+  type ProfilePost,
+} from "@/lib/progress/year-portfolio";
+import { STAGE_ORDER, type StageName } from "@/lib/profile/stage";
 
 type EntryRow = {
   id: string;
@@ -32,9 +40,13 @@ type EntryRow = {
 type EntriesListClientProps = {
   entries: EntryRow[];
   totalSyncedCount: number;
+  postHistory?: ProfilePost[];
   initialDayFilter?: string;
   initialQuery?: string;
+  initialYearFilter?: StageName | null;
 };
+
+type YearFilterValue = "all" | StageName;
 
 type SortKey = "synced_at" | "entry_date";
 
@@ -104,22 +116,47 @@ function Field({ label, value }: { label: string; value: string | number | null 
 export function EntriesListClient({
   entries,
   totalSyncedCount,
+  postHistory = [],
   initialDayFilter = "",
   initialQuery = "",
+  initialYearFilter = null,
 }: EntriesListClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [query, setQuery] = useState(initialQuery);
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dayFilter, setDayFilter] = useState(initialDayFilter);
+  const [yearFilter, setYearFilter] = useState<YearFilterValue>(initialYearFilter ?? "all");
   const [sortKey, setSortKey] = useState<SortKey>("synced_at");
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(entries[0]?.id ?? null);
   const [showDetails, setShowDetails] = useState(true);
+
+  const availableYears = useMemo(
+    () => listAvailableTrainingYears(postHistory, entries),
+    [entries, postHistory],
+  );
+
+  const yearScope = useMemo(() => {
+    if (yearFilter === "all") return null;
+    return resolveYearScopeContext(postHistory, yearFilter);
+  }, [postHistory, yearFilter]);
+
+  const yearScopedEntries = useMemo(() => {
+    if (yearFilter === "all") return entries;
+    return filterKaizenEntriesForYear(
+      entries,
+      yearFilter,
+      yearScope?.postWindow ?? null,
+    );
+  }, [entries, yearFilter, yearScope?.postWindow]);
 
   const hasActiveFilters =
     query.trim().length > 0 ||
     typeFilter !== "all" ||
     statusFilter !== "all" ||
-    dayFilter.trim().length > 0;
+    dayFilter.trim().length > 0 ||
+    yearFilter !== "all";
 
   const assessmentTypes = useMemo(
     () => uniqueSorted(entries.map((entry) => entry.assessment_type)),
@@ -132,7 +169,7 @@ export function EntriesListClient({
 
   const filteredEntries = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = entries.filter((entry) => {
+    const filtered = yearScopedEntries.filter((entry) => {
       const title = normalizeText(entry.title);
       const type = normalizeText(entry.assessment_type);
       const status = normalizeText(entry.status);
@@ -152,7 +189,24 @@ export function EntriesListClient({
     });
 
     return filtered.sort((a, b) => compareEntries(a, b, sortKey));
-  }, [dayFilter, entries, query, sortKey, statusFilter, typeFilter]);
+  }, [dayFilter, query, sortKey, statusFilter, typeFilter, yearScopedEntries]);
+
+  function updateYearFilter(next: YearFilterValue) {
+    setYearFilter(next);
+    const params = new URLSearchParams(window.location.search);
+    if (next === "all") params.delete("year");
+    else params.set("year", next);
+    const q = params.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setTypeFilter("all");
+    setStatusFilter("all");
+    setDayFilter("");
+    if (yearFilter !== "all") updateYearFilter("all");
+  }
 
   const selectedEntry =
     filteredEntries.find((entry) => entry.id === selectedEntryId) ?? filteredEntries[0] ?? null;
@@ -170,13 +224,6 @@ export function EntriesListClient({
     }));
   }, [selectedEntry]);
 
-  function clearFilters() {
-    setQuery("");
-    setTypeFilter("all");
-    setStatusFilter("all");
-    setDayFilter("");
-  }
-
   const activeSortLabel = sortKey === "synced_at" ? "Recently synced" : "Entry date";
 
   return (
@@ -186,7 +233,7 @@ export function EntriesListClient({
           <div>
             <h2 className="text-small font-semibold text-primary">Evidence library</h2>
             <p className="mt-1 text-[12px] text-muted">
-              Browse the entries Atlas has synced from Kaizen.
+              Browse the entries Atlas has synced from ePortfolio.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-[11px]">
@@ -204,13 +251,26 @@ export function EntriesListClient({
           </div>
         </div>
 
-        <div className="grid gap-2 lg:grid-cols-[minmax(0,1.35fr)_repeat(4,minmax(0,0.8fr))]">
+        <div className="grid gap-2 lg:grid-cols-[minmax(0,1.2fr)_repeat(5,minmax(0,0.75fr))]">
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search titles, types, dates, or statuses"
             className="rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[12px] text-primary outline-none transition focus:border-accent-primary"
           />
+          <select
+            value={yearFilter}
+            onChange={(event) => updateYearFilter(event.target.value as YearFilterValue)}
+            className="rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[12px] text-primary outline-none transition focus:border-accent-primary"
+          >
+            <option value="all">All training years</option>
+            {STAGE_ORDER.map((year) => (
+              <option key={year} value={year} disabled={!availableYears.includes(year)}>
+                {year}
+                {!availableYears.includes(year) ? " (no evidence)" : ""}
+              </option>
+            ))}
+          </select>
           <select
             value={sortKey}
             onChange={(event) => setSortKey(event.target.value as SortKey)}
@@ -250,6 +310,22 @@ export function EntriesListClient({
             className="rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[12px] text-primary outline-none transition focus:border-accent-primary"
           />
         </div>
+
+        {yearFilter !== "all" ? (
+          <div className="rounded-xl border border-accent-blue/20 bg-accent-blue/8 px-3 py-2 text-[11px] leading-relaxed text-secondary">
+            <span className="font-medium text-primary">{yearFilter} scope:</span>{" "}
+            {yearScope?.scopeMethod === "post_window" && yearScope.postWindowLabel ? (
+              <>
+                entries dated within your ePortfolio post ({yearScope.postWindowLabel}
+                {yearScope.postWindow?.hospital ? ` · ${yearScope.postWindow.hospital}` : ""})
+              </>
+            ) : (
+              <>entries tagged as {yearFilter} in ePortfolio</>
+            )}
+            {" · "}
+            {yearScopedEntries.length} matching loaded entries
+          </div>
+        ) : null}
 
         {hasActiveFilters ? (
           <div className="flex items-center justify-between gap-3">
@@ -400,7 +476,7 @@ export function EntriesListClient({
                           rel="noreferrer"
                           className="btn-secondary px-3 py-2 text-[12px]"
                         >
-                          Open in Kaizen
+                          Open in ePortfolio
                         </a>
                       </div>
                     </div>

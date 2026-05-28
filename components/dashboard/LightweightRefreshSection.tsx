@@ -51,7 +51,7 @@ function summarizeDone(payload: RefreshPayload): string {
 function phaseMessage(payload: RefreshPayload): string {
   switch (payload.phase) {
     case "start":
-      return "Starting lightweight Kaizen refresh…";
+      return "Starting lightweight ePortfolio refresh…";
     case "dashboard":
       return "Refreshing dashboard snapshot…";
     case "profile":
@@ -59,7 +59,7 @@ function phaseMessage(payload: RefreshPayload): string {
     case "check_delta":
       return "Checking for new and stale entries…";
     case "scan_entries":
-      return `Scanning recent Kaizen entries… ${payload.scannedCount ?? 0} checked`;
+      return `Scanning recent ePortfolio entries… ${payload.scannedCount ?? 0} checked`;
     case "enrich_new_entries":
       return "Importing newly found entries…";
     case "refresh_entry":
@@ -69,7 +69,7 @@ function phaseMessage(payload: RefreshPayload): string {
     case "error":
       return payload.detail || "Lightweight refresh failed.";
     default:
-      return "Refreshing Kaizen changes…";
+      return "Refreshing ePortfolio changes…";
   }
 }
 
@@ -107,7 +107,7 @@ export function LightweightRefreshSection() {
     if (refreshInFlightRef.current) return;
 
     refreshInFlightRef.current = true;
-    setState({ kind: "starting", message: "Starting lightweight Kaizen refresh…" });
+    setState({ kind: "starting", message: "Starting lightweight ePortfolio refresh…" });
 
     clearAckTimer();
     ackTimerRef.current = window.setTimeout(() => {
@@ -233,7 +233,7 @@ export function LightweightRefreshSection() {
         <div>
           <h2 className="text-small font-semibold text-primary">Lightweight refresh</h2>
           <p className="mt-1 text-[11px] leading-5 text-muted">
-            Checks for recent Kaizen changes and refreshes stale assessor-sensitive entries.
+            Checks for recent ePortfolio changes and refreshes stale assessor-sensitive entries.
           </p>
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-[10px] font-medium ${tone.badge}`}>

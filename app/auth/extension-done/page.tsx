@@ -24,14 +24,14 @@ export default async function ExtensionDonePage({
             Atlas is connected
           </h1>
           <p className="text-sm leading-relaxed text-slate-300">
-            Your sign-in is ready for the extension. Next, return to Kaizen and run your
+            Your sign-in is ready for the extension. Next, return to your RCOG ePortfolio and run your
             first sync so Atlas can build your portfolio summary.
           </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
           {[
-            "Return to your Kaizen dashboard",
+            "Return to your RCOG ePortfolio",
             "Open the Atlas extension popup",
             "Press Sync Everything",
           ].map((step, index) => (

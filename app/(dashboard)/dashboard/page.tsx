@@ -217,7 +217,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     Your portfolio is in. Atlas is ready to guide the next step.
                   </h2>
                   <p className="max-w-2xl text-xs leading-relaxed text-secondary">
-                    We&apos;ve detected your first Kaizen sync. Start by reviewing suggested skills
+                    We&apos;ve detected your first ePortfolio sync. Start by reviewing suggested skills
                     or open Progress Hub to see where your evidence is already strong.
                   </p>
                 </div>

@@ -1278,7 +1278,7 @@ function KeySkillReviewPageContent() {
       if (!removeTargetKaizenSkillId) {
         addToast({
           message:
-            "Cannot safely queue this removal because the exact Kaizen link ID is missing. Refresh and run audit again.",
+            "Cannot safely queue this removal because the exact ePortfolio link ID is missing. Refresh and run audit again.",
         });
         return;
       }
@@ -1317,11 +1317,11 @@ function KeySkillReviewPageContent() {
           (skill) => skill.key_skill_id === recommendation.replace_skill_id,
         )?.kaizen_id ?? null;
 
-      // Safety guard: never guess a Kaizen ID for destructive replace/remove.
+      // Safety guard: never guess a ePortfolio ID for destructive replace/remove.
       if (!replaceKaizenSkillId) {
         addToast({
           message:
-            "Cannot safely apply replace because the exact Kaizen link ID is missing. Re-run audit after sync.",
+            "Cannot safely apply replace because the exact ePortfolio link ID is missing. Re-run audit after sync.",
         });
         return;
       }
@@ -1497,25 +1497,25 @@ function KeySkillReviewPageContent() {
 
       if (recommendation.action === "remove") {
         addToast({
-          message: `Queued removal of "${recommendation.key_skill_title}" for Kaizen sync.`,
+          message: `Queued removal of "${recommendation.key_skill_title}" for ePortfolio sync.`,
         });
       } else if (recommendation.action === "replace") {
         if (replaceTargetTitle) {
           addToast({
-            message: `Replaced "${replaceTargetTitle}" with "${recommendation.key_skill_title}". Queued for Kaizen sync.`,
+            message: `Replaced "${replaceTargetTitle}" with "${recommendation.key_skill_title}". Queued for ePortfolio sync.`,
             onUndo: undoApply,
             durationMs: 12000,
           });
         } else {
           addToast({
-            message: `Linked "${recommendation.key_skill_title}" and queued for Kaizen sync. Old link removal may still need manual review.`,
+            message: `Linked "${recommendation.key_skill_title}" and queued for ePortfolio sync. Old link removal may still need manual review.`,
             onUndo: undoApply,
             durationMs: 12000,
           });
         }
       } else {
         addToast({
-          message: `Linked "${recommendation.key_skill_title}" and queued for Kaizen sync.`,
+          message: `Linked "${recommendation.key_skill_title}" and queued for ePortfolio sync.`,
           onUndo: undoApply,
           durationMs: 12000,
         });
@@ -1581,7 +1581,7 @@ function KeySkillReviewPageContent() {
       });
       await reloadAllQueues();
       addToast({
-        message: `Queued removal of "${keySkillTitle}" for Kaizen sync.`,
+        message: `Queued removal of "${keySkillTitle}" for ePortfolio sync.`,
       });
     } catch (err) {
       const message =
@@ -2568,8 +2568,8 @@ function KeySkillReviewPageContent() {
         entryCount: auditEntriesForQueue.length,
         label:
           auditEntriesForQueue.length === 1
-            ? "1 entry awaiting Kaizen sync"
-            : `${auditEntriesForQueue.length} entries awaiting Kaizen sync`,
+            ? "1 entry awaiting ePortfolio sync"
+            : `${auditEntriesForQueue.length} entries awaiting ePortfolio sync`,
       };
     }
 
@@ -3176,7 +3176,7 @@ function KeySkillReviewPageContent() {
                         : reviewStage === "awaiting_sync"
                           ? `${awaitingSyncEntries.length} entr${
                               awaitingSyncEntries.length === 1 ? "y" : "ies"
-                            } awaiting Kaizen sync`
+                            } awaiting ePortfolio sync`
                           : reviewStage === "reviewed"
                             ? `${reviewedEntries.length} reviewed entr${
                                 reviewedEntries.length === 1 ? "y" : "ies"
@@ -3202,7 +3202,7 @@ function KeySkillReviewPageContent() {
                       </p>
                     ) : reviewStage === "awaiting_sync" ? (
                       <p className="text-[11px] text-secondary">
-                        Run Kaizen Sync, then Audit again when you want a fresh pass.
+                        Run ePortfolio sync, then Audit again when you want a fresh pass.
                       </p>
                     ) : reviewStage === "reviewed" ? (
                       <p className="text-[11px] text-secondary">
@@ -3210,7 +3210,7 @@ function KeySkillReviewPageContent() {
                       </p>
                     ) : auditReviewSummary.allReviewed ? (
                       <p className="text-[11px] text-secondary">
-                        Run Kaizen Sync, then Audit again when you want a fresh pass.
+                        Run ePortfolio sync, then Audit again when you want a fresh pass.
                       </p>
                     ) : null}
                     </div>
@@ -3453,7 +3453,7 @@ function KeySkillReviewPageContent() {
                       </h2>
                       <p className="mt-1 text-[11px] text-secondary">
                         {reviewStage === "awaiting_sync"
-                          ? "These entries have already been actioned and are waiting for Kaizen sync."
+                          ? "These entries have already been actioned and are waiting for ePortfolio sync."
                           : "These entries are done for this audit pass, including any you chose to keep over cap."}
                       </p>
                     </div>
@@ -3507,11 +3507,11 @@ function KeySkillReviewPageContent() {
                                         </ul>
                                       ) : (
                                         <p className="text-[11px] text-secondary">
-                                          Waiting for Kaizen sync.
+                                          Waiting for ePortfolio sync.
                                         </p>
                                       )}
                                       <p className="text-[11px] text-muted">
-                                        These changes have been reviewed and are waiting to be pushed to Kaizen.
+                                        These changes have been reviewed and are waiting to be pushed to ePortfolio.
                                       </p>
                                       {audit?.overlinked_by ? (
                                         <p className="text-[11px] text-muted">
@@ -3548,12 +3548,12 @@ function KeySkillReviewPageContent() {
 
                 <section
                   className={`rounded-xl border px-3 py-2.5 ${syncStripClass}`}
-                  aria-label="Kaizen sync status"
+                  aria-label="ePortfolio sync status"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0 space-y-0.5">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                        Kaizen sync
+                        ePortfolio sync
                       </p>
                       <p className="text-xs font-medium text-primary">{syncStatusSummary.title}</p>
                       <p className="text-[11px] text-muted">
@@ -3577,7 +3577,7 @@ function KeySkillReviewPageContent() {
                         syncNeedsAttention ? "btn-primary" : "btn-secondary"
                       }`}
                     >
-                      {isSyncingQueue ? "Syncing..." : "Sync to Kaizen"}
+                      {isSyncingQueue ? "Syncing..." : "Sync to ePortfolio"}
                     </button>
                   </div>
 
@@ -3601,11 +3601,11 @@ function KeySkillReviewPageContent() {
                       syncConsoleQueueSummary.failed === 0 &&
                       syncConsoleQueueSummary.running === 0 ? (
                         <p className="text-[11px] text-muted">
-                          Push confirmed cross-CiP skills back to Kaizen after you finish reviewing.
+                          Push confirmed cross-CiP skills back to ePortfolio after you finish reviewing.
                         </p>
                       ) : pushQueueV2.queue_available && !queueProgressMessage ? (
                         <p className="text-[11px] text-muted">
-                          Push confirmed cross-CiP skills back to Kaizen in the background.
+                          Push confirmed cross-CiP skills back to ePortfolio in the background.
                         </p>
                       ) : null}
                     </div>

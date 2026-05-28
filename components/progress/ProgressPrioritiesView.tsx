@@ -924,7 +924,7 @@ export function ProgressPrioritiesView({
                       Counting entries
                     </h3>
                     <p className="mt-1 text-[11px] text-secondary">
-                      Summative OSATS synced from Kaizen that match this procedure.
+                      Summative OSATS synced from ePortfolio that match this procedure.
                     </p>
                     <OsatsEntryList
                       entries={selectedPriority.procedure.osats_entries ?? []}

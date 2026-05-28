@@ -42,7 +42,7 @@ export function RecentEntriesSection({ entries }: RecentEntriesSectionProps) {
           Recent entries
         </h2>
         <p className="mt-2 text-micro text-muted">
-          No entries synced yet. Sync the entries list from Kaizen (set to 100
+          No entries synced yet. Sync the entries list from ePortfolio (set to 100
           per page) using the extension.
         </p>
       </section>

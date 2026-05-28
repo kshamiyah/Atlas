@@ -285,7 +285,7 @@ export function GenerateForm() {
                   ? "Choose an entry type in the panel first."
                   : status === "loading"
                     ? "Atlas is working — see progress below."
-                    : "You can edit every field before copying to Kaizen."}
+                    : "You can edit every field before copying to ePortfolio."}
               </span>
             </div>
 
@@ -321,7 +321,7 @@ export function GenerateForm() {
                 Entry settings
               </h2>
               <p className="mt-1 text-xs text-muted">
-                Choose the Kaizen form type first, then optional date, length, and key skills.
+                Choose the ePortfolio form type first, then optional date, length, and key skills.
               </p>
             </div>
 

@@ -34,7 +34,7 @@ export function SetupAutoRefresh({
         <div className="space-y-1">
           <p className="text-xs font-semibold text-primary">Waiting for your first sync</p>
           <p className="text-[11px] leading-relaxed text-muted">
-            Atlas checks for new Kaizen data every 15 seconds. Once your sync lands,
+            Atlas checks for new ePortfolio data every 15 seconds. Once your sync lands,
             we&apos;ll take you straight to your dashboard summary.
           </p>
         </div>

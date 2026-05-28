@@ -123,7 +123,7 @@ export function UnsignedAssessmentEntriesSection({
           Unsigned assessments
         </h2>
         <p className="mt-2 text-[11px] leading-5 text-muted">
-          Sync your Kaizen entries to list assessor-dependent assessments that
+          Sync your ePortfolio entries to list assessor-dependent assessments that
           are not yet complete or signed.
         </p>
       </section>

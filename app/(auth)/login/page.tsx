@@ -1,10 +1,11 @@
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { LoginHashSessionBridge } from "@/components/auth/LoginHashSessionBridge";
+import { LoginPanel } from "@/components/auth/LoginPanel";
+import type { LoginFormState } from "@/lib/auth/login-form-state";
 
 type LoginPageProps = {
-  searchParams: Promise<{ source?: string; redirectTo?: string; next?: string }>;
+  searchParams: Promise<{ source?: string; redirectTo?: string; next?: string; error?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
@@ -29,11 +30,16 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     redirect("/dashboard");
   }
 
-  async function sendMagicLink(formData: FormData) {
+  async function sendMagicLink(
+    _prevState: LoginFormState,
+    formData: FormData,
+  ): Promise<LoginFormState> {
     "use server";
 
     const email = String(formData.get("email") || "").trim();
-    if (!email) return;
+    if (!email) {
+      return { status: "error", message: "Enter your email address to continue." };
+    }
 
     const supabase = await getServerSupabaseClient();
     const reqHeaders = await headers();
@@ -51,7 +57,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       console.error(
         "[login] Missing SITE_URL/NEXT_PUBLIC_SITE_URL and could not infer request origin.",
       );
-      return;
+      return {
+        status: "error",
+        message:
+          "Sign-in is temporarily unavailable. Please try again in a few minutes.",
+      };
     }
     const source = formData.get("source");
     const nextRaw = String(formData.get("next") || "").trim();
@@ -83,12 +93,19 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
     if (error) {
       console.error("[login] Failed to send magic link:", error.message);
+      return {
+        status: "error",
+        message:
+          error.message ||
+          "We couldn't send your sign-in link. Check the email address and try again.",
+      };
     }
+
+    return { status: "success", email };
   }
 
   return (
     <main className="flex min-h-screen">
-      <LoginHashSessionBridge />
       {/* ── Left panel — branded hero ─────────────────────────────────────── */}
       <div
         className="relative hidden flex-col justify-between overflow-hidden p-10 lg:flex lg:w-[55%]"
@@ -151,7 +168,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           {/* Feature list */}
           <ul className="space-y-3">
             {[
-              "Syncs directly from Kaizen — no manual entry",
+              "Syncs directly from ePortfolio — no manual entry",
               "AI matches entries to key skills & descriptors",
               "Gap report by training stage, ready in seconds",
             ].map((text) => (
@@ -211,58 +228,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </span>
         </div>
 
-        <div className="w-full max-w-sm animate-fade-up space-y-7">
-          {/* Heading */}
-          <div className="space-y-2">
-            <h1
-              className="text-[34px] font-bold leading-tight"
-              style={{ color: "var(--text-primary)", letterSpacing: "-0.022em" }}
-            >
-              Welcome back
-            </h1>
-            <p className="text-[15px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              Enter your email and we&apos;ll send you a sign-in link instantly.
-            </p>
-          </div>
-
-          {/* Form */}
-          <form action={sendMagicLink} className="space-y-3">
-            {isExtension && (
-              <input type="hidden" name="source" value="extension" />
-            )}
-            {safeNext && <input type="hidden" name="next" value={safeNext} />}
-
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              autoComplete="email"
-              className="login-input w-full rounded-xl px-4 py-3.5 text-[15px] outline-none transition"
-              placeholder="you@nhs.net"
-            />
-
-            <button type="submit" className="btn-primary w-full py-3.5 text-[15px]">
-              Send magic link →
-            </button>
-          </form>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3">
-            <div className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              No password needed
-            </span>
-            <div className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
-          </div>
-
-          <p className="text-center text-xs" style={{ color: "var(--text-muted)" }}>
-            For RCOG trainees only.{" "}
-            <span style={{ color: "var(--text-secondary)" }}>
-              Check your inbox after submitting.
-            </span>
-          </p>
-        </div>
+        <LoginPanel
+          sendMagicLink={sendMagicLink}
+          isExtension={isExtension}
+          safeNext={safeNext}
+          authCallbackError={params.error}
+        />
       </div>
     </main>
   );

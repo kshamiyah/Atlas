@@ -59,13 +59,13 @@ function bridgeHint(
   if (extensionPresent || status === "ready") {
     return {
       tone: "ready",
-      text: "Atlas extension connected — fields will auto-fill on the Kaizen form.",
+      text: "Atlas extension connected — fields will auto-fill on the ePortfolio form.",
     };
   }
 
   return {
     tone: "missing",
-    text: "Atlas extension not detected on this tab. Fill in Kaizen will still open the form, but you may need to paste fields manually.",
+    text: "Atlas extension not detected on this tab. Fill in ePortfolio will still open the form, but you may need to paste fields manually.",
   };
 }
 
@@ -127,10 +127,10 @@ export function KaizenFillBar({
     phase === "queuing"
       ? "Queuing fields…"
       : phase === "opening"
-        ? "Opening Kaizen…"
+        ? "Opening ePortfolio…"
         : phase === "opened_with_warning"
-          ? "Opened Kaizen — check auto-fill"
-          : "Fill in Kaizen";
+          ? "Opened ePortfolio — check auto-fill"
+          : "Fill in ePortfolio";
 
   return (
     <section className="card overflow-hidden p-0">
@@ -139,7 +139,7 @@ export function KaizenFillBar({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-blue">
-                Copy to Kaizen
+                Copy to ePortfolio
               </p>
               {inferredLevel != null ? (
                 <span className="rounded-full border border-subtle bg-surface-3 px-2 py-0.5 text-[10px] font-medium text-secondary">
@@ -253,14 +253,14 @@ export function KaizenFillBar({
           <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
             Missing required:{" "}
             {preview.missingRequired.map((f) => f.label).join(", ")} — fill these
-            before submitting in Kaizen.
+            before submitting in ePortfolio.
           </p>
         ) : null}
 
         {totalSuggestedKeySkillCount > 0 && preview.includedKeySkillCount === 0 ? (
           <p className="mt-2 text-[11px] text-muted">
             No key skills selected — fields will still fill. Link skills manually
-            in Kaizen if needed.
+            in ePortfolio if needed.
           </p>
         ) : null}
       </div>
@@ -319,7 +319,7 @@ export function KaizenFillBar({
                   ) : field.mapped ? (
                     <span className="mt-0.5 block text-muted">Empty — skipped</span>
                   ) : (
-                    <span className="mt-0.5 block text-muted">Not mapped to Kaizen</span>
+                    <span className="mt-0.5 block text-muted">Not mapped to ePortfolio</span>
                   )}
                 </span>
               </li>
@@ -344,7 +344,7 @@ export function KaizenFillBar({
         ) : null}
 
         <p className="mt-3 text-[10px] text-muted">
-          Kaizen form URL:{" "}
+          ePortfolio form URL:{" "}
           <a
             href={kaizenFormUrl}
             target="_blank"

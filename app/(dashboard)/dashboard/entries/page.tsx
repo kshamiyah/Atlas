@@ -1,17 +1,23 @@
 import { redirect } from "next/navigation";
 import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { EntriesListClient } from "@/components/dashboard/EntriesListClient";
+import { parseProfilePosts } from "@/lib/progress/year-portfolio";
+import { normalizeStageName } from "@/lib/profile/stage";
 
 export default async function EntriesPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ day?: string; q?: string }>;
+  searchParams?: Promise<{ day?: string; q?: string; year?: string }>;
 }) {
   const { supabase, userId, bypassAuth } = await resolveRequestAuth();
 
   if (!userId && !bypassAuth) {
     redirect("/login");
   }
+
+  const profileQuery = userId
+    ? supabase.from("profiles").select("post_history").eq("id", userId).maybeSingle()
+    : Promise.resolve({ data: null as { post_history: unknown } | null });
 
   const entriesQuery = supabase
     .from("kaizen_entries")
@@ -30,13 +36,16 @@ export default async function EntriesPage({
     countQuery.eq("user_id", userId);
   }
 
-  const [{ data: entries }, { count: totalSyncedCount }] = await Promise.all([
+  const [{ data: entries }, { count: totalSyncedCount }, { data: profile }] = await Promise.all([
     entriesQuery,
     countQuery,
+    profileQuery,
   ]);
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialDayFilter = resolvedSearchParams?.day?.trim() ?? "";
   const initialQuery = resolvedSearchParams?.q?.trim() ?? "";
+  const initialYear = normalizeStageName(resolvedSearchParams?.year ?? null);
+  const postHistory = parseProfilePosts(profile?.post_history);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-5 md:px-6 md:py-7">
@@ -50,7 +59,7 @@ export default async function EntriesPage({
               My Entries
             </h1>
             <p className="mt-1 text-sm leading-6 text-secondary">
-              Your synced evidence history from Kaizen.
+              Your synced evidence history from ePortfolio.
             </p>
           </div>
           <a href="/dashboard" className="btn-secondary w-fit px-4 py-2 text-small">
@@ -61,8 +70,10 @@ export default async function EntriesPage({
         <EntriesListClient
           entries={entries ?? []}
           totalSyncedCount={totalSyncedCount ?? 0}
+          postHistory={postHistory}
           initialDayFilter={initialDayFilter}
           initialQuery={initialQuery}
+          initialYearFilter={initialYear}
         />
       </div>
     </main>

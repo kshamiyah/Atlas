@@ -334,7 +334,7 @@ export function GeneratedResult({
             </span>
           </div>
           <p className="mt-0.5 text-xs text-muted">
-            {fields.length} fields for this Kaizen form — review before copying.
+            {fields.length} fields for this ePortfolio form — review before copying.
           </p>
         </div>
 
@@ -392,12 +392,12 @@ export function GeneratedResult({
                 </h2>
                 {skillCount > 0 ? (
                   <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[10px] font-medium text-muted">
-                    {includedSkillCount} of {skillCount} for Kaizen
+                    {includedSkillCount} of {skillCount} for ePortfolio
                   </span>
                 ) : null}
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                Tick skills to include when you Fill in Kaizen. Descriptors are
+                Tick skills to include when you Fill in ePortfolio. Descriptors are
                 for review only.
               </p>
             </div>
@@ -461,7 +461,7 @@ export function GeneratedResult({
                           className="mt-0.5 h-4 w-4 rounded border-subtle"
                         />
                         <span className="text-[10px] font-medium leading-snug text-muted">
-                          Include in Kaizen
+                          Include in ePortfolio
                         </span>
                       </label>
                       <div className="min-w-0 flex-1">

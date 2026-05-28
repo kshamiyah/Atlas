@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Refreshes server-rendered dashboard data when the extension completes a full Kaizen sync.
+ * Refreshes server-rendered dashboard data when the extension completes a full ePortfolio sync.
  */
 export function SyncRefreshListener() {
   const router = useRouter();

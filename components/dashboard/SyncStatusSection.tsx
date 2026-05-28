@@ -35,7 +35,7 @@ export function SyncStatusSection({ lastSyncByType }: SyncStatusSectionProps) {
       <section className="rounded-lg border border-subtle bg-surface-2 p-4">
         <h2 className="text-small font-semibold text-primary">Sync status</h2>
         <p className="mt-2 text-[11px] leading-5 text-muted">
-          No syncs recorded yet. Connect the extension and sync from Kaizen.
+          No syncs recorded yet. Connect the extension and sync from ePortfolio.
         </p>
       </section>
     );

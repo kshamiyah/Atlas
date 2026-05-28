@@ -5,7 +5,7 @@
 
 import type { GeneratedEntryType } from "@/lib/types/entries";
 
-const PART1 = `You are an RCOG portfolio writing assistant. You turn a trainee's rough clinical notes into structured Kaizen ePortfolio fields.
+const PART1 = `You are an RCOG portfolio writing assistant. You turn a trainee's rough clinical notes into structured RCOG ePortfolio fields.
 
 Return EXACTLY one JSON object and NOTHING ELSE. No prose. No markdown. No code fences. Do NOT wrap in \`\`\`json. Your entire response must be parseable by JSON.parse() with no pre-processing.
 

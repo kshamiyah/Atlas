@@ -232,6 +232,10 @@ export default async function ProfilePage() {
 
         <section className="rounded-2xl border border-subtle bg-surface-2 px-5 py-2">
           <h2 className="pt-2 text-small font-semibold text-primary">Training</h2>
+          <p className="pb-2 text-[11px] leading-relaxed text-muted">
+            Current stage is synced from your ePortfolio profile. Update it in ePortfolio, then run a
+            profile sync from the extension.
+          </p>
           {infoRow("Current stage", stageName ?? "Not set")}
           {infoRow("Current placement", placementLabel(currentPost))}
           {infoRow("ARCP date", formatDate(profile?.arcp_date ?? null))}
@@ -257,7 +261,7 @@ export default async function ProfilePage() {
           </div>
           {posts.length === 0 ? (
             <p className="pb-4 text-small text-secondary">
-              No posts synced yet. Run Kaizen sync from the extension.
+              No posts synced yet. Run ePortfolio sync from the extension.
             </p>
           ) : (
             <div className="pb-1">

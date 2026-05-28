@@ -1,238 +1,206 @@
 import Link from "next/link";
+import { LandingNav } from "@/components/landing/LandingNav";
+import { LandingOutcomes } from "@/components/landing/LandingOutcomes";
+import { ProductShowcase } from "@/components/landing/ProductShowcase";
+import { CHROME_EXTENSION_INSTALL_URL } from "@/lib/constants/extension";
+
+const STEPS = [
+  {
+    step: "01",
+    title: "Connect ePortfolio",
+    body: "Install the Atlas extension, sign in once, and sync your portfolio from any ePortfolio tab.",
+  },
+  {
+    step: "02",
+    title: "Review AI matches",
+    body: "Confirm or adjust key-skill links Atlas suggests for each entry — one pass through the review queue.",
+  },
+  {
+    step: "03",
+    title: "Act on your gaps",
+    body: "Progress Hub ranks what to do next across CiPs, OSATS, courses, and exams before your ARCP.",
+  },
+];
 
 export default function HomePage() {
   return (
-    <div
-      className="min-h-screen"
-      style={{ backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
-    >
-      {/* ── Navbar ──────────────────────────────────────────────────────── */}
-      <header
-        className="sticky top-0 z-10 px-6 py-3.5 backdrop-blur-sm"
+    <div className="relative min-h-screen overflow-x-hidden bg-surface-1 text-primary">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
         style={{
-          backgroundColor: "color-mix(in srgb, var(--surface-1) 85%, transparent)",
-          borderBottom: "1px solid var(--border-subtle)",
+          background:
+            "radial-gradient(1100px 420px at 18% -8%, rgba(0,113,227,0.09), transparent 62%), radial-gradient(900px 360px at 88% 4%, rgba(22,163,74,0.07), transparent 58%)",
         }}
-      >
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold"
-              style={{
-                backgroundColor: "var(--accent-primary)",
-                color: "var(--surface-1)",
-              }}
-            >
-              A
-            </div>
-            <span className="text-sm font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-              Atlas
+      />
+
+      <LandingNav />
+
+      {/* Hero */}
+      <section className="relative mx-auto max-w-6xl px-5 pb-10 pt-12 md:px-6 md:pb-14 md:pt-16">
+        <div className="animate-fade-up mx-auto max-w-3xl text-center">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-2/90 px-3 py-1.5 text-[11px] font-medium text-secondary backdrop-blur">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-green" />
+            Built for RCOG O&amp;G trainees
+          </div>
+
+          <h1 className="text-[2.75rem] font-semibold leading-[1.02] tracking-[-0.04em] text-primary sm:text-5xl md:text-[3.4rem]">
+            Your ARCP readiness,{" "}
+            <span className="text-accent-blue">at a glance.</span>
+          </h1>
+
+          <p className="mx-auto mt-5 max-w-2xl text-[15px] leading-7 text-secondary md:text-[17px]">
+            Atlas syncs your RCOG ePortfolio, maps entries to key skills, and tells you exactly
+            where to focus — before your ARCP panel does.
+          </p>
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link href="/login" className="btn-primary px-5 py-2.5 text-sm">
+              Get started free →
+            </Link>
+            <a href="#product-showcase" className="btn-secondary px-5 py-2.5 text-sm">
+              See Atlas in action
+            </a>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px] text-muted">
+            <span className="inline-flex items-center gap-1.5">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Free to use
             </span>
-          </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-2">
-            <Link
-              href="/login"
-              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
-              style={{ color: "var(--text-secondary)" }}
+            <span className="inline-flex items-center gap-1.5">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Magic-link sign in
+            </span>
+            <a
+              href={CHROME_EXTENSION_INSTALL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-secondary"
             >
-              Sign in
-            </Link>
-            <Link href="/login" className="btn-primary text-xs px-3 py-1.5">
-              Get started
-            </Link>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="4" />
+                <line x1="21.17" y1="8" x2="12" y2="8" />
+                <line x1="3.95" y1="6.06" x2="8.54" y2="14" />
+                <line x1="10.88" y1="21.94" x2="15.46" y2="14" />
+              </svg>
+              Chrome extension required
+            </a>
           </div>
         </div>
-      </header>
 
-      {/* ── Hero ────────────────────────────────────────────────────────── */}
-      <main className="mx-auto max-w-3xl px-6 pb-16 pt-20 text-center">
-        {/* Eyebrow pill */}
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-          style={{
-            backgroundColor: "var(--surface-3)",
-            border: "1px solid var(--border-subtle)",
-            color: "var(--text-secondary)",
-          }}
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: "var(--accent-green)" }}
-          />
-          Built for RCOG trainees
-        </div>
-
-        <h1
-          className="mb-5 text-5xl font-bold leading-[1.1] tracking-tight sm:text-6xl"
-          style={{ color: "var(--text-primary)" }}
-        >
-          Your ARCP readiness,
-          <br />
-          at a glance.
-        </h1>
-
-        <p
-          className="mx-auto mb-10 max-w-xl text-lg leading-relaxed"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          Atlas syncs your Kaizen data, maps entries to key skills, and
-          surfaces exactly where your portfolio needs work — before your ARCP does.
-        </p>
-
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link href="/login" className="btn-primary px-5 py-2.5 text-sm">
-            Get started free →
-          </Link>
-          <a
-            href="https://github.com/kshamiyah/PortfolioIQ"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary px-5 py-2.5 text-sm"
-          >
-            View on GitHub
-          </a>
-        </div>
-      </main>
-
-      {/* ── Feature cards ───────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-5xl px-6 pb-20">
-        <div className="grid gap-4 sm:grid-cols-3">
-          {[
-            {
-              icon: "⚡",
-              title: "One-click sync",
-              body: "Install the Chrome extension and push your Kaizen entries — CiP assessments, mini-CEX, procedure logbook — straight into your dashboard.",
-            },
-            {
-              icon: "📊",
-              title: "ARCP gap report",
-              body: "See exactly which CiPs need more evidence, which key skills are unconfirmed, and where your portfolio stands — filtered by training stage.",
-            },
-            {
-              icon: "✦",
-              title: "AI entry generator",
-              body: "Describe a case in plain English. GPT-4o expands it into a structured Kaizen entry with every field filled — ready to paste.",
-            },
-          ].map((f) => (
-            <div key={f.title} className="card p-6">
-              <div
-                className="mb-4 flex h-9 w-9 items-center justify-center rounded-xl text-base"
-                style={{
-                  backgroundColor: "var(--surface-3)",
-                  border: "1px solid var(--border-subtle)",
-                }}
-              >
-                {f.icon}
-              </div>
-              <h2
-                className="mb-2 text-sm font-semibold"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {f.title}
-              </h2>
-              <p
-                className="text-xs leading-relaxed"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {f.body}
-              </p>
-            </div>
-          ))}
+        <div id="product-showcase" className="mt-12 md:mt-16">
+          <ProductShowcase />
         </div>
       </section>
 
-      {/* ── How it works ────────────────────────────────────────────────── */}
-      <section
-        className="border-y px-6 py-16"
-        style={{ borderColor: "var(--border-subtle)" }}
-      >
-        <div className="mx-auto max-w-3xl">
-          <p
-            className="mb-2 text-center text-xs font-semibold uppercase tracking-widest"
-            style={{ color: "var(--text-muted)" }}
-          >
-            How it works
-          </p>
-          <h2
-            className="mb-12 text-center text-2xl font-bold tracking-tight"
-            style={{ color: "var(--text-primary)" }}
-          >
-            From Kaizen to ARCP-ready in minutes
-          </h2>
+      <LandingOutcomes />
 
-          <div className="grid gap-8 sm:grid-cols-3">
-            {[
-              {
-                step: "01",
-                title: "Sync your entries",
-                body: "Install the extension, open Kaizen, hit Sync. All your entries land in Atlas automatically.",
-              },
-              {
-                step: "02",
-                title: "Review AI matches",
-                body: "The matcher links each entry to key skills and descriptors. Confirm, reject, or add your own in one pass.",
-              },
-              {
-                step: "03",
-                title: "See your gaps",
-                body: "The gap report shows exactly which CiPs and key skills need evidence — filtered to your current training stage.",
-              },
-            ].map((s) => (
-              <div key={s.step} className="flex flex-col gap-3">
-                <span
-                  className="text-3xl font-bold tracking-tight"
-                  style={{ color: "var(--border-emphasis)" }}
-                >
-                  {s.step}
-                </span>
-                <h3
-                  className="text-sm font-semibold"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {s.title}
+      {/* How it works */}
+      <section id="how-it-works" className="relative px-5 py-16 md:px-6 md:py-20">
+        <div className="mx-auto max-w-6xl">
+          <div className="mx-auto mb-12 max-w-2xl text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+              How it works
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-primary md:text-3xl">
+              From ePortfolio to ARCP-ready in minutes
+            </h2>
+          </div>
+
+          <div className="relative grid gap-6 md:grid-cols-3 md:gap-5">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute left-[16.5%] right-[16.5%] top-8 hidden h-px md:block"
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent, var(--border-emphasis), var(--border-emphasis), transparent)",
+              }}
+            />
+
+            {STEPS.map((step, index) => (
+              <article
+                key={step.step}
+                className="relative rounded-[1.5rem] border border-subtle bg-surface-2/90 p-6 backdrop-blur md:p-7"
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <span
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-[11px] font-semibold"
+                    style={{
+                      background: "rgba(0,113,227,0.10)",
+                      color: "var(--accent-blue)",
+                      border: "1px solid rgba(0,113,227,0.20)",
+                    }}
+                  >
+                    {step.step}
+                  </span>
+                  {index < STEPS.length - 1 ? (
+                    <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-muted md:hidden">
+                      Step {index + 1} of 3
+                    </span>
+                  ) : null}
+                </div>
+                <h3 className="text-[15px] font-semibold tracking-[-0.02em] text-primary">
+                  {step.title}
                 </h3>
-                <p
-                  className="text-xs leading-relaxed"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  {s.body}
-                </p>
-              </div>
+                <p className="mt-2 text-[13px] leading-6 text-secondary">{step.body}</p>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── CTA strip ───────────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-3xl px-6 py-20 text-center">
-        <h2
-          className="mb-3 text-2xl font-bold tracking-tight"
-          style={{ color: "var(--text-primary)" }}
-        >
-          Ready to own your ARCP?
-        </h2>
-        <p
-          className="mb-8 text-sm"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          Free to use. No password required.
-        </p>
-        <Link href="/login" className="btn-primary px-6 py-3 text-sm">
-          Get started free →
-        </Link>
+      {/* CTA */}
+      <section className="px-5 pb-20 pt-4 md:px-6">
+        <div className="relative mx-auto max-w-4xl overflow-hidden rounded-[2rem] border border-subtle bg-surface-2/95 p-8 text-center shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur md:p-12">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(620px 220px at 20% 0%, rgba(0,113,227,0.12), transparent 68%), radial-gradient(520px 260px at 100% 40%, rgba(22,163,74,0.10), transparent 70%)",
+            }}
+          />
+          <div className="relative space-y-5">
+            <h2 className="text-2xl font-semibold tracking-[-0.03em] text-primary md:text-3xl">
+              Ready to own your ARCP?
+            </h2>
+            <p className="mx-auto max-w-md text-sm leading-6 text-secondary">
+              Sign in with your email, connect your ePortfolio once, and get a clear picture of where your
+              portfolio stands today.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link href="/login" className="btn-primary px-6 py-3 text-sm">
+                Get started free →
+              </Link>
+              <Link href="/login" className="btn-secondary px-6 py-3 text-sm">
+                Sign in
+              </Link>
+            </div>
+          </div>
+        </div>
       </section>
 
-      {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <footer
-        className="px-6 py-6 text-center text-xs"
-        style={{
-          borderTop: "1px solid var(--border-subtle)",
-          color: "var(--text-muted)",
-        }}
-      >
-        Atlas is an independent tool and is not affiliated with RCOG or Kaizen.
+      {/* Footer */}
+      <footer className="border-t border-subtle px-5 py-8 md:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 text-center sm:flex-row sm:text-left">
+          <p className="text-xs text-muted">
+            Atlas is an independent tool and is not affiliated with or endorsed by the RCOG.
+          </p>
+          <a
+            href="https://github.com/kshamiyah/PortfolioIQ"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-secondary transition-colors hover:text-primary"
+          >
+            View on GitHub →
+          </a>
+        </div>
       </footer>
     </div>
   );
