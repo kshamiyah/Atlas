@@ -35,7 +35,7 @@ export function SetupAutoRefresh({
           <p className="text-xs font-semibold text-primary">Waiting for your first sync</p>
           <p className="text-[11px] leading-relaxed text-muted">
             Atlas checks for new ePortfolio data every 15 seconds. Once your sync lands,
-            we&apos;ll take you straight to your dashboard summary.
+            we&apos;ll take you straight to review AI skill suggestions.
           </p>
         </div>
         <button

@@ -9,7 +9,9 @@ import {
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { ReviewGettingStarted } from "@/components/key-skill-review/ReviewGettingStarted";
+import { FirstSyncWelcomeBanner } from "@/components/dashboard/FirstSyncWelcomeBanner";
 import {
   ReviewActiveFilterChips,
   type ActiveFilterChip,
@@ -2989,6 +2991,8 @@ function KeySkillReviewPageContent() {
 
       <div className="min-h-full">
         <main className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-6 md:px-6 md:py-8">
+          <FirstSyncWelcomeBanner variant="review" />
+
           {compactHeader ? (
             <header className="rounded-2xl border border-subtle bg-surface-2 px-4 py-3">
               <h1 className="text-heading-3 font-semibold text-primary">Key skill review</h1>

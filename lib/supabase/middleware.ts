@@ -3,10 +3,14 @@ import { createServerClient } from "@supabase/ssr";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 
 export async function handleAuthMiddleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", path);
+
   if (isDevAuthBypassEnabled()) {
     return NextResponse.next({
       request: {
-        headers: request.headers,
+        headers: requestHeaders,
       },
     });
   }
@@ -15,12 +19,16 @@ export async function handleAuthMiddleware(request: NextRequest) {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !anonKey) {
-    return NextResponse.next();
+    return NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
   }
 
-  const response = NextResponse.next({
+  let response = NextResponse.next({
     request: {
-      headers: request.headers,
+      headers: requestHeaders,
     },
   });
 
@@ -50,7 +58,6 @@ export async function handleAuthMiddleware(request: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession();
 
-  const path = request.nextUrl.pathname;
   const isLoginPage = path === "/login" || path.startsWith("/login/");
   const isExtensionDone = path === "/auth/extension-done";
   const isOtherAuthRoute =

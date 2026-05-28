@@ -6,6 +6,8 @@ import { ActivityHeatmap } from "@/components/dashboard/ActivityHeatmap";
 import { StageSelector } from "@/components/dashboard/StageSelector";
 import { EvidenceTabsSection } from "@/components/dashboard/EvidenceTabsSection";
 import { SystemStatusStrip } from "@/components/dashboard/SystemStatusStrip";
+import { FirstSyncWelcomeBanner } from "@/components/dashboard/FirstSyncWelcomeBanner";
+import { shouldShowFirstSyncWelcome } from "@/lib/dashboard/portfolio-readiness";
 import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { calculateArcpCountdown } from "@/lib/profile/ltft";
 import { resolveStageContext } from "@/lib/profile/stage";
@@ -52,7 +54,7 @@ function readAssessmentOtherParty(
 }
 
 type DashboardPageProps = {
-  searchParams: Promise<{ onboarding?: string }>;
+  searchParams: Promise<{ onboarding?: string; welcome?: string }>;
 };
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
@@ -65,7 +67,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const profileRes = userId
     ? await supabase
         .from("profiles")
-        .select("current_stage_id, arcp_date, working_percent")
+        .select("current_stage_id, arcp_date, working_percent, created_at")
         .eq("id", userId)
         .maybeSingle()
     : {
@@ -73,6 +75,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           current_stage_id: string | null;
           arcp_date: string | null;
           working_percent: number | null;
+          created_at: string | null;
         } | null,
       };
 
@@ -165,10 +168,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     stageRows: stages ?? [],
   });
 
-  const hasNoData =
-    !bypassAuth &&
-    (totalEntries ?? 0) === 0 &&
-    Object.keys(lastSyncByType).length === 0;
+  const params = await searchParams;
+  const showFirstSyncWelcome = shouldShowFirstSyncWelcome({
+    hasData: (totalEntries ?? 0) > 0 || Object.keys(lastSyncByType).length > 0,
+    profileCreatedAt: profile?.created_at ?? null,
+    welcomeParam: params.welcome ?? null,
+    onboardingParam: params.onboarding ?? null,
+  });
 
   const unsignedAssessmentEntries = (assessmentEntries ?? [])
     .filter((entry) =>
@@ -189,13 +195,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       date: normalizeText(entry.kaizen_date),
     }));
 
-  if (hasNoData) {
-    redirect("/dashboard/setup");
-  }
-
-  const params = await searchParams;
-  const showOnboardingSuccess = params.onboarding === "complete";
-
   const activityDataVersion = [
     totalEntries ?? 0,
     lastSyncByType.entries ?? "",
@@ -206,32 +205,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     <div className="min-h-full">
       <main className="mx-auto max-w-6xl px-4 py-5 md:px-6 md:py-7">
         <div className="animate-stagger flex flex-col gap-5 md:gap-6">
-          {showOnboardingSuccess && (
-            <section className="rounded-[2rem] border border-emerald-300/35 bg-surface-2/94 p-5 shadow-[0_18px_60px_rgba(15,23,42,0.05)] backdrop-blur md:p-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-700">
-                    First sync complete
-                  </p>
-                  <h2 className="text-heading-3 font-semibold text-primary">
-                    Your portfolio is in. Atlas is ready to guide the next step.
-                  </h2>
-                  <p className="max-w-2xl text-xs leading-relaxed text-secondary">
-                    We&apos;ve detected your first ePortfolio sync. Start by reviewing suggested skills
-                    or open Progress Hub to see where your evidence is already strong.
-                  </p>
-                </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  <a href="/dashboard/key-skill-review" className="btn-primary px-4 py-2 text-small">
-                    Review what Atlas found
-                  </a>
-                  <a href="/dashboard/progress" className="btn-secondary px-4 py-2 text-small">
-                    Open Progress Hub
-                  </a>
-                </div>
-              </div>
-            </section>
-          )}
+          {showFirstSyncWelcome ? (
+            <FirstSyncWelcomeBanner showByDefault={showFirstSyncWelcome} />
+          ) : null}
 
           <header className="relative z-20 flex flex-col gap-4 border-b border-subtle pb-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-1.5">

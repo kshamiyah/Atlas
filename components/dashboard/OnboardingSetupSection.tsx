@@ -52,7 +52,7 @@ export function OnboardingSetupSection({
     ? "Install the Chrome extension"
     : !syncComplete
       ? "Sync your ePortfolio"
-      : "Review your summary";
+      : "Review AI suggestions";
 
   const steps: Step[] = [
     {
@@ -76,8 +76,8 @@ export function OnboardingSetupSection({
       status: syncComplete ? "done" : extensionReady ? "next" : "waiting",
     },
     {
-      title: "Review your summary",
-      body: "Once the first sync lands, Atlas will take you to your dashboard and recommended next actions.",
+      title: "Review AI suggestions",
+      body: "Atlas suggests key-skill links for your entries — accept or skip each one in a quick review pass.",
       status: syncComplete ? "next" : "waiting",
     },
   ];
@@ -136,34 +136,72 @@ export function OnboardingSetupSection({
               </div>
 
               {!extensionReady ? (
-                <div className="rounded-[1.75rem] border border-subtle bg-surface-1/92 p-6">
-                  <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-                      Step 1
-                    </p>
-                    <h2 className="text-[1.35rem] font-semibold tracking-[-0.025em] text-primary">
-                      Install the Atlas extension
-                    </h2>
-                    <p className="max-w-xl text-[14px] leading-6 text-secondary">
-                      Start here. The extension handles ePortfolio sync and lets Atlas bring your
-                      portfolio into one place.
-                    </p>
+                <div className="space-y-4">
+                  <div className="rounded-[1.75rem] border border-accent-purple/20 bg-accent-purple/5 p-5">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                      <div
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-accent-purple/20 bg-surface-1 text-lg"
+                        aria-hidden
+                      >
+                        ⌁
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-accent-purple">
+                          Why the extension is required
+                        </p>
+                        <h2 className="text-[1.15rem] font-semibold tracking-[-0.02em] text-primary">
+                          Atlas reads your ePortfolio from the browser you train in
+                        </h2>
+                        <p className="max-w-2xl text-[14px] leading-6 text-secondary">
+                          The Chrome extension syncs entries, CiP progress, and profile context into
+                          Atlas, then lets you push confirmed skill links back. Without it, Atlas
+                          has nothing to analyse or suggest.
+                        </p>
+                        <ul className="mt-3 space-y-2">
+                          {[
+                            "One-click sync from your open ePortfolio tab",
+                            "Secure link to your Atlas account in this browser",
+                            "Fill generated entries back into ePortfolio later",
+                          ].map((item) => (
+                            <li key={item} className="flex gap-2 text-[13px] leading-5 text-secondary">
+                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-accent-purple" />
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <a
-                      href={CHROME_EXTENSION_INSTALL_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-full bg-[var(--text-primary)] px-5 py-2.5 text-sm font-medium text-[var(--surface-1)] transition hover:opacity-90"
-                    >
-                      Install Chrome extension
-                    </a>
-                    <Link
-                      href={connectHref}
-                      className="rounded-full border border-subtle bg-surface-2 px-5 py-2.5 text-sm font-medium text-primary transition hover:bg-surface-3"
-                    >
-                      I already installed it
-                    </Link>
+
+                  <div className="rounded-[1.75rem] border border-subtle bg-surface-1/92 p-6">
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                        Step 1
+                      </p>
+                      <h2 className="text-[1.35rem] font-semibold tracking-[-0.025em] text-primary">
+                        Install the Atlas extension
+                      </h2>
+                      <p className="max-w-xl text-[14px] leading-6 text-secondary">
+                        Use Chrome or a Chromium browser (Edge, Arc, Brave). Install the extension,
+                        then come back here to connect it to your Atlas account.
+                      </p>
+                    </div>
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      <a
+                        href={CHROME_EXTENSION_INSTALL_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-full bg-[var(--text-primary)] px-5 py-2.5 text-sm font-medium text-[var(--surface-1)] transition hover:opacity-90"
+                      >
+                        Install Chrome extension
+                      </a>
+                      <Link
+                        href={connectHref}
+                        className="rounded-full border border-subtle bg-surface-2 px-5 py-2.5 text-sm font-medium text-primary transition hover:bg-surface-3"
+                      >
+                        I already installed it
+                      </Link>
+                    </div>
                   </div>
                 </div>
               ) : !syncComplete ? (
@@ -173,17 +211,18 @@ export function OnboardingSetupSection({
                       Step 2
                     </p>
                     <h2 className="text-[1.35rem] font-semibold tracking-[-0.025em] text-primary">
-                      Atlas is connected
+                      Extension connected — now sync your portfolio
                     </h2>
                     <p className="max-w-xl text-[14px] leading-6 text-secondary">
-                      Open your RCOG ePortfolio, then click <span className="font-semibold text-primary">Sync Everything</span> in the Atlas extension popup.
-                      We&apos;ll keep checking here and move you into your dashboard once the first sync arrives.
+                      Open your RCOG ePortfolio in another tab, click the Atlas extension icon, and
+                      press <span className="font-semibold text-primary">Sync Everything</span>.
+                      Atlas will detect the data here automatically.
                     </p>
                   </div>
                   <div className="mt-5 grid gap-2.5 sm:grid-cols-3">
                     {[
-                      "Open your RCOG ePortfolio",
-                      "Click the Atlas extension",
+                      "Open ePortfolio in Chrome",
+                      "Click the Atlas extension icon",
                       "Press Sync Everything",
                     ].map((instruction, index) => (
                       <div key={instruction} className="rounded-[1.25rem] border border-subtle bg-surface-2/92 p-3.5">
@@ -193,6 +232,16 @@ export function OnboardingSetupSection({
                         <p className="mt-2 text-[13px] font-medium leading-5 text-primary">{instruction}</p>
                       </div>
                     ))}
+                  </div>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <a
+                      href={CHROME_EXTENSION_INSTALL_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-full border border-subtle bg-surface-2 px-4 py-2 text-sm font-medium text-primary transition hover:bg-surface-3"
+                    >
+                      Re-open extension install
+                    </a>
                   </div>
                 </div>
               ) : (
@@ -204,9 +253,23 @@ export function OnboardingSetupSection({
                     Your first sync is in
                   </h2>
                   <p className="mt-2 max-w-xl text-[14px] leading-6 text-secondary">
-                    Atlas has what it needs to build your first summary. Continue to the dashboard
-                    to review your next actions and portfolio signals.
+                    Atlas is ready to suggest key-skill links for your entries. Start with the AI
+                    suggestion queue — it&apos;s the fastest way to get value from your first sync.
                   </p>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <Link
+                      href="/dashboard/key-skill-review?welcome=first-sync"
+                      className="rounded-full bg-[var(--text-primary)] px-5 py-2.5 text-sm font-medium text-[var(--surface-1)] transition hover:opacity-90"
+                    >
+                      Review AI suggestions
+                    </Link>
+                    <Link
+                      href="/dashboard"
+                      className="rounded-full border border-subtle bg-surface-2 px-5 py-2.5 text-sm font-medium text-primary transition hover:bg-surface-3"
+                    >
+                      Open dashboard
+                    </Link>
+                  </div>
                 </div>
               )}
 
@@ -265,8 +328,8 @@ export function OnboardingSetupSection({
               <ul className="mt-4 space-y-3">
                 {[
                   "Atlas imports your recent entries and profile context.",
-                  "Your dashboard highlights next actions and readiness signals.",
-                  "You can review suggested skills or jump straight into Progress Hub.",
+                  "AI suggests key-skill links for each entry — you accept or skip.",
+                  "Progress Hub and your dashboard update as you confirm links.",
                 ].map((item) => (
                   <li key={item} className="flex gap-3">
                     <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent-blue" />

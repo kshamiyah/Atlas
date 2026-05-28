@@ -1,39 +1,28 @@
 import { redirect } from "next/navigation";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
-import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { OnboardingSetupSection } from "@/components/dashboard/OnboardingSetupSection";
+import {
+  firstSyncRedirectPath,
+  getPortfolioReadiness,
+} from "@/lib/dashboard/portfolio-readiness";
 
 type SetupPageProps = {
   searchParams: Promise<{ connected?: string }>;
 };
 
 export default async function SetupPage({ searchParams }: SetupPageProps) {
-  const supabase = await getServerSupabaseClient();
-  const bypassAuth = isDevAuthBypassEnabled();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, userId, bypassAuth } = await resolveRequestAuth();
 
-  if (!user && !bypassAuth) {
+  if (!userId && !bypassAuth) {
     redirect("/login");
   }
 
   const params = await searchParams;
   const connected = params.connected === "1";
+  const readiness = await getPortfolioReadiness(supabase, userId);
 
-  const [{ data: syncLog }, { count: totalEntries }] = await Promise.all([
-    supabase
-      .from("kaizen_sync_log")
-      .select("sync_type, synced_at")
-      .order("synced_at", { ascending: false })
-      .limit(50),
-    supabase.from("kaizen_entries").select("id", { count: "exact", head: true }),
-  ]);
-
-  const hasAnySync = Boolean(syncLog?.length);
-
-  if (hasAnySync || (totalEntries ?? 0) > 0) {
-    redirect("/dashboard?onboarding=complete");
+  if (readiness.hasData) {
+    redirect(firstSyncRedirectPath(readiness));
   }
 
   const connectHref = `/login?source=extension&next=${encodeURIComponent("/dashboard/setup?connected=1")}`;
@@ -41,8 +30,8 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
   return (
     <OnboardingSetupSection
       connected={connected}
-      hasAnySync={hasAnySync}
-      totalEntries={totalEntries ?? 0}
+      hasAnySync={readiness.syncLogCount > 0}
+      totalEntries={readiness.totalEntries}
       connectHref={connectHref}
     />
   );

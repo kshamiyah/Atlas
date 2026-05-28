@@ -1,8 +1,13 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { AppSidebar } from "@/components/AppSidebar";
 import { GlobalAuditProgressBar } from "@/components/key-skill-review/GlobalAuditProgressBar";
 import { SyncRefreshListener } from "@/components/dashboard/SyncRefreshListener";
+import {
+  getPortfolioReadiness,
+  isSetupRoute,
+} from "@/lib/dashboard/portfolio-readiness";
 
 export default async function DashboardLayout({
   children,
@@ -13,6 +18,15 @@ export default async function DashboardLayout({
     await resolveRequestAuth();
 
   if (!userId && !bypassAuth) redirect("/login");
+
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const onSetupRoute = isSetupRoute(pathname);
+
+  const readiness = await getPortfolioReadiness(supabase, userId);
+
+  if (!bypassAuth && !onSetupRoute && !readiness.hasData) {
+    redirect("/dashboard/setup");
+  }
 
   const syncLogQuery = supabase
     .from("kaizen_sync_log")
