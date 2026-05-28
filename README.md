@@ -1,6 +1,8 @@
-# PortfolioIQ
+# Atlas (PortfolioIQ)
 
-PortfolioIQ is an AI-assisted web app for RCOG trainees to track ARCP progress, surface CiP/key-skill gaps, and generate structured Kaizen-ready portfolio entries from rough notes.
+**Atlas** is an AI-assisted web app for RCOG trainees to track ARCP progress, surface CiP/key-skill gaps, and generate structured Kaizen-ready portfolio entries from rough notes.
+
+> **Public repository notice:** This repo is published for portfolio and engineering transparency. It is **not** packaged for self-hosting or end-user support. Do not commit secrets (`.env.local`, API keys, or production credentials). Use `.env.example` as a template only.
 
 [Companion Chrome extension](https://github.com/kshamiyah/portfolioiq-extension)
 
@@ -93,4 +95,4 @@ npm run start   # run production server
 
 ## Disclaimer
 
-PortfolioIQ is an independent tool and is not affiliated with RCOG or Kaizen.
+Atlas / PortfolioIQ is an independent tool and is not affiliated with or endorsed by the RCOG or Kaizen. Curriculum text in migrations is used for product functionality; redistribution of modified curriculum data is your responsibility if you fork this project.

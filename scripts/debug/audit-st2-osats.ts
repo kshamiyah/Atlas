@@ -16,9 +16,24 @@ for (const line of lines) {
 
 const CONSULTANT = 597;
 
+function requireUserId(): string {
+  const fromArg = process.argv
+    .slice(2)
+    .find((a) => a.startsWith("--user-id="))
+    ?.slice("--user-id=".length)
+    .trim();
+  const userId = fromArg || process.env.DEV_BYPASS_USER_ID?.trim() || "";
+  if (!userId) {
+    console.error(
+      "Missing user id. Set DEV_BYPASS_USER_ID in .env.local or pass --user-id=<uuid>.",
+    );
+    process.exit(1);
+  }
+  return userId;
+}
+
 async function main() {
-  const userId =
-    process.env.DEV_BYPASS_USER_ID ?? "88303542-98d2-4d1c-a009-72bf362a92bd";
+  const userId = requireUserId();
   const sb = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
