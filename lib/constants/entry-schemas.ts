@@ -80,15 +80,12 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
       { id: "date", label: "Date", type: "date", required: true },
       {
         id: "trainee_level",
-        label: "Trainee self-assessment level",
-        type: "integer",
+        label: "Trainee self-assessment",
+        type: "select",
         required: true,
         options: [
-          { value: "1", label: "Level 1" },
-          { value: "2", label: "Level 2" },
-          { value: "3", label: "Level 3" },
-          { value: "4", label: "Level 4" },
-          { value: "5", label: "Level 5" },
+          { value: "meeting", label: "Meeting expectations" },
+          { value: "below", label: "Below expectations" },
         ],
       },
       {
@@ -105,6 +102,7 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
     title: "Case-based Discussion",
     fields: [
       { id: "title", label: "Title", type: "string", required: true },
+      { id: "date", label: "Date", type: "date", required: true },
       { id: "describe_the_event", label: "Describe the event", type: "text", required: true },
       { id: "trainee_analysis", label: "Trainee analysis", type: "text", required: true },
       { id: "trainee_learning_plan", label: "Trainee learning plan", type: "text", required: true },
@@ -124,6 +122,7 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
     title: "Mini Clinical Evaluation Exercise",
     fields: [
       { id: "title", label: "Title", type: "string", required: true },
+      { id: "date", label: "Date", type: "date", required: true },
       { id: "describe_the_event", label: "Describe the event", type: "text", required: true },
       { id: "trainee_analysis", label: "Trainee analysis", type: "text", required: true },
       { id: "trainee_learning_plan", label: "Trainee learning plan", type: "text", required: true },
@@ -143,6 +142,7 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
     title: "Non-Technical Skills for Surgeons",
     fields: [
       { id: "title", label: "Title", type: "string", required: true },
+      { id: "date", label: "Date", type: "date", required: true },
       { id: "number_of_beds", label: "Number of beds", type: "string" },
       { id: "number_of_patients", label: "Number of patients", type: "string" },
       { id: "situation_awareness", label: "Situation awareness", type: "text", required: true },
@@ -164,6 +164,7 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
     type: "osats_formative",
     title: "OSATS (Formative)",
     fields: [
+      { id: "date", label: "Date", type: "date", required: true },
       {
         id: "clinical_details_and_complexity",
         label: "Clinical details & complexity",
@@ -192,6 +193,7 @@ export const ENTRY_TYPE_SCHEMAS: Record<GeneratedEntryType, EntrySchema> = {
     type: "osats_summative",
     title: "OSATS (Summative)",
     fields: [
+      { id: "date", label: "Date", type: "date", required: true },
       { id: "what_went_well", label: "What went well", type: "text", required: true },
       {
         id: "what_could_have_gone_better",
@@ -353,7 +355,7 @@ export const KAIZEN_FORM_FIELDS: Partial<
   cip_assessment: {
     title: "edit-name-0-value",
     date: "edit-event-date-0-value-date",
-    trainee_level: "radio:field_cip_self_assessment_clinic",
+    trainee_level: "radio:field_cip_self_assessment",
     trainee_comments: "edit-field-cip-trainee-comments-0-value",
   },
   // 'other_evidence' field IDs verified via inspect script

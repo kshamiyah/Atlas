@@ -6,6 +6,7 @@ export type KeySkillCandidate = {
   title: string;
   cip_number: number | null;
   cip_title: string | null;
+  kaizen_ids?: string[];
   descriptors: string[];
   covered: boolean | null;
   evidence_count: number | null;

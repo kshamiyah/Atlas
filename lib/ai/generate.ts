@@ -12,6 +12,7 @@ export type GeneratedAIOutput = {
     key_skill_id: string;
     title: string;
     cip_number: number | null;
+    kaizen_ids: string[];
     covered: boolean | null;
     rationale: string;
     evidenced_descriptors: string[];

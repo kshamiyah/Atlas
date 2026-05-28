@@ -83,23 +83,23 @@ CiP Assessment:
   title, date, trainee_level ("meeting" or "below"), trainee_comments
 
 CbD:
-  title, describe_the_event, trainee_analysis, trainee_learning_plan,
+  title, date, describe_the_event, trainee_analysis, trainee_learning_plan,
   additional_actions, assessor_additional_comments, trainee_reflection, assessor
 
 Mini-CEX:
-  title, describe_the_event, trainee_analysis, trainee_learning_plan,
+  title, date, describe_the_event, trainee_analysis, trainee_learning_plan,
   additional_actions, assessor_additional_comments, trainee_reflection, assessor
 
 NOTSS:
-  title, number_of_beds, number_of_patients, situation_awareness, decision_making,
+  title, date, number_of_beds, number_of_patients, situation_awareness, decision_making,
   communication_teamwork, leadership, comments_by_trainee, comments_by_assessor, assessor
 
 OSATS_Formative:
-  clinical_details_and_complexity, what_went_well, what_could_have_gone_better,
+  date, clinical_details_and_complexity, what_went_well, what_could_have_gone_better,
   learning_plan, assessor_additional_comments, trainee_reflection, assessor
 
 OSATS_Summative:
-  what_went_well, what_could_have_gone_better,
+  date, what_went_well, what_could_have_gone_better,
   learning_plan, assessor_additional_comments, assessor
 
 Other Evidence:

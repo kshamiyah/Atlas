@@ -6,6 +6,7 @@ import type { GeneratedEntryType } from "@/lib/types/entries";
 import type { GeneratedAIOutput } from "@/lib/ai/generate";
 import { parseWriteEntryParams } from "@/lib/generate/query-params";
 import { EntryTypePicker } from "./EntryTypePicker";
+import { GenerateLoadingPanel } from "./GenerateLoadingPanel";
 import { GeneratedResult } from "./GeneratedResult";
 import {
   dismissWriteGettingStarted,
@@ -47,13 +48,15 @@ export function GenerateForm() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [result, setResult] = useState<GeneratedAIOutput | null>(null);
-  const [savedId, setSavedId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [showGettingStarted, setShowGettingStarted] = useState(false);
   const [deepLinkApplied, setDeepLinkApplied] = useState(false);
+  const [loadingStartedAt, setLoadingStartedAt] = useState<number | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const notesRef = useRef<HTMLElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef<HTMLDivElement>(null);
   const deepLinkSkillAppliedRef = useRef(false);
 
   useEffect(() => {
@@ -106,6 +109,12 @@ export function GenerateForm() {
   }, []);
 
   useEffect(() => {
+    if (status === "loading") {
+      const timer = window.setTimeout(() => {
+        loadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+      return () => window.clearTimeout(timer);
+    }
     if (status !== "done" || !result) return;
     const timer = window.setTimeout(() => {
       resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -125,8 +134,17 @@ export function GenerateForm() {
     if (status === "done") {
       setStatus("idle");
       setResult(null);
-      setSavedId(null);
     }
+  }
+
+  function handleWriteAnotherEntry() {
+    setStatus("idle");
+    setResult(null);
+    setErrorMsg("");
+    setFreeText("");
+    window.setTimeout(() => {
+      notesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
   }
 
   function handleDismissGettingStarted() {
@@ -148,10 +166,10 @@ export function GenerateForm() {
       setErrorMsg("Choose an entry type in Entry settings before generating.");
       return;
     }
+    setLoadingStartedAt(Date.now());
     setStatus("loading");
     setResult(null);
     setErrorMsg("");
-    setSavedId(null);
     try {
       const res = await fetch("/api/generate/entry", {
         method: "POST",
@@ -167,8 +185,8 @@ export function GenerateForm() {
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "Generation failed");
       setResult(json.result as GeneratedAIOutput);
-      setSavedId(json.id ?? null);
       setStatus("done");
+      setLoadingStartedAt(null);
       dismissWriteGettingStarted();
       setShowGettingStarted(false);
     } catch (err) {
@@ -179,6 +197,7 @@ export function GenerateForm() {
           : message,
       );
       setStatus("error");
+      setLoadingStartedAt(null);
     }
   }
 
@@ -226,7 +245,7 @@ export function GenerateForm() {
 
       <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="order-1 space-y-4 lg:order-2">
-          <section className="card p-5 md:p-6">
+          <section ref={notesRef} id="write-entry-notes" className="card scroll-mt-6 p-5 md:p-6">
             <div className="mb-3 border-b border-subtle pb-3">
               <label className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
                 Your notes
@@ -239,8 +258,9 @@ export function GenerateForm() {
               rows={11}
               value={freeText}
               onChange={(e) => setFreeText(e.target.value)}
+              disabled={status === "loading"}
               placeholder="Example: Assisted with LSCS for FTP, supervised by consultant. Patient was anxious; I supported counselling and discussed post-op care and safety netting."
-              className="app-input w-full resize-y px-3 py-3 text-[15px] leading-relaxed text-primary placeholder-muted"
+              className="app-input w-full resize-y px-3 py-3 text-[15px] leading-relaxed text-primary placeholder-muted disabled:cursor-not-allowed disabled:opacity-60"
             />
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
@@ -249,15 +269,24 @@ export function GenerateForm() {
                 disabled={status === "loading" || !canGenerate}
                 className="btn-primary px-4 py-2 text-small disabled:cursor-not-allowed disabled:opacity-50"
               >
-              {status === "loading" ? "Writing…" : "Generate entry"}
-            </button>
-            <span className="text-xs text-muted">
-              {status === "loading"
-                ? "This usually takes 30–90 seconds."
-                : !entryType
+                {status === "loading" ? "Writing…" : "Generate entry"}
+              </button>
+              {status === "done" ? (
+                <button
+                  type="button"
+                  onClick={handleWriteAnotherEntry}
+                  className="rounded-full border border-subtle bg-surface-2 px-4 py-2 text-small font-medium text-secondary transition hover:bg-surface-3 hover:text-primary"
+                >
+                  Write another entry
+                </button>
+              ) : null}
+              <span className="text-xs text-muted">
+                {!entryType
                   ? "Choose an entry type in the panel first."
-                  : "You can edit every field before copying to Kaizen."}
-            </span>
+                  : status === "loading"
+                    ? "Atlas is working — see progress below."
+                    : "You can edit every field before copying to Kaizen."}
+              </span>
             </div>
 
             {status === "error" ? (
@@ -265,21 +294,28 @@ export function GenerateForm() {
             ) : null}
           </section>
 
+          {status === "loading" && loadingStartedAt != null ? (
+            <div ref={loadingRef} id="generate-loading" className="scroll-mt-6">
+              <GenerateLoadingPanel startedAt={loadingStartedAt} />
+            </div>
+          ) : null}
+
           {status === "done" && result && entryType ? (
             <div ref={resultRef} id="generated-entry-result" className="scroll-mt-6">
               <GeneratedResult
                 result={result}
                 entryType={entryType}
-                savedId={savedId}
                 rawInput={freeText}
+                eventDate={date || undefined}
                 length={length}
+                onWriteAnother={handleWriteAnotherEntry}
               />
             </div>
           ) : null}
         </div>
 
-        <aside className="order-2 lg:sticky lg:top-5 lg:order-1 lg:self-start">
-          <section className="card divide-y divide-subtle overflow-hidden p-0">
+        <aside className="order-2 lg:sticky lg:top-5 lg:z-20 lg:order-1 lg:self-start">
+          <section className="card divide-y divide-subtle p-0">
             <div className="px-5 py-4">
               <h2 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
                 Entry settings
@@ -372,7 +408,7 @@ export function GenerateForm() {
                 </div>
               ) : null}
 
-              <div ref={dropdownRef} className="relative mt-2">
+              <div ref={dropdownRef} className="relative z-30 mt-2">
                 <input
                   type="text"
                   value={skillSearch}
@@ -397,7 +433,7 @@ export function GenerateForm() {
 
                 {dropdownOpen && filteredSkills.length > 0 ? (
                   <ul
-                    className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-subtle bg-surface-2 shadow-lg"
+                    className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-subtle bg-surface-2 shadow-lg"
                     style={{
                       boxShadow:
                         "0 8px 32px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06)",

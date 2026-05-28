@@ -36,6 +36,7 @@ type CoverageRow = {
 type KeySkillRow = {
   legacy_id: string | null;
   title: string | null;
+  kaizen_ids: string[] | null;
   cips:
     | {
         number: number | null;
@@ -212,7 +213,9 @@ export async function POST(request: Request) {
   // ── Fetch enriched key skills + user coverage (for Pass 2) ──
   const { data: keySkillRows } = await supabase
     .from("key_skills")
-    .select("legacy_id, title, cips ( number, title ), descriptors ( text, sort_order )")
+    .select(
+      "legacy_id, title, kaizen_ids, cips ( number, title ), descriptors ( text, sort_order )",
+    )
     .not("legacy_id", "is", null);
 
   const { data: coverageRows } = await supabase
@@ -255,6 +258,9 @@ export async function POST(request: Request) {
         title: ks.title,
         cip_number: cip?.number ?? null,
         cip_title: cip?.title ?? null,
+        kaizen_ids: Array.isArray(ks.kaizen_ids)
+          ? ks.kaizen_ids.map(String).filter(Boolean)
+          : [],
         descriptors: descriptorTexts,
         covered: coverage?.covered ?? null,
         evidence_count: coverage?.evidence_count ?? null,
@@ -604,31 +610,23 @@ Generation requirement:
     ),
   ].slice(0, 25);
 
-  // ── Pass 2 + stage resolution: run in parallel ──
-  const [keySkillMatch, stageRow] = await Promise.all([
-    matchKeySkills({
-      entry_fields: result.fields,
-      entry_type: result.entry_type,
-      candidates: topCandidates,
-      pinned_key_skill_ids: body.target_key_skill_ids ?? [],
-    }).catch((err) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn("[PortfolioIQ] Key skill match failed:", msg);
-      return {
-        suggested_key_skill_ids: [] as string[],
-        rationale: {} as Record<string, string>,
-        suggestions: [],
-        match_failed: true,
-        match_error: msg,
-      };
-    }),
-    supabase
-      .from("stages")
-      .select("id")
-      .eq("name", result.stage_id ?? stageId)
-      .maybeSingle()
-      .then((r) => r.data),
-  ]);
+  // ── Pass 2: key skill matching ──
+  const keySkillMatch = await matchKeySkills({
+    entry_fields: result.fields,
+    entry_type: result.entry_type,
+    candidates: topCandidates,
+    pinned_key_skill_ids: body.target_key_skill_ids ?? [],
+  }).catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[PortfolioIQ] Key skill match failed:", msg);
+    return {
+      suggested_key_skill_ids: [] as string[],
+      rationale: {} as Record<string, string>,
+      suggestions: [],
+      match_failed: true,
+      match_error: msg,
+    };
+  });
 
   const uniqueSkillIds = [...new Set(keySkillMatch.suggested_key_skill_ids)];
   const suggestionById = new Map(
@@ -643,6 +641,7 @@ Generation requirement:
       key_skill_id: id,
       title: skill?.title ?? id,
       cip_number: skill?.cip_number ?? null,
+      kaizen_ids: skill?.kaizen_ids ?? [],
       covered: skill?.covered ?? null,
       rationale: keySkillMatch.rationale[id] ?? "",
       evidenced_descriptors: suggestion?.evidenced_descriptors ?? [],
@@ -669,34 +668,5 @@ Generation requirement:
     );
   }
 
-  const stageUuid = stageRow?.id ?? null;
-
-  const { data: saved, error: saveError } = await supabase
-    .from("generated_entries")
-    .insert({
-      user_id: userId,
-      entry_type: result.entry_type as GeneratedEntryType,
-      raw_input: body.free_text.trim(),
-      structured_data: result,
-      suggested_key_skills: result.suggested_key_skill_ids ?? [],
-      stage_id: stageUuid,
-    })
-    .select("id")
-    .single();
-
-  if (saveError) {
-    console.error(
-      "[PortfolioIQ] Failed to save generated entry:",
-      saveError.message
-    );
-    return NextResponse.json(
-      { ok: true, id: null, result },
-      { headers: CORS_HEADERS }
-    );
-  }
-
-  return NextResponse.json(
-    { ok: true, id: saved.id, result },
-    { headers: CORS_HEADERS }
-  );
+  return NextResponse.json({ ok: true, result }, { headers: CORS_HEADERS });
 }

@@ -66,7 +66,7 @@ export function EntryTypePicker({ value, onChange, onClearResult }: EntryTypePic
 
       {open ? (
         <div
-          className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-2xl border border-subtle bg-surface-2 shadow-lg"
+          className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-2xl border border-subtle bg-surface-2 shadow-lg"
           style={{
             boxShadow:
               "0 8px 32px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06)",
