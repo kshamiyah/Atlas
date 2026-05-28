@@ -7,6 +7,7 @@ import type { KeySkillsSortMode } from "@/lib/progress/query-params";
 import type { ProgressKeySkillsResponse } from "@/lib/types/progress";
 
 const SCOPE_QUERY_KEYS = [
+  "year",
   "stage_scope",
   "stage_group",
   "stage_id",

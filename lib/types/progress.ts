@@ -7,6 +7,7 @@ export type ProgressSummaryScope = {
   date_from: string | null;
   date_to: string | null;
   cip: number | null;
+  year?: string | null;
 };
 
 export type ProgressKpiBlock = {

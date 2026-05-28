@@ -1,3 +1,4 @@
+import { normalizeStageName, type StageName } from "../profile/stage";
 import type { ProgressSummaryScope } from "../types/progress";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -67,11 +68,25 @@ export function parseIsoDateParam(
   return { value: raw, error: null };
 }
 
+export function parseProgressYearParam(
+  raw: string | null,
+): { value: StageName | null; error: string | null } {
+  if (raw == null || raw === "") {
+    return { value: null, error: null };
+  }
+  const normalized = normalizeStageName(raw);
+  if (!normalized) {
+    return { value: null, error: "Invalid year (expected ST1–ST7)" };
+  }
+  return { value: normalized, error: null };
+}
+
 export type ParsedProgressScope = {
   scopeEcho: ProgressSummaryScope;
   stageScope: string | null;
   stageGroup: string | null;
   cipNumber: number | null;
+  progressYear: StageName | null;
 };
 
 export function parseProgressScopeFromUrl(url: URL): ParsedProgressScope | { error: string } {
@@ -86,6 +101,8 @@ export function parseProgressScopeFromUrl(url: URL): ParsedProgressScope | { err
   if (dateFromParam.error) return { error: dateFromParam.error };
   const dateToParam = parseIsoDateParam(url.searchParams.get("date_to"), "date_to");
   if (dateToParam.error) return { error: dateToParam.error };
+  const yearParam = parseProgressYearParam(url.searchParams.get("year"));
+  if (yearParam.error) return { error: yearParam.error };
   if (
     dateFromParam.value &&
     dateToParam.value &&
@@ -102,10 +119,12 @@ export function parseProgressScopeFromUrl(url: URL): ParsedProgressScope | { err
       date_from: dateFromParam.value,
       date_to: dateToParam.value,
       cip: cipParam.value,
+      year: yearParam.value,
     },
     stageScope: stageScopeParam.value,
     stageGroup: stageGroupParam.value,
     cipNumber: cipParam.value,
+    progressYear: yearParam.value,
   };
 }
 

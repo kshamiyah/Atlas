@@ -1,5 +1,5 @@
-import { getServerSupabaseClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { DashboardReadinessSection } from "@/components/dashboard/DashboardReadinessSection";
 import { DashboardSummaryCard } from "@/components/dashboard/DashboardSummaryCard";
 import { ActivityHeatmap } from "@/components/dashboard/ActivityHeatmap";
@@ -56,21 +56,17 @@ type DashboardPageProps = {
 };
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const supabase = await getServerSupabaseClient();
-  const bypassAuth = isDevAuthBypassEnabled();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, userId, bypassAuth } = await resolveRequestAuth();
 
-  if (!user && !bypassAuth) {
+  if (!userId && !bypassAuth) {
     redirect("/login");
   }
 
-  const profileRes = user
+  const profileRes = userId
     ? await supabase
         .from("profiles")
         .select("current_stage_id, arcp_date, working_percent")
-        .eq("id", user.id)
+        .eq("id", userId)
         .maybeSingle()
     : {
         data: null as {
@@ -80,49 +76,48 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         } | null,
       };
 
+  const entriesQuery = supabase
+    .from("kaizen_entries")
+    .select("*")
+    .order("synced_at", { ascending: false })
+    .limit(500);
+  const entriesCountQuery = supabase
+    .from("kaizen_entries")
+    .select("id", { count: "exact", head: true });
+  const syncLogQuery = supabase
+    .from("kaizen_sync_log")
+    .select("sync_type, synced_at")
+    .order("synced_at", { ascending: false })
+    .limit(50);
+  const assessmentQuery = supabase
+    .from("kaizen_entries")
+    .select(
+      "id, title, kaizen_date, assessment_type, detected_entry_type, status, extracted_fields",
+    )
+    .order("synced_at", { ascending: false });
+
+  if (userId) {
+    entriesQuery.eq("user_id", userId);
+    entriesCountQuery.eq("user_id", userId);
+    syncLogQuery.eq("user_id", userId);
+    assessmentQuery.eq("user_id", userId);
+  }
+
   const [
     { data: stages },
     { data: syncLog },
     { data: entries },
     { count: totalEntries },
     { data: assessmentEntries },
-  ] =
-    await Promise.all([
+  ] = await Promise.all([
     supabase
       .from("stages")
       .select("id, name, stage_group")
       .order("sort_order", { ascending: true }),
-    supabase
-      .from("kaizen_sync_log")
-      .select("sync_type, synced_at")
-      .order("synced_at", { ascending: false })
-      .limit(50),
-    supabase
-      .from("kaizen_entries")
-      .select("*")
-      .limit(500),
-    supabase
-      .from("kaizen_entries")
-      .select("id", { count: "exact", head: true }),
-    user
-      ? supabase
-          .from("kaizen_entries")
-          .select(
-            "id, title, kaizen_date, assessment_type, detected_entry_type, status, extracted_fields",
-          )
-          .eq("user_id", user.id)
-          .order("synced_at", { ascending: false })
-      : {
-          data: [] as Array<{
-            id: string;
-            title: string;
-            kaizen_date: string;
-            assessment_type: string;
-            detected_entry_type: string | null;
-            status: string;
-            extracted_fields: Record<string, unknown> | null;
-          }>,
-        },
+    syncLogQuery,
+    entriesQuery,
+    entriesCountQuery,
+    assessmentQuery,
   ]);
 
   const profile = profileRes.data;

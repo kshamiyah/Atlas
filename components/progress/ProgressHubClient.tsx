@@ -9,7 +9,8 @@ import type { KeySkillsTabUrlUpdates } from "@/components/progress/ProgressKeySk
 import { ProgressKeySkillsTab } from "@/components/progress/ProgressKeySkillsTab";
 import { ProgressKpiStrip } from "@/components/progress/ProgressKpiStrip";
 import { ProgressMessageCentre } from "@/components/progress/ProgressMessageCentre";
-import { ProgressScopeBar } from "@/components/progress/ProgressScopeBar";
+import { ProgressYearBar } from "@/components/progress/ProgressYearBar";
+import { ProgressPrioritiesView } from "@/components/progress/ProgressPrioritiesView";
 import {
   ProgressTabsShell,
   type ProgressTabId,
@@ -17,19 +18,43 @@ import {
 import type { DescriptorsSortMode, KeySkillsSortMode } from "@/lib/progress/query-params";
 import type { ProgressSummaryResponse } from "@/lib/types/progress";
 import { trackEvent } from "@/lib/telemetry/client";
-import { STAGE_SCOPE_TO_GROUP, type StageScope } from "@/lib/profile/stage";
+import {
+  curriculumBandLabelForYear,
+  curriculumBandScopeForYear,
+} from "@/lib/progress/scope-dimensions";
+import {
+  normalizeStageName,
+  type StageName,
+  type StageScope,
+} from "@/lib/profile/stage";
 
 const SCOPE_QUERY_KEYS = [
+  "year",
   "stage_scope",
   "stage_group",
-  "stage_id",
   "date_from",
   "date_to",
   "cip",
 ] as const;
 
+function syncCurriculumScopeFromYear(
+  params: URLSearchParams,
+  year: StageName | null,
+): void {
+  params.delete("stage_id");
+  params.delete("stage_group");
+  if (!year) {
+    params.delete("stage_scope");
+    return;
+  }
+  const band = curriculumBandScopeForYear(year);
+  if (band) params.set("stage_scope", band);
+  else params.delete("stage_scope");
+}
+
 type ProgressUrlUpdates = {
-  stage_scope?: string | null;
+  view?: "overview" | "priorities";
+  year?: StageName | null;
   tab?: ProgressTabId;
   cip?: number | null;
   focus_cip?: number | null;
@@ -49,11 +74,16 @@ function buildProgressUrl(
   updates: ProgressUrlUpdates,
 ): string {
   const p = new URLSearchParams(source.toString());
-  if ("stage_scope" in updates) {
-    p.delete("stage_group");
-    p.delete("stage_id");
-    if (updates.stage_scope) p.set("stage_scope", updates.stage_scope);
-    else p.delete("stage_scope");
+  if ("view" in updates && updates.view !== undefined) {
+    p.set("view", updates.view);
+  }
+  if ("year" in updates) {
+    if (updates.year) {
+      p.set("year", updates.year);
+    } else {
+      p.delete("year");
+    }
+    syncCurriculumScopeFromYear(p, updates.year ?? null);
   }
   if (updates.tab !== undefined) {
     p.set("tab", updates.tab);
@@ -171,10 +201,16 @@ function parseTab(raw: string | null): ProgressTabId {
   return "cips";
 }
 
+function parseView(raw: string | null): "overview" | "priorities" {
+  return raw === "overview" ? "overview" : "priorities";
+}
+
 export function ProgressHubClient({
-  initialStageScope = null,
+  initialYear = null,
+  currentYear = null,
 }: {
-  initialStageScope?: string | null;
+  initialYear?: StageName | null;
+  currentYear?: StageName | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -186,43 +222,52 @@ export function ProgressHubClient({
   );
 
   const tabFromUrl = parseTab(stableSearchParams.get("tab"));
-  const stageFromUrl = stableSearchParams.get("stage_scope");
+  const viewFromUrl = parseView(stableSearchParams.get("view"));
+  const yearFromUrl = normalizeStageName(stableSearchParams.get("year"));
   const cipFromUrl = stableSearchParams.get("cip");
 
-  const [selectedStageScope, setSelectedStageScope] = useState<string | null>(
-    stageFromUrl && stageFromUrl.length > 0 ? stageFromUrl : initialStageScope,
+  const [selectedYear, setSelectedYear] = useState<StageName | null>(
+    yearFromUrl ?? initialYear,
   );
+  const [activeView, setActiveView] = useState<"overview" | "priorities">(viewFromUrl);
   const [activeTab, setActiveTab] = useState<ProgressTabId>(tabFromUrl);
   const [data, setData] = useState<ProgressSummaryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    setActiveView(viewFromUrl);
+  }, [viewFromUrl]);
+
+  useEffect(() => {
     setActiveTab(tabFromUrl);
   }, [tabFromUrl]);
 
   useEffect(() => {
-    setSelectedStageScope(
-      stageFromUrl && stageFromUrl.length > 0 ? stageFromUrl : initialStageScope,
-    );
-  }, [initialStageScope, stageFromUrl]);
+    setSelectedYear(yearFromUrl ?? initialYear);
+  }, [initialYear, yearFromUrl]);
 
   useEffect(() => {
-    if (stageFromUrl || !initialStageScope) return;
+    if (yearFromUrl || !initialYear) return;
     const href = buildProgressUrl(pathname, stableSearchParams, {
-      stage_scope: initialStageScope,
+      view: activeView,
+      year: initialYear,
       tab: activeTab,
     });
     router.replace(href, { scroll: false });
-  }, [activeTab, initialStageScope, pathname, router, stableSearchParams, stageFromUrl]);
+  }, [activeTab, activeView, initialYear, pathname, router, stableSearchParams, yearFromUrl]);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
       const effectiveSearchParams = new URLSearchParams(stableSearchParams.toString());
-      if (!effectiveSearchParams.get("stage_scope") && initialStageScope) {
-        effectiveSearchParams.set("stage_scope", initialStageScope);
+      if (selectedYear) {
+        effectiveSearchParams.set("year", selectedYear);
+        syncCurriculumScopeFromYear(effectiveSearchParams, selectedYear);
+      } else {
+        effectiveSearchParams.delete("year");
+        effectiveSearchParams.delete("stage_id");
       }
       const next = await fetchProgressSummaryWithRetry(effectiveSearchParams);
       setData(next);
@@ -232,29 +277,40 @@ export function ProgressHubClient({
     } finally {
       setIsLoading(false);
     }
-  }, [initialStageScope, stableSearchParams]);
+  }, [selectedYear, stableSearchParams]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const onStageScopeChange = useCallback(
-    (value: string | null) => {
-      setSelectedStageScope(value);
+  const onYearChange = useCallback(
+    (year: StageName) => {
+      setSelectedYear(year);
       const href = buildProgressUrl(pathname, stableSearchParams, {
-        stage_scope: value,
+        view: activeView,
+        year,
         tab: activeTab,
       });
       router.replace(href, { scroll: false });
     },
-    [activeTab, pathname, router, stableSearchParams],
+    [activeTab, activeView, pathname, router, stableSearchParams],
   );
+
+  const selectedStageScope = useMemo((): StageScope | null => {
+    if (selectedYear) return curriculumBandScopeForYear(selectedYear);
+    const fromUrl = stableSearchParams.get("stage_scope");
+    if (fromUrl === "BAND_ST1_2" || fromUrl === "BAND_ST3_5" || fromUrl === "BAND_ST6_7") {
+      return fromUrl;
+    }
+    return null;
+  }, [selectedYear, stableSearchParams]);
 
   const onTabChange = useCallback(
     (tab: ProgressTabId) => {
       trackEvent("progress_tab_change", { tab });
       setActiveTab(tab);
       const p = new URLSearchParams(searchParamsString);
+      p.set("view", "overview");
       p.set("tab", tab);
       if (tab !== "key-skills") {
         p.delete("gaps_only");
@@ -276,9 +332,22 @@ export function ProgressHubClient({
     [pathname, router, searchParamsString],
   );
 
+  const onViewChange = useCallback(
+    (view: "overview" | "priorities") => {
+      setActiveView(view);
+      const href = buildProgressUrl(pathname, stableSearchParams, {
+        view,
+        tab: activeTab,
+      });
+      router.replace(href, { scroll: false });
+    },
+    [activeTab, pathname, router, stableSearchParams],
+  );
+
   const onSelectCip = useCallback(
     (cipNumber: number) => {
       const href = buildProgressUrl(pathname, stableSearchParams, {
+        view: "overview",
         tab: "cips",
         focus_cip: cipNumber,
       });
@@ -290,6 +359,7 @@ export function ProgressHubClient({
   const onKeySkillsUrlUpdate = useCallback(
     (u: KeySkillsTabUrlUpdates) => {
       const href = buildProgressUrl(pathname, stableSearchParams, {
+        view: "overview",
         tab: "key-skills",
         ...u,
       });
@@ -301,6 +371,7 @@ export function ProgressHubClient({
   const onDescriptorsUrlUpdate = useCallback(
     (u: DescriptorsTabUrlUpdates) => {
       const href = buildProgressUrl(pathname, stableSearchParams, {
+        view: "overview",
         tab: "descriptors",
         ...u,
       });
@@ -319,18 +390,11 @@ export function ProgressHubClient({
     });
   }, [data?.updated_at]);
 
-  const scopeLabel = useMemo(() => {
-    if (selectedStageScope && selectedStageScope in STAGE_SCOPE_TO_GROUP) {
-      return STAGE_SCOPE_TO_GROUP[selectedStageScope as StageScope];
-    }
-    return "All bands";
-  }, [selectedStageScope]);
-
-  const checkpointLabel = data?.checkpoint.current_stage ?? "Not set";
-  const checkpointTypeLabel =
-    data?.checkpoint.label === "Annual ARCP"
-      ? "Annual ARCP"
-      : data?.checkpoint.label ?? "Current checkpoint";
+  const yearLabel = selectedYear ?? "Not set";
+  const curriculumBandLabel = selectedYear
+    ? curriculumBandLabelForYear(selectedYear)
+    : null;
+  const checkpointLabel = currentYear ?? data?.checkpoint.current_stage ?? "Not set";
   const activeCipScope =
     cipFromUrl && /^\d+$/.test(cipFromUrl) ? Number.parseInt(cipFromUrl, 10) : null;
 
@@ -352,17 +416,27 @@ export function ProgressHubClient({
             <div>
               <h1 className="text-heading-2 font-semibold text-primary">Progress</h1>
               <p className="mt-1 max-w-xl text-small text-secondary">
-                Your current curriculum progress, key skill coverage, and CiP readiness.
+                Pick a training year for formal requirements and ARCP expectations. CiP and key
+                skill coverage uses the curriculum band that year belongs to.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <span className="rounded-full border border-subtle bg-surface-2 px-3 py-1 text-micro text-secondary">
-                  Current checkpoint: <span className="font-medium text-primary">{checkpointLabel}</span>
+                  Requirements year: <span className="font-medium text-primary">{yearLabel}</span>
                 </span>
+                {curriculumBandLabel ? (
+                  <span className="rounded-full border border-subtle bg-surface-2 px-3 py-1 text-micro text-secondary">
+                    Curriculum band: <span className="font-medium text-primary">{curriculumBandLabel}</span>
+                    {selectedStageScope === "BAND_ST1_2"
+                      ? " (ST1–ST2)"
+                      : selectedStageScope === "BAND_ST3_5"
+                        ? " (ST3–ST5)"
+                        : selectedStageScope === "BAND_ST6_7"
+                          ? " (ST6–ST7)"
+                          : ""}
+                  </span>
+                ) : null}
                 <span className="rounded-full border border-subtle bg-surface-2 px-3 py-1 text-micro text-secondary">
-                  Curriculum scope: <span className="font-medium text-primary">{scopeLabel}</span>
-                </span>
-                <span className="rounded-full border border-subtle bg-surface-2 px-3 py-1 text-micro text-secondary">
-                  Review type: <span className="font-medium text-primary">{checkpointTypeLabel}</span>
+                  Your current year: <span className="font-medium text-primary">{checkpointLabel}</span>
                 </span>
                 {activeCipScope != null ? (
                   <span className="inline-flex items-center gap-2 rounded-full border border-accent-primary/20 bg-accent-primary/8 px-3 py-1 text-micro text-secondary">
@@ -388,15 +462,47 @@ export function ProgressHubClient({
             </button>
           </div>
 
-          <ProgressScopeBar
-            selectedStageScope={selectedStageScope}
-            onStageScopeChange={onStageScopeChange}
+          <ProgressYearBar
+            selectedYear={selectedYear}
+            currentYear={currentYear}
+            onYearChange={onYearChange}
             disabled={isLoading}
           />
 
+          <div className="mt-4 inline-flex gap-0.5 rounded-full bg-surface-3 p-0.5">
+            {[
+              {
+                id: "priorities" as const,
+                label: "Priorities",
+                sub: "What to do next",
+              },
+              {
+                id: "overview" as const,
+                label: "Overview",
+                sub: "Coverage and drill-downs",
+              },
+            ].map((view) => (
+              <button
+                key={view.id}
+                type="button"
+                onClick={() => onViewChange(view.id)}
+                className={[
+                  "rounded-full px-3 py-1.5 text-micro font-medium transition-all duration-150",
+                  activeView === view.id
+                    ? "bg-surface-1 text-primary shadow-sm ring-1 ring-subtle"
+                    : "text-muted hover:text-secondary",
+                ].join(" ")}
+              >
+                {view.label}
+                <span className="ml-1 opacity-60">{view.sub}</span>
+              </button>
+            ))}
+          </div>
+
           <p className="mt-3 max-w-2xl text-[12px] leading-relaxed text-muted">
-            Atlas shows your current curriculum band by default. Switch to another band or to all
-            evidence if you want to compare coverage outside your active stage reset.
+            CiPs, key skills, and descriptors carry over within the curriculum band — so ST2
+            includes progress from ST1. OSATS, courses, and exams are scoped to the selected year
+            only.
           </p>
 
           {updatedLabel && (
@@ -413,7 +519,12 @@ export function ProgressHubClient({
           </div>
         )}
 
-        {isLoading && !data ? (
+            {activeView === "priorities" ? (
+              <ProgressPrioritiesView
+                selectedYear={selectedYear}
+                selectedStageScope={selectedStageScope}
+              />
+            ) : isLoading && !data ? (
           <div className="flex justify-center py-12 text-small text-muted">Loading metrics…</div>
         ) : data ? (
           <>

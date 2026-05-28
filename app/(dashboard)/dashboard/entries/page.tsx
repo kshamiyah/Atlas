@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
-import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { EntriesListClient } from "@/components/dashboard/EntriesListClient";
 
 export default async function EntriesPage({
@@ -8,37 +7,32 @@ export default async function EntriesPage({
 }: {
   searchParams?: Promise<{ day?: string; q?: string }>;
 }) {
-  const supabase = await getServerSupabaseClient();
-  const bypassAuth = isDevAuthBypassEnabled();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, userId, bypassAuth } = await resolveRequestAuth();
 
-  if (!user && !bypassAuth) {
+  if (!userId && !bypassAuth) {
     redirect("/login");
   }
 
+  const entriesQuery = supabase
+    .from("kaizen_entries")
+    .select(
+      "id, title, kaizen_date, assessment_type, status, synced_at, source_entry_id, source_url, detected_entry_type, category, training_year, linked_cip_number, entry_text, extracted_fields, extraction_status, key_skills_count, kaizen_procedure_id, assessor_role_id",
+    )
+    .order("synced_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(500);
+  const countQuery = supabase
+    .from("kaizen_entries")
+    .select("id", { count: "exact", head: true });
+
+  if (userId) {
+    entriesQuery.eq("user_id", userId);
+    countQuery.eq("user_id", userId);
+  }
+
   const [{ data: entries }, { count: totalSyncedCount }] = await Promise.all([
-    user
-      ? supabase
-          .from("kaizen_entries")
-          .select("id, title, kaizen_date, assessment_type, status, synced_at")
-          .eq("user_id", user.id)
-          .order("synced_at", { ascending: false })
-          .order("id", { ascending: false })
-          .limit(500)
-      : supabase
-          .from("kaizen_entries")
-          .select("id, title, kaizen_date, assessment_type, status, synced_at")
-          .order("synced_at", { ascending: false })
-          .order("id", { ascending: false })
-          .limit(500),
-    user
-      ? supabase
-          .from("kaizen_entries")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
-      : supabase.from("kaizen_entries").select("id", { count: "exact", head: true }),
+    entriesQuery,
+    countQuery,
   ]);
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialDayFilter = resolvedSearchParams?.day?.trim() ?? "";
@@ -53,10 +47,10 @@ export default async function EntriesPage({
               Entries
             </p>
             <h1 className="mt-1 text-3xl font-semibold text-primary">
-              Synced entries
+              My Entries
             </h1>
             <p className="mt-1 text-sm leading-6 text-secondary">
-              Latest Kaizen entries imported into Atlas.
+              Your synced evidence history from Kaizen.
             </p>
           </div>
           <a href="/dashboard" className="btn-secondary w-fit px-4 py-2 text-small">

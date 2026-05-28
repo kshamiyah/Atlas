@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { ENTRY_TYPE_SCHEMAS } from "@/lib/constants/entry-schemas";
+import {
+  buildKaizenNewEntryUrl,
+  kaizenEntryTypeLabel,
+} from "@/lib/kaizen/entry-urls";
 import type { GeneratedEntryType } from "@/lib/types/entries";
 import type { GeneratedAIOutput } from "@/lib/ai/generate";
 
@@ -11,20 +15,6 @@ type Props = {
   savedId: string | null;
   rawInput: string;
   length?: "short" | "standard" | "detailed";
-};
-
-// Kaizen "create new entry" URL paths by entry type
-const KAIZEN_BASE = "https://kaizenep.com";
-const KAIZEN_NEW_ENTRY_PATHS: Record<string, string> = {
-  reflection: "/node/add/log-entry-reflection",
-  procedure: "/node/add/log-entry-procedure",
-  cip_assessment: "/node/add/assessment-type-cip-assessment",
-  cbd: "/node/add/log-entry-assessment-cbd",
-  minicex: "/node/add/log-entry-assessment-mini-cex",
-  notss: "/node/add/log-entry-assessment-notss",
-  osats_formative: "/node/add/log-entry-assessment-osats",
-  osats_summative: "/node/add/log-entry-assessment-osats-summative",
-  other_evidence: "/node/add/log-entry",
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -108,6 +98,9 @@ export function GeneratedResult({
   const [regenLoading, setRegenLoading] = useState<Record<string, boolean>>({});
   const [fillState, setFillState] = useState<"idle" | "queued">("idle");
 
+  const kaizenFormUrl = buildKaizenNewEntryUrl(entryType);
+  const kaizenFormLabel = kaizenEntryTypeLabel(entryType);
+
   async function handleRegenField(fieldId: string, fieldLabel: string) {
     setRegenLoading((prev) => ({ ...prev, [fieldId]: true }));
     try {
@@ -144,15 +137,91 @@ export function GeneratedResult({
     // chrome.storage.local so content-form-fill.js on Kaizen can pick it up.
     window.postMessage({ type: "PORTFOLIOIQ_QUEUE_FILL", payload }, "*");
     setFillState("queued");
-    const path = KAIZEN_NEW_ENTRY_PATHS[entryType] ?? "/eportfolio";
     setTimeout(() => {
-      window.open(KAIZEN_BASE + path, "_blank");
+      window.open(kaizenFormUrl, "_blank");
       setTimeout(() => setFillState("idle"), 3000);
     }, 120);
   }
 
   return (
     <div className="space-y-4">
+      <section className="rounded-xl border border-accent-blue/20 bg-accent-blue/6 px-4 py-3.5 md:px-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-accent-blue">
+              Copy to Kaizen
+            </p>
+            <ol className="mt-2 space-y-1 text-[12px] leading-relaxed text-secondary">
+              <li>
+                <span className="font-medium text-primary">1.</span> Edit any field below
+              </li>
+              <li>
+                <span className="font-medium text-primary">2.</span> Click{" "}
+                <span className="font-medium text-primary">Fill in Kaizen</span> — Atlas
+                queues your text
+              </li>
+              <li>
+                <span className="font-medium text-primary">3.</span> Complete the{" "}
+                <span className="font-medium text-primary">{kaizenFormLabel}</span> form
+                in Kaizen; fields populate automatically
+              </li>
+            </ol>
+            <p className="mt-2 text-[11px] text-muted">
+              Opens{" "}
+              <a
+                href={kaizenFormUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-accent-blue hover:underline"
+              >
+                {kaizenFormLabel} on RCOG Training ePortfolio
+              </a>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleFillKaizen}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent-primary bg-accent-primary px-3.5 py-2 text-[12px] font-semibold text-surface-1 transition hover:opacity-90"
+          >
+            {fillState === "queued" ? (
+              <>
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Opening Kaizen…
+              </>
+            ) : (
+              <>
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+                Fill in Kaizen
+              </>
+            )}
+          </button>
+        </div>
+      </section>
+
       {/* ── Header row ── */}
       <div className="flex flex-wrap items-center gap-2.5 px-1">
         <h2
@@ -186,57 +255,6 @@ export function GeneratedResult({
             Level {result.inferred_level} supervision
           </span>
         )}
-
-        {/* Fill in Kaizen */}
-        <button
-          type="button"
-          onClick={handleFillKaizen}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition hover:bg-surface-3"
-          style={{
-            background: "var(--surface-2)",
-            borderColor: "var(--border-subtle)",
-            color:
-              fillState === "queued"
-                ? "var(--accent-green)"
-                : "var(--text-secondary)",
-          }}
-        >
-          {fillState === "queued" ? (
-            <>
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              Opening Kaizen…
-            </>
-          ) : (
-            <>
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-              Fill in Kaizen
-            </>
-          )}
-        </button>
       </div>
 
       {/* ── Fields card + key skills strip ── */}
@@ -278,50 +296,100 @@ export function GeneratedResult({
           );
         })}
 
-        {/* Key skills — compact chip strip inside the card */}
-        {result.suggested_key_skills_detail.length > 0 && (
-          <div className="px-5 py-4 md:px-6">
-            <p
-              className="mb-2.5 text-[11px] font-semibold uppercase text-muted"
-              style={{ letterSpacing: "0.06em" }}
-            >
-              Suggested key skills (
-              {result.suggested_key_skills_detail.length})
+        {/* Curriculum mapping — key skills + descriptors */}
+        <div className="px-5 py-4 md:px-6">
+          <p
+            className="mb-1 text-[11px] font-semibold uppercase text-muted"
+            style={{ letterSpacing: "0.06em" }}
+          >
+            Curriculum mapping
+            {result.suggested_key_skills_detail.length > 0
+              ? ` (${result.suggested_key_skills_detail.length} key skills)`
+              : ""}
+          </p>
+          <p className="mb-3 text-[11px] text-muted">
+            Key skills and descriptors this entry may evidence in Kaizen.
+          </p>
+          {result.suggested_key_skills_detail.length > 0 ? (
+            <ul className="space-y-3">
+              {result.suggested_key_skills_detail.map((skill) => {
+                const evidencedSet = new Set(skill.evidenced_descriptors);
+                const descriptorRows =
+                  skill.all_descriptors.length > 0
+                    ? skill.all_descriptors
+                    : skill.evidenced_descriptors;
+
+                return (
+                  <li
+                    key={skill.key_skill_id}
+                    className="rounded-xl border px-3 py-2.5"
+                    style={{
+                      background: "var(--surface-3)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] font-medium text-primary">
+                        {skill.title}
+                      </span>
+                      {skill.cip_number != null && (
+                        <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted">
+                          CiP {skill.cip_number}
+                        </span>
+                      )}
+                      {skill.covered === false && (
+                        <span
+                          className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                          style={{
+                            background: "rgba(245,158,11,0.12)",
+                            color: "var(--accent-amber)",
+                          }}
+                        >
+                          portfolio gap
+                        </span>
+                      )}
+                    </div>
+                    {skill.rationale ? (
+                      <p className="mt-1.5 text-[12px] leading-relaxed text-secondary">
+                        {skill.rationale}
+                      </p>
+                    ) : null}
+                    {descriptorRows.length > 0 ? (
+                      <div className="mt-2.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted">
+                          Descriptors
+                        </p>
+                        <ul className="mt-1.5 space-y-1">
+                          {descriptorRows.map((descriptor) => {
+                            const evidenced = evidencedSet.has(descriptor);
+                            return (
+                              <li
+                                key={descriptor}
+                                className={`rounded-md px-2 py-1.5 text-[11px] leading-snug ${
+                                  evidenced
+                                    ? "bg-accent-green/10 text-secondary"
+                                    : "bg-surface-2/80 text-muted"
+                                }`}
+                              >
+                                {evidenced ? "✓ " : "○ "}
+                                {descriptor}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-[12px] leading-relaxed text-muted">
+              No suggestions yet. Sync your portfolio for gap-aware matches, or
+              pick target key skills before generating.
             </p>
-            <div className="flex flex-wrap gap-2">
-              {result.suggested_key_skills_detail.map((skill) => (
-                <div
-                  key={skill.key_skill_id}
-                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium"
-                  style={{
-                    background: "var(--surface-3)",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-secondary)",
-                  }}
-                  title={skill.rationale || undefined}
-                >
-                  <span>{skill.title}</span>
-                  {skill.cip_number != null && (
-                    <span className="text-[10px] opacity-50">
-                      CiP {skill.cip_number}
-                    </span>
-                  )}
-                  {skill.covered === false && (
-                    <span
-                      className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                      style={{
-                        background: "rgba(245,158,11,0.12)",
-                        color: "var(--accent-amber)",
-                      }}
-                    >
-                      gap
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </section>
 
       {/* ── AI Notes ── */}

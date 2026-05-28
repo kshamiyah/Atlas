@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { GapReportCip } from "@/lib/types/gap-report";
 import type { QueueResponse } from "@/lib/types/key-skill-review-api";
 import type { ProgressSummaryResponse } from "@/lib/types/progress";
+import { buildWriteEntryHref } from "@/lib/generate/query-params";
 
 type DashboardSummaryCardProps = {
   totalEntries: number;
@@ -48,8 +49,8 @@ function buildSummaryAction(
       body: `${first.cip_title} has no confirmed key skills yet. It’s the fastest place to improve your portfolio signal.`,
       primaryHref: "/dashboard/key-skill-review",
       primaryLabel: "Review what Atlas found",
-      secondaryHref: "/dashboard/gap-report",
-      secondaryLabel: "Open Gap Report",
+      secondaryHref: buildWriteEntryHref({ cip: first.cip_number }),
+      secondaryLabel: "Write an entry",
     };
   }
 
@@ -85,8 +86,8 @@ function buildSummaryAction(
     body: "There are no obvious urgent gaps right now. Use Progress Hub for a deeper curriculum view or generate a new entry while the context is fresh.",
     primaryHref: "/dashboard/progress",
     primaryLabel: "Open Progress Hub",
-    secondaryHref: "/dashboard/generate",
-    secondaryLabel: "Generate Entry",
+      secondaryHref: buildWriteEntryHref({ cip: sorted[0]?.cip_number }),
+      secondaryLabel: "Write an entry",
   };
 }
 

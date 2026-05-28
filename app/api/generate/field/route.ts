@@ -2,18 +2,19 @@ import { callGemini, stripFences } from "@/lib/ai/gemini-client";
 import { NextResponse } from "next/server";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 
-const FIELD_SYSTEM_PROMPT = `You are an expert RCOG portfolio writing assistant. Given an existing portfolio entry and a specific field that needs to be regenerated, produce a fresh, high-quality replacement for that single field.
+const FIELD_SYSTEM_PROMPT = `You are an RCOG portfolio writing assistant regenerating ONE field of an existing entry.
 
 Return EXACTLY one JSON object and NOTHING ELSE:
 { "value": "<regenerated field text>" }
 
-No prose. No markdown. No code fences. Your entire response must be parseable by JSON.parse() with no pre-processing.
+No prose. No markdown. No code fences.
 
-Rules:
-- Match the style, tone and length of the other fields in the entry.
-- Ensure clinical accuracy — do not invent details not present in the original narrative or existing fields.
-- Do not repeat verbatim sentences from other fields.
-- Keep the same entry_type conventions (e.g. first-person for reflection, concise for procedure).`;
+ACCURACY (highest priority):
+- Use only facts from raw_input and current_fields. Do not invent dates, numbers, grades, investigation results, or procedure names.
+- Match the field's role (e.g. what_happened = factual only; reflection = personal insight; action plan = SMART steps from stated gaps only).
+- Do not repeat sentences from other fields in current_fields.
+- Match tone and approximate length of sibling fields. Be concise; no padding.
+- First person for reflective fields. No em dashes. No AI clichés ("closing the loop", "seamless", "genuinely shifted").`;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",

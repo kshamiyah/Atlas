@@ -6,6 +6,7 @@ import { ProgressCipList } from "@/components/progress/ProgressCipList";
 import type { ProgressCipsResponse } from "@/lib/types/progress";
 
 const SCOPE_QUERY_KEYS = [
+  "year",
   "stage_scope",
   "stage_group",
   "stage_id",

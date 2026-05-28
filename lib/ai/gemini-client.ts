@@ -23,6 +23,22 @@ export async function callGemini(opts: {
   temperature?: number;
   jsonObject?: boolean;
 }): Promise<string> {
+  const result = await callGeminiCompletion(opts);
+  return result.content;
+}
+
+export type GeminiCompletion = {
+  content: string;
+  finishReason: string | null;
+};
+
+export async function callGeminiCompletion(opts: {
+  system: string;
+  user: string;
+  maxTokens?: number;
+  temperature?: number;
+  jsonObject?: boolean;
+}): Promise<GeminiCompletion> {
   const client = getClient();
 
   const response = await client.chat.completions.create({
@@ -36,7 +52,10 @@ export async function callGemini(opts: {
     ...(opts.jsonObject ? { response_format: { type: "json_object" } } : {}),
   });
 
-  return response.choices[0]?.message?.content ?? "";
+  return {
+    content: response.choices[0]?.message?.content ?? "",
+    finishReason: response.choices[0]?.finish_reason ?? null,
+  };
 }
 
 /** Strip markdown code fences and return trimmed text. */

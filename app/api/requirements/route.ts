@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { getServerSupabaseClient } from "@/lib/supabase/server";
 import {
   calculateArcpCountdown,
@@ -6,7 +7,14 @@ import {
   sanitizeWorkingPercent,
 } from "@/lib/profile/ltft";
 import { normalizeStageName } from "@/lib/profile/stage";
-import { buildOsatsCountsByProcedure } from "@/lib/requirements/osats-evidence";
+import {
+  buildOsatsCountsByProcedure,
+  groupOsatsEntriesByProcedure,
+  KAIZEN_CONSULTANT_ROLE_ID,
+} from "@/lib/requirements/osats-evidence";
+
+// Assessor role ID that counts as a consultant sign-off
+const CONSULTANT_ROLE_ID = KAIZEN_CONSULTANT_ROLE_ID;
 
 // Kaizen evidence_type values for exams
 const EXAM_EVIDENCE_TYPES: Record<string, { name: string; required_by_stage: string }> = {
@@ -15,40 +23,59 @@ const EXAM_EVIDENCE_TYPES: Record<string, { name: string; required_by_stage: str
   "472": { name: "MRCOG Part 3", required_by_stage: "ST5" },
 };
 
-// Assessor role ID that counts as a consultant sign-off
-const CONSULTANT_ROLE_ID = 597;
+function emptyRequirementsResponse() {
+  return NextResponse.json({
+    procedures: [],
+    courses: [],
+    exams: [],
+    summary: {
+      procedures_complete: 0,
+      procedures_total: 0,
+      courses_complete: 0,
+      courses_total: 0,
+      exams_complete: 0,
+      exams_total: 0,
+    },
+    profile_stage: null,
+    profile_working_pattern: null,
+  });
+}
 
 export async function GET(request: Request) {
-  const supabase = await getServerSupabaseClient();
   const authHeader = request.headers.get("Authorization");
 
-  type AuthUser = { id: string };
-  let user: AuthUser | null = null;
+  let supabase;
+  let userId: string | null = null;
 
   if (authHeader?.startsWith("Bearer ")) {
+    supabase = await getServerSupabaseClient();
     const token = authHeader.slice("Bearer ".length);
     try {
       const { data } = await supabase.auth.getUser(token);
-      user = data.user ? { id: data.user.id } : null;
+      userId = data.user?.id ?? null;
     } catch {
-      user = null;
+      userId = null;
     }
-  }
-
-  if (!user) {
-    const { data } = await supabase.auth.getUser();
-    user = data.user ? { id: data.user.id } : null;
-  }
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  } else {
+    const auth = await resolveRequestAuth();
+    supabase = auth.supabase;
+    userId = auth.userId;
+    if (!userId && !auth.bypassAuth) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!userId) {
+      return emptyRequirementsResponse();
+    }
   }
 
   // Resolve user's current training stage for scoped progress views
   const { data: profile } = await supabase
     .from("profiles")
     .select("current_stage_id, current_grade, working_percent, arcp_date")
-    .eq("id", user.id)
+    .eq("id", userId)
     .maybeSingle();
 
   let profileStage: {
@@ -96,24 +123,37 @@ export async function GET(request: Request) {
 
   const { data: osatsEntries } = await supabase
     .from("kaizen_entries")
-    .select("detected_entry_type, title, extracted_fields, kaizen_procedure_id, assessor_role_id")
-    .eq("user_id", user.id)
+    .select(
+      "id, title, kaizen_date, source_url, detected_entry_type, extracted_fields, kaizen_procedure_id, assessor_role_id",
+    )
+    .eq("user_id", userId)
     .eq("detected_entry_type", "osats_summative");
 
-  // Aggregate per procedure using strict numeric codes only
-  // (stored DB IDs first, then extracted field numeric codes).
+  const catalogLite = (proceduresCatalog ?? []).map((p: { kaizen_id: number; name: string }) => ({
+    kaizen_id: p.kaizen_id,
+    name: p.name,
+  }));
+
+  const osatsEntryRows = (osatsEntries ?? []) as Array<{
+    id: string;
+    title: string | null;
+    kaizen_date: string | null;
+    source_url: string | null;
+    detected_entry_type: string | null;
+    extracted_fields: Record<string, unknown> | null;
+    kaizen_procedure_id: number | null;
+    assessor_role_id: number | null;
+  }>;
+
   const osatsByProcedure = buildOsatsCountsByProcedure(
-    (osatsEntries ?? []) as Array<{
-      detected_entry_type: string | null;
-      title: string | null;
-      extracted_fields: Record<string, unknown> | null;
-      kaizen_procedure_id: number | null;
-      assessor_role_id: number | null;
-    }>,
-    (proceduresCatalog ?? []).map((p: { kaizen_id: number; name: string }) => ({
-      kaizen_id: p.kaizen_id,
-      name: p.name,
-    })),
+    osatsEntryRows,
+    catalogLite,
+    CONSULTANT_ROLE_ID,
+  );
+
+  const osatsEntriesByProcedure = groupOsatsEntriesByProcedure(
+    osatsEntryRows,
+    catalogLite,
     CONSULTANT_ROLE_ID,
   );
 
@@ -136,6 +176,7 @@ export async function GET(request: Request) {
       total_osats: counts.total,
       consultant_osats: counts.consultant,
       complete: counts.total >= target && counts.consultant >= 1,
+      osats_entries: osatsEntriesByProcedure[p.kaizen_id] ?? [],
     };
   });
 
@@ -150,7 +191,7 @@ export async function GET(request: Request) {
   const { data: courseEntries } = await supabase
     .from("kaizen_entries")
     .select("title, extracted_fields")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("detected_entry_type", "other_evidence");
 
   // Build two signal sets: entry titles and evidence type values (both lowercased)
@@ -218,7 +259,7 @@ export async function GET(request: Request) {
   const { data: examEntries } = await supabase
     .from("kaizen_entries")
     .select("title, extracted_fields")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("detected_entry_type", "other_evidence");
 
   const completedExamTypes = new Set<string>();

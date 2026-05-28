@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { GapReportKeySkill } from "@/lib/types/gap-report";
 import { DescriptorPanel } from "./DescriptorPanel";
 
@@ -5,12 +6,14 @@ type KeySkillRowProps = {
   keySkill: GapReportKeySkill;
   isDescriptorPanelExpanded: boolean;
   onToggleDescriptorPanel: () => void;
+  writeEntryHref?: string;
 };
 
 export function KeySkillRow({
   keySkill,
   isDescriptorPanelExpanded,
   onToggleDescriptorPanel,
+  writeEntryHref,
 }: KeySkillRowProps) {
   const isConfirmed = keySkill.is_confirmed;
   const analysisRun = keySkill.descriptors.some((d) => d.confidence !== null);
@@ -49,6 +52,14 @@ export function KeySkillRow({
             No evidence yet
           </p>
         )}
+        {!isConfirmed && writeEntryHref ? (
+          <Link
+            href={writeEntryHref}
+            className="mt-1.5 inline-flex text-[11px] font-medium text-accent-blue hover:underline"
+          >
+            Write an entry
+          </Link>
+        ) : null}
         {isConfirmed && hasDescriptorData && (
           <div className="mt-1.5 flex flex-col gap-0.5">
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-4">

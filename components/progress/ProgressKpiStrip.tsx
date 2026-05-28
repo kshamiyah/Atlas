@@ -20,8 +20,8 @@ export function ProgressKpiStrip({
       label: "CiP readiness",
       sub:
         checkpoint.type === "annual"
-          ? "CiPs on track for the current ARCP checkpoint"
-          : "CiPs meeting the current checkpoint standard",
+          ? `CiPs on track for ${checkpoint.current_stage ?? "this"} ARCP expectations`
+          : `CiPs meeting the ${checkpoint.current_stage ?? "checkpoint"} standard`,
       block: kpis.cips_checkpoint,
       accent: "var(--accent-blue)",
       supporting: `${kpis.cips.covered} fully complete`,

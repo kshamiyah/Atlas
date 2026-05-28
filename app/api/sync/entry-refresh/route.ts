@@ -3,6 +3,7 @@ import {
   createSupabaseClientWithToken,
   getUserFromBearerToken,
 } from "@/lib/supabase/api-client";
+import { resolveOsatsStorageFields } from "@/lib/requirements/osats-evidence";
 
 type EntryRefreshBody = {
   entry?: {
@@ -184,14 +185,46 @@ export async function POST(request: Request) {
         ? "partial"
         : readExtractionStatus(existing?.extraction_status) ?? "failed");
 
+  const detectedEntryType =
+    readString(entry.detected_entry_type) ??
+    readString(existing?.detected_entry_type) ??
+    null;
+
+  let kaizenProcedureId =
+    readInteger(entry.kaizen_procedure_id) ??
+    existing?.kaizen_procedure_id ??
+    null;
+  let assessorRoleId =
+    readInteger(entry.assessor_role_id) ??
+    existing?.assessor_role_id ??
+    null;
+
+  if (detectedEntryType === "osats_summative") {
+    const { data: proceduresCatalog } = await supabase
+      .from("procedures_catalog")
+      .select("kaizen_id, name")
+      .not("kaizen_id", "is", null);
+
+    if (proceduresCatalog && proceduresCatalog.length > 0) {
+      const resolved = resolveOsatsStorageFields(
+        {
+          detected_entry_type: detectedEntryType,
+          extracted_fields: extractedFields,
+          kaizen_procedure_id: kaizenProcedureId,
+          assessor_role_id: assessorRoleId,
+        },
+        proceduresCatalog as Array<{ kaizen_id: number; name: string }>,
+      );
+      kaizenProcedureId = resolved.kaizen_procedure_id;
+      assessorRoleId = resolved.assessor_role_id;
+    }
+  }
+
   const row = {
     user_id: auth.user.id,
     source_entry_id: sourceEntryId ?? existing?.source_entry_id ?? null,
     source_url: sourceUrl ?? existing?.source_url ?? null,
-    detected_entry_type:
-      readString(entry.detected_entry_type) ??
-      readString(existing?.detected_entry_type) ??
-      null,
+    detected_entry_type: detectedEntryType,
     kaizen_date:
       readString(entry.kaizen_date) ??
       readString(existing?.kaizen_date) ??
@@ -224,14 +257,8 @@ export async function POST(request: Request) {
       readInteger(entry.key_skills_count) ??
       existing?.key_skills_count ??
       null,
-    kaizen_procedure_id:
-      readInteger(entry.kaizen_procedure_id) ??
-      existing?.kaizen_procedure_id ??
-      null,
-    assessor_role_id:
-      readInteger(entry.assessor_role_id) ??
-      existing?.assessor_role_id ??
-      null,
+    kaizen_procedure_id: kaizenProcedureId,
+    assessor_role_id: assessorRoleId,
     synced_at: new Date().toISOString(),
   };
 

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { createSupabaseClientWithToken } from "@/lib/supabase/api-client";
 import { generatePortfolioEntry } from "@/lib/ai/generate";
+import { rankKeySkillCandidates } from "@/lib/ai/key-skill-candidates";
 import { matchKeySkills } from "@/lib/ai/match-key-skills";
 import { selectCipEvidence } from "@/lib/ai/cip-evidence-selector";
 import { normalizeCipTraineeComments } from "@/lib/ai/cip-comment-normalizer";
@@ -128,14 +129,10 @@ export async function OPTIONS() {
 }
 
 export async function POST(request: Request) {
-  // Default to cookie-based client (web). Will be replaced by token client for extension requests.
-  let supabase = await getServerSupabaseClient();
-  let user: AuthUser | null = null;
   const authHeader = request.headers.get("Authorization");
+  let supabase;
+  let userId: string | null = null;
 
-  // Prefer explicit Bearer auth from the extension.
-  // Must use a token-authenticated client so RLS (auth.uid() = user_id) resolves correctly —
-  // the cookie client has no session for extension requests and silently returns 0 rows.
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice("Bearer ".length);
     try {
@@ -143,25 +140,25 @@ export async function POST(request: Request) {
       const { data } = await tokenClient.auth.getUser();
       if (data.user) {
         supabase = tokenClient;
-        user = data.user;
+        userId = data.user.id;
       }
     } catch {
-      // fall through to cookie auth
+      // fall through to cookie / dev bypass auth
     }
   }
 
-  // Fall back to cookie auth for web requests.
-  if (!user) {
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
+  if (!userId) {
+    const auth = await resolveRequestAuth();
+    supabase = auth.supabase;
+    userId = auth.userId;
   }
-  if (!user) {
+
+  if (!userId) {
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401, headers: CORS_HEADERS }
     );
   }
-  const userId = user.id;
 
   let body: {
     entry_type?: GeneratedEntryType;
@@ -179,9 +176,9 @@ export async function POST(request: Request) {
     );
   }
 
-  if (body.entry_type && !VALID_ENTRY_TYPES.includes(body.entry_type)) {
+  if (!body.entry_type || !VALID_ENTRY_TYPES.includes(body.entry_type)) {
     return NextResponse.json(
-      { error: "Invalid entry_type" },
+      { error: "entry_type is required" },
       { status: 400, headers: CORS_HEADERS }
     );
   }
@@ -554,7 +551,7 @@ Generation requirement:
     }
 
     result = await generatePortfolioEntry({
-      entry_type: body.entry_type ?? "auto",
+      entry_type: body.entry_type,
       free_text: generationFreeText,
       stage_id: stageId,
       date_hint: body.date,
@@ -590,26 +587,22 @@ Generation requirement:
     );
   }
 
-  // ── Pre-filter: pick top 20 by basic text signal ──
+  // ── Pre-filter: rank candidates by text overlap + clinical CiP themes ──
   const entryText = Object.values(result.fields)
     .filter((v): v is string => typeof v === "string")
-    .join(" ")
-    .toLowerCase();
+    .join(" ");
 
-  const scored = enrichedKeySkills.map((ks) => {
-    const allText = [ks.title, ...ks.descriptors].join(" ").toLowerCase();
-    const words = allText
-      .split(/\s+/)
-      .filter((w) => w.length > 4);
-    const hits = words.filter((w) => entryText.includes(w)).length;
-    const gapBoost = ks.covered === false ? 2 : 0;
-    return { ks, score: hits + gapBoost };
-  });
+  const pinnedCandidates = (body.target_key_skill_ids ?? [])
+    .map((id) => enrichedKeySkills.find((s) => s.key_skill_id === id))
+    .filter((s): s is KeySkillCandidate => s != null);
 
-  const topCandidates = scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 20)
-    .map((s) => s.ks);
+  const rankedCandidates = rankKeySkillCandidates(entryText, enrichedKeySkills);
+  const topCandidates = [
+    ...pinnedCandidates,
+    ...rankedCandidates.filter(
+      (ks) => !pinnedCandidates.some((p) => p.key_skill_id === ks.key_skill_id),
+    ),
+  ].slice(0, 25);
 
   // ── Pass 2 + stage resolution: run in parallel ──
   const [keySkillMatch, stageRow] = await Promise.all([
@@ -618,10 +611,17 @@ Generation requirement:
       entry_type: result.entry_type,
       candidates: topCandidates,
       pinned_key_skill_ids: body.target_key_skill_ids ?? [],
-    }).catch(() => ({
-      suggested_key_skill_ids: [],
-      rationale: {} as Record<string, string>,
-    })),
+    }).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[PortfolioIQ] Key skill match failed:", msg);
+      return {
+        suggested_key_skill_ids: [] as string[],
+        rationale: {} as Record<string, string>,
+        suggestions: [],
+        match_failed: true,
+        match_error: msg,
+      };
+    }),
     supabase
       .from("stages")
       .select("id")
@@ -630,19 +630,44 @@ Generation requirement:
       .then((r) => r.data),
   ]);
 
-  result.suggested_key_skill_ids = keySkillMatch.suggested_key_skill_ids;
+  const uniqueSkillIds = [...new Set(keySkillMatch.suggested_key_skill_ids)];
+  const suggestionById = new Map(
+    keySkillMatch.suggestions.map((s) => [s.key_skill_id, s] as const),
+  );
+  result.suggested_key_skill_ids = uniqueSkillIds;
   result.key_skill_rationale = keySkillMatch.rationale;
-  result.suggested_key_skills_detail =
-    keySkillMatch.suggested_key_skill_ids.map((id) => {
-      const skill = enrichedKeySkills.find((s) => s.key_skill_id === id);
-      return {
-        key_skill_id: id,
-        title: skill?.title ?? id,
-        cip_number: skill?.cip_number ?? null,
-        covered: skill?.covered ?? null,
-        rationale: keySkillMatch.rationale[id] ?? "",
-      };
-    });
+  result.suggested_key_skills_detail = uniqueSkillIds.map((id) => {
+    const skill = enrichedKeySkills.find((s) => s.key_skill_id === id);
+    const suggestion = suggestionById.get(id);
+    return {
+      key_skill_id: id,
+      title: skill?.title ?? id,
+      cip_number: skill?.cip_number ?? null,
+      covered: skill?.covered ?? null,
+      rationale: keySkillMatch.rationale[id] ?? "",
+      evidenced_descriptors: suggestion?.evidenced_descriptors ?? [],
+      all_descriptors: skill?.descriptors ?? [],
+    };
+  });
+
+  if (
+    "match_failed" in keySkillMatch &&
+    keySkillMatch.match_failed &&
+    result.suggested_key_skills_detail.length === 0
+  ) {
+    result.notes = Array.isArray(result.notes) ? result.notes : [];
+    result.notes.push(
+      "Key skill suggestions could not be generated — try again in a moment."
+    );
+  } else if (
+    result.suggested_key_skills_detail.length === 0 &&
+    enrichedKeySkills.length === 0
+  ) {
+    result.notes = Array.isArray(result.notes) ? result.notes : [];
+    result.notes.push(
+      "No curriculum key skills loaded — sync your portfolio to enable suggestions."
+    );
+  }
 
   const stageUuid = stageRow?.id ?? null;
 

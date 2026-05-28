@@ -472,10 +472,10 @@ export default function RequirementsPage() {
   const [data, setData] = useState<RequirementsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("procedures");
   const [prototypeId] = useState<PrototypeId>("P6");
   const [timelineStage, setTimelineStage] = useState<string | null>(null);
-  const [showIncompleteOnly, setShowIncompleteOnly] = useState(true);
+  const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
   const [showDueThisWindowOnly, setShowDueThisWindowOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [helpText, setHelpText] = useState<string | null>(null);
@@ -582,7 +582,7 @@ export default function RequirementsPage() {
     },
   ];
 
-  const activeTabSummary = activeTab ? tabs.find((t) => t.id === activeTab) ?? tabs[0] : null;
+  const activeTabSummary = tabs.find((t) => t.id === activeTab) ?? tabs[0];
   const totalComplete =
     scopedSummary.procedures_complete + scopedSummary.courses_complete + scopedSummary.exams_complete;
   const totalCount =
@@ -606,10 +606,8 @@ export default function RequirementsPage() {
     overallExpectedByNowRaw === null ? null : totalComplete >= overallExpectedByNowRaw;
   const overallProRataStatus = proRataStatus(overallExpectedByNowRaw, totalComplete);
 
-  const scopedActiveItems = activeTab
-    ? scopedAllItems.filter((item) => item.kind === activeTab)
-    : scopedAllItems;
-  const activeCompleteCount = activeTabSummary ? activeTabSummary.complete : totalComplete;
+  const scopedActiveItems = scopedAllItems.filter((item) => item.kind === activeTab);
+  const activeCompleteCount = activeTabSummary.complete;
   const activeExpectedByNowRaw =
     wteYearElapsedFraction === null
       ? null
@@ -690,7 +688,7 @@ export default function RequirementsPage() {
     })
     .slice(0, 3);
 
-  const allTabItems = activeTab ? getTabItems(activeTab, data) : getAllItems(data);
+  const allTabItems = getTabItems(activeTab, data);
   const scopedTabItems = allTabItems.filter((item) => scopeSet.has(item.required_by_stage));
 
   const q = query.trim().toLowerCase();
@@ -868,25 +866,25 @@ export default function RequirementsPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-5 animate-fade-up">
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         <h1 className="text-heading-1 font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
           Requirements
         </h1>
         <p className="text-[14px]" style={{ color: "var(--text-secondary)" }}>
-          Progress is scoped to your selected stage view, not all ST1-ST7.
+          Track formal ARCP requirements across summative OSATS, mandatory courses, and exams.
         </p>
         <div className="flex flex-wrap gap-2 text-[11px]">
           <span
             className="px-2 py-1 rounded-full"
             style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}
           >
-            Current year: {currentStageName ?? "Not set"}
+            Training year: {currentStageName ?? "Not set"}
           </span>
           <span
             className="px-2 py-1 rounded-full"
             style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}
           >
-            Current stage band: {currentBand?.label ?? "Not set"}
+            Curriculum band: {currentBand?.label ?? "Not set"}
           </span>
           <span
             className="px-2 py-1 rounded-full"
@@ -906,205 +904,168 @@ export default function RequirementsPage() {
           >
             {isLtft ? `LTFT: ${workingPercent}% WTE` : "Working pattern: 100%"}
           </span>
-          {isLtft && stageAwarePriorityActive && (
-            <span
-              className="px-2 py-1 rounded-full"
-              style={{ background: "rgba(0,113,227,0.12)", color: "var(--accent-blue)" }}
-            >
-              Priority mode: LTFT + ARCP ({wteDaysToArcp} WTE days)
-            </span>
-          )}
-          <span
-            className="px-2 py-1 rounded-full"
-            style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}
-          >
-            Deadlines are ARCP-based (e.g. ST2 items due by ST2 ARCP)
-          </span>
-          {isLtft && !stageAwarePriorityActive && (
-            <span
-              className="px-2 py-1 rounded-full"
-              style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}
-            >
-              Add ARCP date to enable LTFT priority mode
-            </span>
-          )}
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        <div className="card p-4 space-y-2">
-          <p className="text-[12px] uppercase tracking-[0.08em]" style={{ color: "var(--text-muted)" }}>
-            Overall progress
-          </p>
-          <ProgressBar value={totalComplete} total={totalCount} />
-          <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-            {overallExpectedByNowThreshold === null ? (
-              <span style={{ color: "var(--text-muted)" }}>
-                Add ARCP date to calculate pro-rata expected completion.
-              </span>
-            ) : (
-              <span>
-                Pro-rata expected by now:{" "}
-                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
-                  {overallExpectedByNowThreshold}
-                </span>{" "}
-                · Actual:{" "}
-                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
-                  {totalComplete}
-                </span>{" "}
+      <div className="grid gap-3 md:grid-cols-3">
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          const expectedThreshold =
+            tab.id === "procedures"
+              ? Math.ceil(
+                  scopedProcedures.reduce((sum, item) => sum + (expectedRequirementContributionByNow({ ...item, kind: "procedures", key: "" }) ?? 0), 0),
+                )
+              : tab.id === "courses"
+                ? Math.ceil(
+                    scopedCourses.reduce((sum, item) => sum + (expectedRequirementContributionByNow({ ...item, kind: "courses", key: "" }) ?? 0), 0),
+                  )
+                : Math.ceil(
+                    scopedExams.reduce((sum, item) => sum + (expectedRequirementContributionByNow({ ...item, kind: "exams", key: "" }) ?? 0), 0),
+                  );
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => {
+                setActiveTab(tab.id);
+                setHelpText(null);
+              }}
+              className="card p-4 text-left transition"
+              style={{
+                borderColor: isActive ? "rgba(0,113,227,0.28)" : "var(--border-subtle)",
+                background: isActive ? "rgba(0,113,227,0.05)" : undefined,
+                boxShadow: isActive ? "0 0 0 1px rgba(0,113,227,0.12) inset" : undefined,
+              }}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[12px] uppercase tracking-[0.08em]" style={{ color: "var(--text-muted)" }}>
+                  {tab.label}
+                </p>
                 <span
-                  className="ml-1 rounded-full px-1.5 py-0.5 text-[10px]"
+                  className="rounded-full px-2 py-0.5 text-[10px]"
                   style={statusPillStyles(
-                    overallProRataStatus ? overallProRataStatus.tone : overallOnTrack ? "done" : "warn",
+                    tab.complete === tab.total ? "done" : tab.complete > 0 ? "pending" : "warn",
                   )}
                 >
-                  {overallProRataStatus ? overallProRataStatus.label : overallOnTrack ? "On track" : "Below expected"}
-                </span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="card p-4 space-y-2">
-          <p className="text-[12px] uppercase tracking-[0.08em]" style={{ color: "var(--text-muted)" }}>
-            Current focus
-          </p>
-          <p className="text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
-            {activeTabSummary ? activeTabSummary.label : "All requirement types"}
-          </p>
-          <ProgressBar
-            value={activeTabSummary ? activeTabSummary.complete : totalComplete}
-            total={activeTabSummary ? activeTabSummary.total : totalCount}
-          />
-          <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-            {activeExpectedByNowThreshold === null ? (
-              <span style={{ color: "var(--text-muted)" }}>
-                Pro-rata checkpoint unavailable without ARCP date.
-              </span>
-            ) : (
-              <span>
-                Pro-rata expected by now:{" "}
-                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
-                  {activeExpectedByNowThreshold}
-                </span>{" "}
-                · Actual:{" "}
-                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
-                  {activeCompleteCount}
-                </span>{" "}
-                <span
-                  className="ml-1 rounded-full px-1.5 py-0.5 text-[10px]"
-                  style={statusPillStyles(
-                    activeProRataStatus ? activeProRataStatus.tone : activeOnTrack ? "done" : "warn",
-                  )}
-                >
-                  {activeProRataStatus ? activeProRataStatus.label : activeOnTrack ? "On track" : "Below expected"}
-                </span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="card p-4 space-y-2">
-          <p className="text-[12px] uppercase tracking-[0.08em]" style={{ color: "var(--text-muted)" }}>
-            Next 3 actions
-          </p>
-          {nextThree.length > 0 ? (
-            <div className="space-y-2">
-              {nextThree.map((item) => (
-                <div
-                  key={`${item.stage}-${item.type}-${item.label}`}
-                  className="rounded-lg border px-2.5 py-2"
-                  style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
-                >
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      className="rounded-full px-1.5 py-0.5 text-[10px]"
-                      style={statusPillStyles(priorityToneFromBucket(item.bucket))}
-                    >
-                      {item.dueByLabel}
-                    </span>
-                    <span
-                      className="rounded-full px-1.5 py-0.5 text-[10px]"
-                      style={{ background: "var(--surface-3)", color: "var(--text-muted)" }}
-                    >
-                      {item.type}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[12px] font-medium leading-5" style={{ color: "var(--text-primary)" }}>
-                    {item.label}
-                  </p>
-                  <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {item.status.label}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[12px]" style={{ color: "var(--accent-green)" }}>
-              All requirements in this scope are complete.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="card p-3 space-y-3">
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            onClick={() => {
-              setActiveTab(null);
-              setHelpText(null);
-            }}
-            className="px-3 py-1.5 rounded-lg text-[13px] font-medium transition"
-            style={
-              activeTab === null
-                ? {
-                    background: "var(--surface-2)",
-                    color: "var(--text-primary)",
-                    border: "1px solid var(--border-emphasis)",
-                  }
-                : {
-                    background: "transparent",
-                    color: "var(--text-secondary)",
-                    border: "1px solid transparent",
-                  }
-            }
-          >
-            All
-          </button>
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab((prev) => (prev === tab.id ? null : tab.id));
-                  setHelpText(null);
-                }}
-                className="px-3 py-1.5 rounded-lg text-[13px] font-medium transition"
-                style={
-                  isActive
-                    ? {
-                        background: "var(--surface-2)",
-                        color: "var(--text-primary)",
-                        border: "1px solid var(--border-emphasis)",
-                      }
-                    : {
-                        background: "transparent",
-                        color: "var(--text-secondary)",
-                        border: "1px solid transparent",
-                      }
-                }
-              >
-                {tab.label}
-                <span className="ml-1" style={{ color: "var(--text-muted)" }}>
                   {tab.complete}/{tab.total}
                 </span>
-              </button>
-            );
-          })}
+              </div>
+              <div className="mt-3">
+                <ProgressBar value={tab.complete} total={tab.total} />
+              </div>
+              <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                {overallExpectedByNowThreshold === null
+                  ? `${tab.total} items in this checklist`
+                  : `Expected by now: ${expectedThreshold} · Completed: ${tab.complete}`}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="card p-4 space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <p className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>
+              {activeTabSummary.label}
+            </p>
+            <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+              {activeTabSummary.complete} of {activeTabSummary.total} complete
+              {activeExpectedByNowThreshold !== null
+                ? ` · expected by now ${activeExpectedByNowThreshold}`
+                : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeProRataStatus ? (
+              <span
+                className="rounded-full px-2.5 py-1 text-[11px]"
+                style={statusPillStyles(activeProRataStatus.tone)}
+              >
+                {activeProRataStatus.label}
+              </span>
+            ) : null}
+            {nextThree.length > 0 ? (
+              <span
+                className="rounded-full px-2.5 py-1 text-[11px]"
+                style={{ background: "rgba(245,158,11,0.14)", color: "var(--accent-amber)" }}
+              >
+                {nextThree.length} due soon
+              </span>
+            ) : (
+              <span
+                className="rounded-full px-2.5 py-1 text-[11px]"
+                style={{ background: "rgba(34,197,94,0.14)", color: "var(--accent-green)" }}
+              >
+                Nothing urgent
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {nextThree.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {nextThree.map((item) => (
+              <div
+                key={`${item.stage}-${item.type}-${item.label}`}
+                className="rounded-full border px-3 py-1.5 text-[11px]"
+                style={{
+                  borderColor: "var(--border-subtle)",
+                  background: "var(--surface-1)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{item.label}</span>
+                <span style={{ color: "var(--text-muted)" }}> · {item.dueByLabel}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,220px)_minmax(0,220px)_minmax(0,1fr)]">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+              Training year
+            </label>
+            <select
+              value={yearScopeId}
+              onChange={(e) => {
+                setYearScopeId(e.target.value as YearScopeId);
+                setViewMode("YEAR");
+              }}
+              className="w-full rounded-md px-3 py-2 text-[13px]"
+              style={{
+                background: "var(--surface-2)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              {YEAR_SCOPE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {yearScopeLabel(option, currentStageName)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+              Search
+            </label>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Search ${activeTabSummary.label.toLowerCase()}`}
+              className="w-full rounded-md px-3 py-2 text-[13px]"
+              style={{
+                background: "var(--surface-2)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
           <button
             onClick={() => setShowIncompleteOnly((v) => !v)}
             className="px-3 py-1.5 rounded-lg text-[12px] font-medium transition"
@@ -1144,88 +1105,25 @@ export default function RequirementsPage() {
           >
             Due this ARCP window
           </button>
+        </div>
+        </div>
 
-          <div className="grid gap-2 md:grid-cols-2 flex-1">
-            <div
-              className="rounded-lg p-2 space-y-1.5"
-              style={{
-                border:
-                  viewMode === "YEAR"
-                    ? "1px solid rgba(0,113,227,0.24)"
-                    : "1px solid var(--border-subtle)",
-                background:
-                  viewMode === "YEAR" ? "rgba(0,113,227,0.06)" : "var(--surface-2)",
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                  Year picker
-                </p>
-                <button
-                  onClick={() => setViewMode("YEAR")}
-                  className="px-2 py-0.5 rounded text-[10px] font-medium"
-                  style={{
-                    background: viewMode === "YEAR" ? "rgba(0,113,227,0.14)" : "var(--surface-3)",
-                    color: viewMode === "YEAR" ? "var(--accent-blue)" : "var(--text-muted)",
-                  }}
-                >
-                  {viewMode === "YEAR" ? "Active" : "Use"}
-                </button>
-              </div>
-              <select
-                value={yearScopeId}
-                onChange={(e) => {
-                  setYearScopeId(e.target.value as YearScopeId);
-                  setViewMode("YEAR");
-                }}
-                className="w-full rounded-md px-2 py-1 text-[12px]"
-                style={{
-                  background: "var(--surface-2)",
-                  color: "var(--text-primary)",
-                  border: "1px solid var(--border-subtle)",
-                }}
-              >
-                {YEAR_SCOPE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {yearScopeLabel(option, currentStageName)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div
-              className="rounded-lg p-2 space-y-1.5"
-              style={{
-                border:
-                  viewMode === "BAND"
-                    ? "1px solid rgba(0,113,227,0.24)"
-                    : "1px solid var(--border-subtle)",
-                background:
-                  viewMode === "BAND" ? "rgba(0,113,227,0.06)" : "var(--surface-2)",
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                  Stage band picker
-                </p>
-                <button
-                  onClick={() => setViewMode("BAND")}
-                  className="px-2 py-0.5 rounded text-[10px] font-medium"
-                  style={{
-                    background: viewMode === "BAND" ? "rgba(0,113,227,0.14)" : "var(--surface-3)",
-                    color: viewMode === "BAND" ? "var(--accent-blue)" : "var(--text-muted)",
-                  }}
-                >
-                  {viewMode === "BAND" ? "Active" : "Use"}
-                </button>
-              </div>
+        <details className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
+          <summary className="cursor-pointer text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>
+            Advanced comparison
+          </summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                Stage band comparison
+              </label>
               <select
                 value={bandScopeId}
                 onChange={(e) => {
                   setBandScopeId(e.target.value as BandScopeId);
                   setViewMode("BAND");
                 }}
-                className="w-full rounded-md px-2 py-1 text-[12px]"
+                className="w-full rounded-md px-3 py-2 text-[13px]"
                 style={{
                   background: "var(--surface-2)",
                   color: "var(--text-primary)",
@@ -1238,23 +1136,25 @@ export default function RequirementsPage() {
                   </option>
                 ))}
               </select>
+              <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                Compare against a broader stage band when you want a higher-level view.
+              </p>
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={() => setViewMode("BAND")}
+                className="px-3 py-2 rounded-lg text-[12px] font-medium transition"
+                style={{
+                  background: viewMode === "BAND" ? "rgba(0,113,227,0.12)" : "var(--surface-2)",
+                  color: viewMode === "BAND" ? "var(--accent-blue)" : "var(--text-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                }}
+              >
+                {viewMode === "BAND" ? "Band comparison active" : "Use band comparison"}
+              </button>
             </div>
           </div>
-
-          <div className="ml-auto min-w-[220px] flex-1 sm:flex-none">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search requirement"
-              className="w-full rounded-lg px-3 py-1.5 text-[13px]"
-              style={{
-                background: "var(--surface-2)",
-                color: "var(--text-primary)",
-                border: "1px solid var(--border-subtle)",
-              }}
-            />
-          </div>
-        </div>
+        </details>
       </div>
 
       {helpText && (
@@ -1785,10 +1685,10 @@ export default function RequirementsPage() {
             <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
               <div>
                 <h3 className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>
-                  Queue
+                  {activeTabSummary.label} checklist
                 </h3>
                 <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  Click any row to inspect and act
+                  Browse this requirement family and select any item to inspect its current detail
                 </p>
               </div>
               <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
@@ -1798,7 +1698,9 @@ export default function RequirementsPage() {
             <div className="max-h-[520px] overflow-auto divide-y" style={{ borderColor: "var(--border-subtle)" }}>
               {tableRows.length === 0 && (
                 <div className="px-4 py-4 text-[12px]" style={{ color: "var(--text-muted)" }}>
-                  No requirements match this filter.
+                  {showIncompleteOnly
+                    ? `No incomplete ${activeTabSummary.label.toLowerCase()} items match this filter.`
+                    : `No ${activeTabSummary.label.toLowerCase()} items match this filter.`}
                 </div>
               )}
               {tableRows.map((item) => {
@@ -1883,11 +1785,11 @@ export default function RequirementsPage() {
 
           <aside className="card p-4 space-y-3 xl:sticky xl:top-20 h-fit">
             <h3 className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>
-              Detail Preview
+              Requirement detail
             </h3>
             {!previewItem && (
               <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                Select a requirement from the queue.
+                Select an item from the checklist to inspect its detail.
               </p>
             )}
             {previewItem && previewStatus && (

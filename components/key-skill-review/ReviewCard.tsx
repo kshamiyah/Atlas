@@ -226,8 +226,8 @@ function findSuggestionForSkill(
 function StatusBadge({ status }: { status: SkillSuggestion["status"] }) {
   const labels: Record<SkillSuggestion["status"], string> = {
     suggested: "Pending",
-    confirmed: "Confirmed",
-    rejected: "Rejected",
+    confirmed: "Accepted",
+    rejected: "Skipped",
   };
   const colours: Record<SkillSuggestion["status"], string> = {
     suggested: "bg-surface-3 text-secondary border-subtle",
@@ -597,7 +597,7 @@ export function ReviewCard({
   onUnlinkKaizenSkill,
 }: ReviewCardProps) {
   const [isOpen, setIsOpen] = useState(expandedByDefault);
-  const [descriptorPanelOpen, setDescriptorPanelOpen] = useState(descriptorPanelInitialOpen);
+  const [activeCardTab, setActiveCardTab] = useState<"decision" | "evidence">("decision");
   const [pendingAuditActionKey, setPendingAuditActionKey] = useState<string | null>(null);
   const [stripDismissed, setStripDismissed] = useState(false);
   const [pendingKeepCurrent, setPendingKeepCurrent] = useState(false);
@@ -608,11 +608,14 @@ export function ReviewCard({
   const scrolledDescriptor = useRef(false);
 
   useEffect(() => {
-    const id = window.requestAnimationFrame(() => {
-      setDescriptorPanelOpen(descriptorPanelInitialOpen);
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [descriptorPanelInitialOpen, entry.id]);
+    setActiveCardTab("decision");
+  }, [entry.id]);
+
+  useEffect(() => {
+    if (descriptorPanelInitialOpen || highlightDescriptorId) {
+      setActiveCardTab("evidence");
+    }
+  }, [descriptorPanelInitialOpen, entry.id, highlightDescriptorId]);
 
   useEffect(() => {
     scrolledDescriptor.current = false;
@@ -1260,7 +1263,7 @@ export function ReviewCard({
         <div className="flex flex-wrap gap-1.5 text-micro text-secondary">
           {confirmedCount > 0 && (
             <span className="rounded-full bg-surface-4 px-2 py-0.5 font-medium">
-              ✓ {confirmedCount} confirmed
+              ✓ {confirmedCount} accepted
             </span>
           )}
           {pendingCount > 0 && (
@@ -1273,12 +1276,36 @@ export function ReviewCard({
       </button>
 
       {isOpen && (
-        <div className="mt-3 space-y-4 border-t border-subtle pt-3">
-          <details className="rounded-xl border border-subtle bg-surface-1 p-3">
-            <summary className="cursor-pointer text-xs font-semibold text-primary">
-              Entry evidence
-            </summary>
-            <div className="mt-3 rounded-lg border border-subtle bg-surface-2 px-3 py-3">
+        <div className="mt-3 border-t border-subtle pt-3">
+          <div className="inline-flex rounded-full border border-subtle bg-surface-1 p-0.5">
+            <button
+              type="button"
+              onClick={() => setActiveCardTab("decision")}
+              className={`rounded-full px-3 py-1 text-[11px] font-medium transition ${
+                activeCardTab === "decision"
+                  ? "bg-surface-2 text-primary shadow-sm"
+                  : "text-secondary hover:text-primary"
+              }`}
+            >
+              Decision
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveCardTab("evidence")}
+              className={`rounded-full px-3 py-1 text-[11px] font-medium transition ${
+                activeCardTab === "evidence"
+                  ? "bg-surface-2 text-primary shadow-sm"
+                  : "text-secondary hover:text-primary"
+              }`}
+            >
+              Evidence
+            </button>
+          </div>
+
+          {activeCardTab === "evidence" ? (
+            <div className="mt-3 space-y-4">
+          <div className="rounded-xl border border-subtle bg-surface-1 p-3">
+            <div className="rounded-lg border border-subtle bg-surface-2 px-3 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
                 Entry
               </p>
@@ -1394,21 +1421,39 @@ export function ReviewCard({
                 </div>
               )}
             </div>
-          </details>
+          </div>
+
+          {hasCoverage && (
+            <div className="rounded-xl border border-subtle bg-surface-1 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                Descriptor coverage
+              </p>
+              <div className="mt-3">
+                <DescriptorCoveragePanel
+                  coverage={entry.descriptor_coverage!}
+                  highlightSkillId={highlightSkillId}
+                  highlightDescriptorId={highlightDescriptorId}
+                />
+              </div>
+            </div>
+          )}
+            </div>
+          ) : (
+            <div className="mt-3 space-y-4">
 
           {hasAuditData && !stripDismissed && (
             <section className="rounded-xl border border-accent-blue/30 bg-accent-blue/10 p-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-blue">
-                Next Action
+                Suggested next step
               </p>
               <p className="mt-1 text-xs font-semibold text-primary">
                 {auditLinkPlan?.mode === "rebalance"
-                  ? `This entry is over cap by ${Math.max(
+                  ? `This entry has too many skills linked (over by ${Math.max(
                       0,
                       Number(auditResult.overlinked_by ?? 0),
                     )}.`
                   : auditResult.overlinked
-                  ? `This entry is over cap by ${Math.max(
+                  ? `This entry has too many skills linked (over by ${Math.max(
                       0,
                       Number(auditResult.overlinked_by ?? 0),
                     )}.`
@@ -1518,7 +1563,7 @@ export function ReviewCard({
                                   onClick={() => void applyRebalanceRecommendation(row)}
                                   className="inline-flex min-h-8 items-center rounded-lg border border-accent-blue/30 bg-surface-1 px-2.5 py-1 text-xs font-semibold text-accent-blue transition hover:bg-accent-blue/10 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                  {isApplying ? "Applying..." : "Action"}
+                                  {isApplying ? "Applying..." : "Apply"}
                                 </button>
                                 <button
                                   type="button"
@@ -1531,7 +1576,7 @@ export function ReviewCard({
                                       : "Keep this recommendation out of your current review pass."
                                   }
                                 >
-                                  {pendingKeepCurrent ? "Saving..." : "Keep current"}
+                                  {pendingKeepCurrent ? "Saving..." : "Keep as is"}
                                 </button>
                                 <button
                                   type="button"
@@ -1691,7 +1736,7 @@ export function ReviewCard({
                           : "Action"
                       : stripRecommendation.action === "replace"
                         ? "Action"
-                        : "Action"}
+                        : "Apply"}
                   </button>
                 )}
                 {!isRecommendationReviewMode && stripRecommendation != null ? (
@@ -1702,7 +1747,7 @@ export function ReviewCard({
                     title="Marks this AI recommendation as not needed and keeps your current linked skills."
                     className="inline-flex min-h-8 items-center rounded-lg border border-subtle bg-surface-1 px-2.5 py-1 text-xs font-medium text-secondary transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {pendingKeepCurrent ? "Saving..." : "Keep current"}
+                    {pendingKeepCurrent ? "Saving..." : "Keep as is"}
                   </button>
                 ) : null}
                 {!isRecommendationReviewMode && (
@@ -1935,10 +1980,10 @@ export function ReviewCard({
               </h4>
               <p className="text-[11px] text-muted">
                 {isRecommendationReviewMode
-                  ? "Pending suggestions are folded into Next Action while this entry is being reviewed."
+                  ? "Pending suggestions are folded into the suggested next step while this entry is being reviewed."
                   : canSurfaceAdditionalLinks(auditResult)
                     ? "These are extra links the entry could support because it still has capacity."
-                    : "This entry is full or over cap, so extra add-style suggestions are hidden here. Review replacements or over-cap actions instead."}
+                    : "This entry is full or has too many links, so extra add-style suggestions are hidden here. Review skill swaps or cleanup actions instead."}
               </p>
             </div>
 
@@ -1949,7 +1994,7 @@ export function ReviewCard({
                 </span>
               )}
               <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[10px] font-medium text-secondary">
-                Cross-CiP {crossCipCount}
+                Other CiP {crossCipCount}
               </span>
               {(decisionConfirmedSuggestions.length > 0 || decisionRejectedSuggestions.length > 0) && (
                 <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[10px] font-medium text-secondary">
@@ -1964,7 +2009,7 @@ export function ReviewCard({
               </p>
             ) : !canSurfaceAdditionalLinks(auditResult) ? (
               <p className="text-[11px] italic text-muted">
-                Additional-link suggestions are hidden while this entry is full or over cap.
+                Additional-link suggestions are hidden while this entry is full or has too many links.
               </p>
             ) : surfacedAdditionalLinks.length === 0 ? (
               <p className="text-[11px] italic text-muted">No suggested additional links.</p>
@@ -1990,14 +2035,14 @@ export function ReviewCard({
             {(decisionConfirmedSuggestions.length > 0 || decisionRejectedSuggestions.length > 0) && (
               <details className="mt-2 rounded-lg border border-subtle bg-surface-2 p-2.5">
                 <summary className="cursor-pointer text-[11px] font-medium text-secondary">
-                  Review history ({decisionConfirmedSuggestions.length} confirmed,{" "}
-                  {decisionRejectedSuggestions.length} rejected)
+                  Review history ({decisionConfirmedSuggestions.length} accepted,{" "}
+                  {decisionRejectedSuggestions.length} skipped)
                 </summary>
 
                 {decisionConfirmedSuggestions.length > 0 && (
                   <div className="mt-2">
                     <p className="text-[11px] font-medium text-secondary">
-                      Confirmed ({decisionConfirmedSuggestions.length})
+                      Accepted ({decisionConfirmedSuggestions.length})
                     </p>
                     <ul className="mt-2 space-y-1.5">
                       {decisionConfirmedSuggestions.map((s) => (
@@ -2020,7 +2065,7 @@ export function ReviewCard({
                 {decisionRejectedSuggestions.length > 0 && (
                   <div className="mt-3">
                     <p className="text-[11px] font-medium text-secondary">
-                      Rejected ({decisionRejectedSuggestions.length})
+                      Skipped ({decisionRejectedSuggestions.length})
                     </p>
                     <ul className="mt-2 space-y-1.5">
                       {decisionRejectedSuggestions.map((s) => (
@@ -2048,24 +2093,7 @@ export function ReviewCard({
               </p>
             )}
           </section>
-
-          {hasCoverage && (
-            <details
-              className="rounded-xl border border-subtle bg-surface-1 p-3"
-              open={descriptorPanelOpen}
-              onToggle={(e) => setDescriptorPanelOpen((e.target as HTMLDetailsElement).open)}
-            >
-              <summary className="cursor-pointer text-micro font-medium text-secondary">
-                View coverage details
-              </summary>
-              <div className="mt-3">
-                <DescriptorCoveragePanel
-                  coverage={entry.descriptor_coverage!}
-                  highlightSkillId={highlightSkillId}
-                  highlightDescriptorId={highlightDescriptorId}
-                />
-              </div>
-            </details>
+            </div>
           )}
         </div>
       )}

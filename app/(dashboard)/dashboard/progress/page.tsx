@@ -1,24 +1,22 @@
 import { Suspense } from "react";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { ProgressHubClient } from "@/components/progress/ProgressHubClient";
 import { resolveStageContext } from "@/lib/profile/stage";
 
 export default async function ProgressPage() {
-  const supabase = await getServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, userId } = await resolveRequestAuth();
 
-  let initialStageScope: string | null = null;
+  let initialYear = null;
+  let currentYear = null;
 
-  if (user?.id) {
+  if (userId) {
     const [{ data: profile }, { data: stageRows }] = await Promise.all([
       supabase
         .from("profiles")
         .select("current_stage_id, current_grade")
-        .eq("id", user.id)
+        .eq("id", userId)
         .maybeSingle(),
-      supabase.from("stages").select("id, name, stage_group"),
+      supabase.from("stages").select("id, name, stage_group").order("sort_order", { ascending: true }),
     ]);
 
     const currentStageName =
@@ -28,12 +26,14 @@ export default async function ProgressPage() {
           null
         : profile?.current_grade ?? null;
 
-    initialStageScope =
-      resolveStageContext({
-        selectedStageId: profile?.current_stage_id ?? null,
-        selectedStageName: currentStageName,
-        stageRows: stageRows ?? [],
-      }).curriculumBandId ?? null;
+    const stageContext = resolveStageContext({
+      selectedStageId: profile?.current_stage_id ?? null,
+      selectedStageName: currentStageName,
+      stageRows: stageRows ?? [],
+    });
+
+    initialYear = stageContext.checkpointStageName;
+    currentYear = stageContext.checkpointStageName;
   }
 
   return (
@@ -44,7 +44,7 @@ export default async function ProgressPage() {
         </div>
       }
     >
-      <ProgressHubClient initialStageScope={initialStageScope} />
+      <ProgressHubClient initialYear={initialYear} currentYear={currentYear} />
     </Suspense>
   );
 }

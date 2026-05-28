@@ -67,6 +67,16 @@ export function stageRank(stage: string): number {
   return STAGE_ORDER.indexOf(normalized) + 1;
 }
 
+export function findStageIdByName(
+  stageRows: Array<{ id: string; name: string }>,
+  stageName: string | null | undefined,
+): string | null {
+  const normalized = normalizeStageName(stageName);
+  if (!normalized) return null;
+  const row = stageRows.find((entry) => normalizeStageName(entry.name) === normalized);
+  return row?.id ?? null;
+}
+
 export function getStageGroupForStage(stage: string | null | undefined): StageGroup | null {
   const normalized = normalizeStageName(stage);
   if (!normalized) return null;

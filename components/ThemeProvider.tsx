@@ -25,13 +25,17 @@ export function useTheme() {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "light";
+  const [theme, setTheme] = useState<Theme>("light");
+
+  useEffect(() => {
     const stored = localStorage.getItem("theme");
-    if (stored === "light" || stored === "dark") return stored;
+    if (stored === "light" || stored === "dark") {
+      setTheme(stored);
+      return;
+    }
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    return prefersDark ? "dark" : "light";
-  });
+    setTheme(prefersDark ? "dark" : "light");
+  }, []);
 
   useEffect(() => {
     applyTheme(theme);

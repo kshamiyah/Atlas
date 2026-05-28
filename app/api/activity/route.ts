@@ -1,29 +1,21 @@
 import { NextResponse } from "next/server";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
-import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { toIsoDateOrNull } from "@/lib/kaizen/kaizen-date";
 
 export async function GET() {
-  const supabase = await getServerSupabaseClient();
-  const bypassAuth = isDevAuthBypassEnabled();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, userId, bypassAuth } = await resolveRequestAuth();
 
-  if (!user && !bypassAuth) {
+  if (!userId && !bypassAuth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!user && bypassAuth) {
+  if (!userId) {
     return NextResponse.json({ entries: [] });
-  }
-  if (!user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { data, error } = await supabase
     .from("kaizen_entries")
     .select("id, title, assessment_type, kaizen_date")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("synced_at", { ascending: false })
     .limit(500);
 

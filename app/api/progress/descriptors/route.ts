@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
-import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import {
   computeDescriptorGroups,
   filterAndSortDescriptorGroups,
@@ -50,21 +49,9 @@ function emptyDescriptors(scope: ProgressSummaryScope): ProgressDescriptorsRespo
 }
 
 export async function GET(req: NextRequest) {
-  const supabase = await getServerSupabaseClient();
-  const bypassAuth = isDevAuthBypassEnabled();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  const { supabase, userId, bypassAuth } = await resolveRequestAuth();
 
-  if (authError && !(bypassAuth && !user)) {
-    return NextResponse.json(
-      { error: authError.message },
-      { status: 500 },
-    );
-  }
-
-  if (!user && !bypassAuth) {
+  if (!userId && !bypassAuth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -80,15 +67,9 @@ export async function GET(req: NextRequest) {
 
   const { scopeEcho, stageScope, stageGroup, cipNumber } = parsedScope;
 
-  if (!user && bypassAuth) {
+  if (!userId) {
     return NextResponse.json(emptyDescriptors(scopeEcho));
   }
-
-  if (!user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = user.id;
 
   const [stagesRes, cipsRes, keySkillsRes, descriptorsRes, entriesRes, coverageRes] =
     await Promise.all([

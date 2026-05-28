@@ -27,7 +27,10 @@ function getStartDate(): Date {
 }
 
 function toYMD(d: Date): string {
-  return d.toISOString().split("T")[0];
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function cellColor(count: number, dark = false): string {
@@ -220,7 +223,7 @@ export function ActivityHeatmap({ dataVersion = "initial" }: ActivityHeatmapProp
               const y = topPad + di * (cellH + gap);
               const isToday = ymd === today;
               return (
-                <g key={ymd}>
+                <g key={`${wi}-${di}`}>
                   <rect
                     x={x}
                     y={y}

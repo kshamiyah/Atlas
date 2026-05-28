@@ -9,6 +9,15 @@ import {
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ReviewGettingStarted } from "@/components/key-skill-review/ReviewGettingStarted";
+import {
+  ReviewActiveFilterChips,
+  type ActiveFilterChip,
+} from "@/components/key-skill-review/ReviewActiveFilterChips";
+import { ReviewFiltersSidebar } from "@/components/key-skill-review/ReviewFiltersSidebar";
+import { ReviewAuditChooser } from "@/components/key-skill-review/ReviewAuditChooser";
+import { ReviewKeyboardShortcuts } from "@/components/key-skill-review/ReviewKeyboardShortcuts";
+import { ReviewFiltersSheet } from "@/components/key-skill-review/ReviewFiltersSheet";
 import { ReviewFilters } from "@/components/key-skill-review/ReviewFilters";
 import { ReviewQueue } from "@/components/key-skill-review/ReviewQueue";
 import { ProgressFocusBanner } from "@/components/key-skill-review/ProgressFocusBanner";
@@ -44,6 +53,13 @@ import {
   findEntryForProgressFocus,
   parseProgressFocusFromSearchParams,
 } from "@/lib/key-skill-review/progress-focus";
+import {
+  confidenceFilterLabel,
+  quickFocusPresetLabel,
+  sourceFilterLabel,
+  statusFilterLabel,
+} from "@/lib/key-skill-review/filter-labels";
+import { countSuggestionStats } from "@/lib/key-skill-review/filter-suggestions";
 import {
   buildAuditRecommendationKey,
   buildCurrentAuditDecisionMap,
@@ -483,6 +499,17 @@ function formatSyncTimestamp(value: string | null | undefined): string | null {
   }).format(date);
 }
 
+function resolveInitialFocusReviewMode(): FocusReviewMode {
+  if (typeof window === "undefined") return "classic";
+  try {
+    const raw = window.localStorage.getItem("piq.review.focus.mode");
+    if (raw === "swipe" || raw === "classic") return raw;
+    return window.matchMedia("(max-width: 767px)").matches ? "swipe" : "classic";
+  } catch {
+    return "classic";
+  }
+}
+
 function batchScopeLabel(scope: BatchActionScope): string {
   if (scope === "linked") return "linked-CiP";
   if (scope === "cross") return "cross-CiP";
@@ -573,17 +600,10 @@ function KeySkillReviewPageContent() {
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
   const [query, setQuery] = useState("");
   const [queueMode, setQueueMode] = useState<ReviewQueueMode>("focus");
-  const [focusReviewMode, setFocusReviewMode] = useState<FocusReviewMode>(() => {
-    if (typeof window === "undefined") return "classic";
-    try {
-      const raw = window.localStorage.getItem("piq.review.focus.mode");
-      return raw === "swipe" ? "swipe" : "classic";
-    } catch {
-      return "classic";
-    }
-  });
+  const [focusReviewMode, setFocusReviewMode] = useState<FocusReviewMode>(resolveInitialFocusReviewMode);
   const [batchActionScope, setBatchActionScope] = useState<BatchActionScope>("linked");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   const [quickFocusPreset, setQuickFocusPreset] = useState<QuickFocusPreset>(null);
   const [compactHeader, setCompactHeader] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
@@ -672,6 +692,14 @@ function KeySkillReviewPageContent() {
     } catch {
       // no-op
     }
+  }, []);
+
+  const clearAllFilters = useCallback(() => {
+    setStatusFilter("all");
+    setSourceFilter("all");
+    setConfidenceFilter("all");
+    setQuery("");
+    setQuickFocusPreset(null);
   }, []);
 
   useEffect(() => {
@@ -2215,6 +2243,23 @@ function KeySkillReviewPageContent() {
     }
     return latest;
   }, [pushQueueV2.groups]);
+  const syncStatusSummary = useMemo(
+    () => buildSyncStatusSummary(syncConsoleQueueSummary),
+    [syncConsoleQueueSummary],
+  );
+  const syncNeedsAttention =
+    !pushQueueV2.queue_available ||
+    Boolean(queueProgressMessage) ||
+    syncConsoleQueueSummary.pending > 0 ||
+    syncConsoleQueueSummary.failed > 0 ||
+    syncConsoleQueueSummary.running > 0 ||
+    isSyncingQueue;
+  const syncStripClass =
+    syncStatusSummary.tone === "failed"
+      ? "border-accent-amber/35 bg-accent-amber/5"
+      : syncStatusSummary.tone === "running" || syncStatusSummary.tone === "queued"
+        ? "border-accent-blue/30 bg-accent-blue/5"
+        : "border-subtle bg-surface-2";
   const pendingRemovalCountByEntryId = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const queueEntry of pushQueue.entries) {
@@ -2547,8 +2592,8 @@ function KeySkillReviewPageContent() {
 
     const label =
       activeAuditIssueTab === "replace"
-        ? `${itemCount} replacement suggestion${itemCount === 1 ? "" : "s"} to review`
-        : `${itemCount} overlinked suggestion${itemCount === 1 ? "" : "s"} to review`;
+        ? `${itemCount} skill swap${itemCount === 1 ? "" : "s"} to review`
+        : `${itemCount} over-linked skill${itemCount === 1 ? "" : "s"} to review`;
 
     return {
       itemCount,
@@ -2561,6 +2606,130 @@ function KeySkillReviewPageContent() {
     activePrimaryWorkstream,
     auditEntriesForQueue,
     auditResultsByEntryId,
+  ]);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (query.trim()) count += 1;
+    if (statusFilter !== "all") count += 1;
+    if (sourceFilter !== "all") count += 1;
+    if (confidenceFilter !== "all") count += 1;
+    if (quickFocusPreset) count += 1;
+    return count;
+  }, [confidenceFilter, query, quickFocusPreset, sourceFilter, statusFilter]);
+
+  const displayReviewStats = useMemo(() => {
+    if (activeFilterCount === 0) {
+      return { ...reviewStats, isFiltered: false as const };
+    }
+    return {
+      ...countSuggestionStats(entries, {
+        query,
+        status: statusFilter,
+        source: sourceFilter,
+        confidence: confidenceFilter,
+      }),
+      isFiltered: true as const,
+      portfolioTotal: reviewStats,
+    };
+  }, [
+    activeFilterCount,
+    confidenceFilter,
+    entries,
+    query,
+    reviewStats,
+    sourceFilter,
+    statusFilter,
+  ]);
+
+  const hasQueueFilters = useMemo(
+    () =>
+      query.trim().length > 0 ||
+      statusFilter !== "all" ||
+      sourceFilter !== "all" ||
+      confidenceFilter !== "all" ||
+      quickFocusPreset !== null ||
+      toReviewTab !== "all",
+    [
+      confidenceFilter,
+      query,
+      quickFocusPreset,
+      sourceFilter,
+      statusFilter,
+      toReviewTab,
+    ],
+  );
+
+  const hasAuditData = useMemo(
+    () =>
+      lastAuditSummary != null ||
+      auditReviewSummary.totalEntries > 0 ||
+      Object.keys(auditResultsByEntryId).length > 0,
+    [auditResultsByEntryId, auditReviewSummary.totalEntries, lastAuditSummary],
+  );
+
+  const showGettingStartedGuide = useMemo(() => {
+    if (isLoading) return false;
+    if (reviewStage !== "to_review") return false;
+    if (hasQueueFilters) return false;
+    if (entries.length === 0) return true;
+    if (toReviewCounts.all > 0 || reviewStats.pending > 0) return false;
+    return true;
+  }, [
+    entries.length,
+    hasQueueFilters,
+    isLoading,
+    reviewStage,
+    reviewStats.pending,
+    toReviewCounts.all,
+  ]);
+
+  const activeFilterChips = useMemo((): ActiveFilterChip[] => {
+    const chips: ActiveFilterChip[] = [];
+    const trimmedQuery = query.trim();
+    if (trimmedQuery) {
+      chips.push({
+        id: "query",
+        label: `Search: “${trimmedQuery}”`,
+        onRemove: () => setQuery(""),
+      });
+    }
+    if (statusFilter !== "all") {
+      chips.push({
+        id: "status",
+        label: statusFilterLabel(statusFilter),
+        onRemove: () => setStatusFilter("all"),
+      });
+    }
+    if (sourceFilter !== "all") {
+      chips.push({
+        id: "source",
+        label: sourceFilterLabel(sourceFilter),
+        onRemove: () => setSourceFilter("all"),
+      });
+    }
+    if (confidenceFilter !== "all") {
+      chips.push({
+        id: "confidence",
+        label: confidenceFilterLabel(confidenceFilter),
+        onRemove: () => setConfidenceFilter("all"),
+      });
+    }
+    const presetLabel = quickFocusPresetLabel(quickFocusPreset);
+    if (presetLabel) {
+      chips.push({
+        id: "quick-focus",
+        label: presetLabel,
+        onRemove: () => setQuickFocusPreset(null),
+      });
+    }
+    return chips;
+  }, [
+    confidenceFilter,
+    query,
+    quickFocusPreset,
+    sourceFilter,
+    statusFilter,
   ]);
 
   const auditModeOptions: Array<{
@@ -2583,7 +2752,7 @@ function KeySkillReviewPageContent() {
     },
     {
       mode: "over_cap",
-      label: "Over cap",
+      label: "Too many linked",
       description: "Only entries that need remove or replace cleanup.",
       count: auditModeEntryIds.over_cap.length,
     },
@@ -2595,6 +2764,192 @@ function KeySkillReviewPageContent() {
     },
   ];
 
+  const filtersQuickFocus = isSuggestionsReview ? (
+    <div className="space-y-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+        Quick focus
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => applyQuickFocusPreset("pending")}
+          className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+            quickFocusPreset === "pending"
+              ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
+              : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
+          }`}
+        >
+          Pending only
+        </button>
+        <button
+          type="button"
+          onClick={() => applyQuickFocusPreset("cross_pending")}
+          className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+            quickFocusPreset === "cross_pending"
+              ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
+              : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
+          }`}
+        >
+          Other CiP only
+        </button>
+        <button
+          type="button"
+          onClick={() => applyQuickFocusPreset("high_confidence")}
+          className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+            quickFocusPreset === "high_confidence"
+              ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
+              : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
+          }`}
+        >
+          High confidence
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  const filtersBatchActions = isSuggestionsReview ? (
+    <>
+      <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
+        <p className="text-[11px] font-medium text-secondary">Action scope</p>
+        <div className="mt-2 inline-flex rounded-full border border-subtle bg-surface-2 p-1">
+          <button
+            type="button"
+            onClick={() => setBatchActionScope("linked")}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+              batchActionScope === "linked"
+                ? "bg-surface-3 text-primary shadow-sm"
+                : "text-secondary hover:text-primary"
+            }`}
+          >
+            Same CiP
+          </button>
+          <button
+            type="button"
+            onClick={() => setBatchActionScope("cross")}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+              batchActionScope === "cross"
+                ? "bg-surface-3 text-primary shadow-sm"
+                : "text-secondary hover:text-primary"
+            }`}
+          >
+            Other CiP
+          </button>
+          <button
+            type="button"
+            onClick={() => setBatchActionScope("both")}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+              batchActionScope === "both"
+                ? "bg-surface-3 text-primary shadow-sm"
+                : "text-secondary hover:text-primary"
+            }`}
+          >
+            Both
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
+        <p className="text-[11px] font-medium text-secondary">Pending confidence buckets</p>
+        <p className="mt-1 text-[11px] text-muted">
+          Selected scope: {batchScopeLabel(batchActionScope)}
+        </p>
+        <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
+          <div className="rounded-md border border-subtle bg-surface-2 px-2 py-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-muted">High</p>
+            <p className="text-xs font-semibold text-primary">{scopedConfidenceBuckets.high}</p>
+          </div>
+          <div className="rounded-md border border-subtle bg-surface-2 px-2 py-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-muted">Medium</p>
+            <p className="text-xs font-semibold text-primary">{scopedConfidenceBuckets.medium}</p>
+          </div>
+          <div className="rounded-md border border-subtle bg-surface-2 px-2 py-1.5">
+            <p className="text-[10px] uppercase tracking-wide text-muted">Low</p>
+            <p className="text-xs font-semibold text-primary">{scopedConfidenceBuckets.low}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={requestConfirmAllHighConfidence}
+          disabled={actionDisabled || !canConfirmAllHighConfidence}
+          className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Accept high-confidence ({scopedConfidenceBuckets.high})
+        </button>
+        <button
+          type="button"
+          onClick={requestRejectAllLowConfidence}
+          disabled={actionDisabled || !canRejectLowConfidence}
+          className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Skip low-confidence ({scopedConfidenceBuckets.low})
+        </button>
+        <button
+          type="button"
+          onClick={handleGenerateForEmpty}
+          disabled={actionDisabled || !canGenerateForEmpty}
+          className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Generate missing suggestions
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-subtle bg-surface-1 p-3">
+        <p className="text-[11px] font-medium text-secondary">Advanced tools</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={requestResetAllToSuggested}
+            disabled={actionDisabled || !canResetRejected}
+            className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Reset skipped to pending
+          </button>
+        </div>
+      </div>
+    </>
+  ) : null;
+
+  const renderFiltersFields = (layout: "select" | "stacked-pills") => (
+    <>
+      {filtersQuickFocus}
+      <ReviewFilters
+        status={statusFilter}
+        source={sourceFilter}
+        confidence={confidenceFilter}
+        query={query}
+        showTitle={false}
+        showFacetFilters={isSuggestionsReview}
+        layout={layout}
+        helperText={
+          layout === "select" && isSuggestionsReview
+            ? "Search by entry title, entry text, or key skill, then refine with the filters below."
+            : null
+        }
+        onStatusChange={setStatusFilter}
+        onSourceChange={setSourceFilter}
+        onConfidenceChange={setConfidenceFilter}
+        onQueryChange={setQuery}
+      />
+    </>
+  );
+
+  const filtersPanelMobile = (
+    <div className="space-y-4">
+      {renderFiltersFields("stacked-pills")}
+      {filtersBatchActions ? (
+        <details className="rounded-xl border border-subtle bg-surface-1 p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-primary">
+            Batch actions
+          </summary>
+          <div className="mt-3 space-y-3">{filtersBatchActions}</div>
+        </details>
+      ) : null}
+    </div>
+  );
+
   return (
     <>
       {pendingConfirm && (
@@ -2604,6 +2959,14 @@ function KeySkillReviewPageContent() {
         />
       )}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <ReviewFiltersSheet
+        isOpen={isMobileFiltersOpen}
+        onClose={() => setIsMobileFiltersOpen(false)}
+        onClearAll={clearAllFilters}
+        activeFilterCount={activeFilterCount}
+      >
+        {filtersPanelMobile}
+      </ReviewFiltersSheet>
       {lastAuditBreakdown && (
         <AuditSummaryModal
           isOpen={isAuditSummaryOpen}
@@ -2674,24 +3037,62 @@ function KeySkillReviewPageContent() {
             />
           )}
 
-          {!isLoading && (
+          {!isLoading && entries.length > 0 && (
             <section className="card p-4 md:p-5">
+              {displayReviewStats.isFiltered ? (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] text-secondary">
+                    Counts reflect your active search & filters
+                  </p>
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="text-[11px] font-medium text-accent-blue hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              ) : null}
               <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
                 <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Pending</p>
-                  <p className="mt-1 text-heading-3 font-semibold text-primary">{reviewStats.pending}</p>
+                  <p className="mt-1 text-heading-3 font-semibold text-primary">{displayReviewStats.pending}</p>
+                  {displayReviewStats.isFiltered &&
+                  displayReviewStats.pending !== displayReviewStats.portfolioTotal.pending ? (
+                    <p className="mt-0.5 text-[10px] text-muted">
+                      of {displayReviewStats.portfolioTotal.pending} total
+                    </p>
+                  ) : null}
                 </div>
                 <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Confirmed</p>
-                  <p className="mt-1 text-heading-3 font-semibold text-accent-blue">{reviewStats.confirmed}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Accepted</p>
+                  <p className="mt-1 text-heading-3 font-semibold text-accent-blue">{displayReviewStats.confirmed}</p>
+                  {displayReviewStats.isFiltered &&
+                  displayReviewStats.confirmed !== displayReviewStats.portfolioTotal.confirmed ? (
+                    <p className="mt-0.5 text-[10px] text-muted">
+                      of {displayReviewStats.portfolioTotal.confirmed} total
+                    </p>
+                  ) : null}
                 </div>
                 <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Rejected</p>
-                  <p className="mt-1 text-heading-3 font-semibold text-secondary">{reviewStats.rejected}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Skipped</p>
+                  <p className="mt-1 text-heading-3 font-semibold text-secondary">{displayReviewStats.rejected}</p>
+                  {displayReviewStats.isFiltered &&
+                  displayReviewStats.rejected !== displayReviewStats.portfolioTotal.rejected ? (
+                    <p className="mt-0.5 text-[10px] text-muted">
+                      of {displayReviewStats.portfolioTotal.rejected} total
+                    </p>
+                  ) : null}
                 </div>
                 <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Cross-CiP pending</p>
-                  <p className="mt-1 text-heading-3 font-semibold text-primary">{reviewStats.crossPending}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Other CiP pending</p>
+                  <p className="mt-1 text-heading-3 font-semibold text-primary">{displayReviewStats.crossPending}</p>
+                  {displayReviewStats.isFiltered &&
+                  displayReviewStats.crossPending !== displayReviewStats.portfolioTotal.crossPending ? (
+                    <p className="mt-0.5 text-[10px] text-muted">
+                      of {displayReviewStats.portfolioTotal.crossPending} total
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -2699,99 +3100,237 @@ function KeySkillReviewPageContent() {
 
           {isLoading ? (
             <ReviewSkeleton />
+          ) : showGettingStartedGuide && entries.length === 0 ? (
+            <ReviewGettingStarted
+              entriesCount={entries.length}
+              hasAuditData={hasAuditData}
+              pendingReviewCount={toReviewCounts.all}
+              reviewedQueuedCount={auditReviewSummary.reviewedQueued}
+              syncPendingCount={syncConsoleQueueSummary.pending}
+              syncFailedCount={syncConsoleQueueSummary.failed}
+              onOpenAudit={() => setIsAuditChooserOpen(true)}
+              onSyncToKaizen={() => startBackgroundQueueSync()}
+              canRunAudit={!actionDisabled && !isAuditing && entries.length > 0}
+              canSyncToKaizen={canRunQueueSync}
+              isAuditing={isAuditing}
+              isSyncing={isSyncingQueue}
+            />
           ) : (
             <div
-              className={`grid gap-3 lg:gap-4 ${
+              className={`grid gap-3 lg:gap-5 ${
                 isSidebarCollapsed
-                  ? "lg:grid-cols-[36px_minmax(0,1fr)]"
-                  : "lg:grid-cols-[300px_36px_minmax(0,1fr)]"
+                  ? "lg:grid-cols-[44px_minmax(0,1fr)]"
+                  : "lg:grid-cols-[320px_minmax(0,1fr)]"
               }`}
             >
-              {!isSidebarCollapsed && (
-                <aside className="space-y-4 lg:sticky lg:top-5 lg:self-start">
-                  <section className="card p-4 space-y-4">
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-blue">
-                        Review controls
-                      </p>
-                      <h2 className="text-small font-semibold text-primary">
-                        Search and shape this queue
-                      </h2>
+              <ReviewFiltersSidebar
+                isCollapsed={isSidebarCollapsed}
+                onToggleCollapsed={() => setIsSidebarCollapsed((value) => !value)}
+                activeFilterCount={activeFilterCount}
+                chips={activeFilterChips}
+                onClearAll={clearAllFilters}
+                queuePending={queueSummary.pending}
+                queueFailed={queueSummary.failed}
+                batchActions={filtersBatchActions}
+              >
+                {renderFiltersFields("stacked-pills")}
+              </ReviewFiltersSidebar>
+
+              <div className="order-1 min-w-0 flex flex-col gap-3">
+                {isSidebarCollapsed && activeFilterChips.length > 0 ? (
+                  <div className="hidden lg:block">
+                    <ReviewActiveFilterChips
+                      chips={activeFilterChips}
+                      onClearAll={clearAllFilters}
+                      onOpenFilters={() => setIsSidebarCollapsed(false)}
+                    />
+                  </div>
+                ) : null}
+	                {/* ── Unified workflow bar (single source of truth) ───────────── */}
+                {entries.length > 0 && (
+                <div className="card p-3 space-y-3">
+                  {lastAuditSummary && (
+                    <p className="border-l-2 border-accent-blue pl-2 text-[11px] text-secondary">
+                      Last audit:{" "}
+                      <span className="font-semibold text-primary">
+                        {lastAuditSummary.issueCount} issues
+                      </span>{" "}
+                      across {lastAuditSummary.entriesWithIssues || lastAuditSummary.entriesConsidered} entries
+                      {lastAuditSummary.overlinkedEntryCount > 0
+                        ? ` · ${lastAuditSummary.overlinkedEntryCount} with too many links`
+                        : ""}
+                      {lastAuditSummary.persistenceWarningCount > 0
+                        ? ` · ${lastAuditSummary.persistenceWarningCount} persistence warnings`
+                        : ""}
+                    </p>
+                  )}
+
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1 min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-blue">
+                      Review workflow
+                    </p>
+                    <p className="text-sm font-semibold text-primary">
+                      {reviewStage === "to_review" && toReviewTab !== "all" && filteredAuditQueueSummary
+                        ? filteredAuditQueueSummary.label
+                        : reviewStage === "awaiting_sync"
+                          ? `${awaitingSyncEntries.length} entr${
+                              awaitingSyncEntries.length === 1 ? "y" : "ies"
+                            } awaiting Kaizen sync`
+                          : reviewStage === "reviewed"
+                            ? `${reviewedEntries.length} reviewed entr${
+                                reviewedEntries.length === 1 ? "y" : "ies"
+                              }`
+                            : auditReviewSummary.allReviewed
+                              ? "Audit review complete"
+                              : auditReviewSummary.totalEntries > 0
+                                ? `${auditReviewSummary.suggestionsToReview} suggestion${
+                                    auditReviewSummary.suggestionsToReview === 1 ? "" : "s"
+                                  } to review`
+                                : `${reviewStats.pending} pending suggestion${
+                                    reviewStats.pending === 1 ? "" : "s"
+                                  }`}
+                    </p>
+                    {(reviewStage === "to_review" && toReviewTab !== "all" && filteredAuditQueueSummary) ? (
                       <p className="text-[11px] text-secondary">
-                        Use the side rail to find the right entries and narrow what you are reviewing.
+                        {filteredAuditQueueSummary.entryCount}{" "}
+                        {filteredAuditQueueSummary.entryCount === 1 ? "entry" : "entries"}
+                      </p>
+                    ) : reviewStage === "to_review" ? (
+                      <p className="text-[11px] text-secondary">
+                        Work through the queue one suggestion at a time.
+                      </p>
+                    ) : reviewStage === "awaiting_sync" ? (
+                      <p className="text-[11px] text-secondary">
+                        Run Kaizen Sync, then Audit again when you want a fresh pass.
+                      </p>
+                    ) : reviewStage === "reviewed" ? (
+                      <p className="text-[11px] text-secondary">
+                        Everything here is already reviewed for this audit pass.
+                      </p>
+                    ) : auditReviewSummary.allReviewed ? (
+                      <p className="text-[11px] text-secondary">
+                        Run Kaizen Sync, then Audit again when you want a fresh pass.
+                      </p>
+                    ) : null}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <ReviewAuditChooser
+                        isOpen={isAuditChooserOpen}
+                        onOpenChange={setIsAuditChooserOpen}
+                        isAuditing={isAuditing}
+                        auditButtonState={auditButtonState}
+                        disabled={actionDisabled || entries.length === 0}
+                        selectedAuditRunMode={selectedAuditRunMode}
+                        onSelectAuditRunMode={setSelectedAuditRunMode}
+                        auditModeOptions={auditModeOptions}
+                        selectedAuditRunEntryCount={selectedAuditRunEntryIds.length}
+                        onRunAudit={(mode) => runAudit(mode)}
+                      />
+                      <ReviewKeyboardShortcuts
+                        focusModeActive={queueMode === "focus"}
+                        swipeModeActive={queueMode === "focus" && focusReviewMode === "swipe"}
+                        canUndo={lastUndoAction != null}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileFiltersOpen(true)}
+                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-subtle bg-surface-1 px-3 py-2.5 text-left transition hover:bg-surface-2 lg:hidden"
+                    aria-expanded={isMobileFiltersOpen}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-primary">Search & filters</p>
+                      <p className="text-[11px] text-muted">
+                        {activeFilterCount > 0
+                          ? `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}`
+                          : "Tap to search entries or refine suggestions"}
                       </p>
                     </div>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-accent-blue">
+                      {activeFilterCount > 0 ? "Edit" : "Open"}
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </span>
+                  </button>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full border border-subtle bg-surface-1 px-3 py-1 text-[11px] font-medium text-secondary">
-                        Kaizen queue: {queueSummary.pending} pending · {queueSummary.failed} failed
-                      </span>
+                  <div className="lg:hidden">
+                    <ReviewActiveFilterChips
+                      chips={activeFilterChips}
+                      onClearAll={clearAllFilters}
+                      onOpenFilters={() => setIsMobileFiltersOpen(true)}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="inline-flex rounded-full border border-subtle bg-surface-1 p-0.5">
                       <button
                         type="button"
-                        onClick={() => {
-                          setStatusFilter("all");
-                          setSourceFilter("all");
-                          setConfidenceFilter("all");
-                          setQuery("");
-                        }}
-                        className="rounded-full border border-subtle bg-surface-1 px-3 py-1 text-[11px] font-medium text-secondary transition hover:bg-surface-3 hover:text-primary"
+                        onClick={() => setReviewStage("to_review")}
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                          reviewStage === "to_review"
+                            ? "bg-surface-2 text-primary shadow-sm"
+                            : "text-secondary hover:text-primary"
+                        }`}
                       >
-                        Clear filters
+                        To review ({auditReviewSummary.totalEntries > 0 ? auditReviewSummary.suggestionsToReview : reviewStats.pending})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReviewStage("awaiting_sync")}
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                          reviewStage === "awaiting_sync"
+                            ? "bg-surface-2 text-primary shadow-sm"
+                            : "text-secondary hover:text-primary"
+                        }`}
+                      >
+                        Awaiting sync ({auditReviewSummary.reviewedQueued})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReviewStage("reviewed")}
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                          reviewStage === "reviewed"
+                            ? "bg-surface-2 text-primary shadow-sm"
+                            : "text-secondary hover:text-primary"
+                        }`}
+                      >
+                        Reviewed ({auditReviewSummary.keptOverCap + auditReviewSummary.reviewedNoAction})
                       </button>
                     </div>
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted">
-                        Queue filters
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setReviewStage("to_review")}
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${
-                            reviewStage === "to_review"
-                              ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
-                              : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
-                          }`}
-                        >
-                          To review
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setReviewStage("awaiting_sync")}
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${
-                            reviewStage === "awaiting_sync"
-                              ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
-                              : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
-                          }`}
-                        >
-                          Awaiting sync
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setReviewStage("reviewed")}
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${
-                            reviewStage === "reviewed"
-                              ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
-                              : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
-                          }`}
-                        >
-                          Reviewed
-                        </button>
-                      </div>
-                      {reviewStage === "to_review" && (
+                  {reviewStage === "to_review" && (
+                    <>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                          Queue type
+                        </span>
                         <div className="flex flex-wrap gap-1.5">
                           {([
                             ["all", `All (${toReviewCounts.all})`],
-                            ["overlinked", `Over cap (${toReviewCounts.overlinked})`],
-                            ["replace", `Replace (${toReviewCounts.replace})`],
-                            ["suggestions", `Link suggestions (${toReviewCounts.suggestions})`],
+                            ["overlinked", `Too many linked (${toReviewCounts.overlinked})`],
+                            ["replace", `Swap skills (${toReviewCounts.replace})`],
+                            ["suggestions", `New suggestions (${toReviewCounts.suggestions})`],
                           ] as const).map(([tab, label]) => (
                             <button
                               key={tab}
                               type="button"
                               onClick={() => setToReviewTab(tab)}
-                              className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${
+                              className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
                                 toReviewTab === tab
                                   ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
                                   : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
@@ -2801,468 +3340,84 @@ function KeySkillReviewPageContent() {
                             </button>
                           ))}
                         </div>
-                      )}
-                    </div>
-
-                    {isSuggestionsReview && (
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-medium text-secondary">Quick focus</p>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => applyQuickFocusPreset("pending")}
-                            className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                              quickFocusPreset === "pending"
-                                ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
-                                : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
-                            }`}
-                          >
-                            Review pending suggestions
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => applyQuickFocusPreset("cross_pending")}
-                            className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                              quickFocusPreset === "cross_pending"
-                                ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
-                                : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
-                            }`}
-                          >
-                            Review cross-CiP only
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => applyQuickFocusPreset("high_confidence")}
-                            className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                              quickFocusPreset === "high_confidence"
-                                ? "border-accent-blue/40 bg-accent-blue/10 text-accent-blue"
-                                : "border-subtle bg-surface-1 text-secondary hover:bg-surface-3 hover:text-primary"
-                            }`}
-                          >
-                            High-confidence first
-                          </button>
-                        </div>
                       </div>
-                    )}
 
-                    <ReviewFilters
-                      status={statusFilter}
-                      source={sourceFilter}
-                      confidence={confidenceFilter}
-                      query={query}
-                      showTitle={false}
-                      showFacetFilters={isSuggestionsReview}
-                      helperText={
-                        isSuggestionsReview
-                          ? "Search by entry title, entry text, or key skill, then use the filters below to refine suggestion review."
-                          : "Search the current review queue by entry title, entry text, or key skill."
-                      }
-                      onStatusChange={setStatusFilter}
-                      onSourceChange={setSourceFilter}
-                      onConfidenceChange={setConfidenceFilter}
-                      onQueryChange={setQuery}
-                    />
-                  </section>
-
-                  {isSuggestionsReview && (
-                    <details className="card p-4">
-                      <summary className="cursor-pointer text-small font-semibold text-primary">
-                        Batch actions
-                      </summary>
-                      <div className="mt-3 space-y-3">
-                        <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
-                        <p className="text-[11px] font-medium text-secondary">
-                          Action scope
-                        </p>
-                        <div className="mt-2 inline-flex rounded-full border border-subtle bg-surface-2 p-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                          View
+                        </span>
+                        <div className="inline-flex rounded-full border border-subtle bg-surface-1 p-0.5">
                           <button
                             type="button"
-                            onClick={() => setBatchActionScope("linked")}
+                            onClick={() => setQueueMode("focus")}
                             className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                              batchActionScope === "linked"
-                                ? "bg-surface-3 text-primary shadow-sm"
+                              queueMode === "focus"
+                                ? "bg-surface-2 text-primary shadow-sm"
                                 : "text-secondary hover:text-primary"
                             }`}
                           >
-                            Linked only
+                            Focus
                           </button>
                           <button
                             type="button"
-                            onClick={() => setBatchActionScope("cross")}
+                            onClick={() => setQueueMode("list")}
                             className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                              batchActionScope === "cross"
-                                ? "bg-surface-3 text-primary shadow-sm"
+                              queueMode === "list"
+                                ? "bg-surface-2 text-primary shadow-sm"
                                 : "text-secondary hover:text-primary"
                             }`}
                           >
-                            Cross-CiP only
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setBatchActionScope("both")}
-                            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                              batchActionScope === "both"
-                                ? "bg-surface-3 text-primary shadow-sm"
-                                : "text-secondary hover:text-primary"
-                            }`}
-                          >
-                            Both
+                            List
                           </button>
                         </div>
-                      </div>
-
-                      <div className="rounded-xl border border-subtle bg-surface-1 px-3 py-2.5">
-                        <p className="text-[11px] font-medium text-secondary">
-                          Pending confidence buckets
-                        </p>
-                        <p className="mt-1 text-[11px] text-muted">
-                          Selected scope: {batchScopeLabel(batchActionScope)}
-                        </p>
-                        <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
-                          <div className="rounded-md border border-subtle bg-surface-2 px-2 py-1.5">
-                            <p className="text-[10px] uppercase tracking-wide text-muted">High</p>
-                            <p className="text-xs font-semibold text-primary">{scopedConfidenceBuckets.high}</p>
-                          </div>
-                          <div className="rounded-md border border-subtle bg-surface-2 px-2 py-1.5">
-                            <p className="text-[10px] uppercase tracking-wide text-muted">Medium</p>
-                            <p className="text-xs font-semibold text-primary">{scopedConfidenceBuckets.medium}</p>
-                          </div>
-                          <div className="rounded-md border border-subtle bg-surface-2 px-2 py-1.5">
-                            <p className="text-[10px] uppercase tracking-wide text-muted">Low</p>
-                            <p className="text-xs font-semibold text-primary">{scopedConfidenceBuckets.low}</p>
-                          </div>
-                        </div>
-                        <div className="mt-2 space-y-1.5">
-                          <div className="grid grid-cols-[56px_1fr_1fr_1fr] items-center gap-1 text-[10px]">
-                            <span className="text-muted">Linked</span>
-                            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-center font-medium text-primary">{confidenceBuckets.linkedHighPending}</span>
-                            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-center font-medium text-secondary">{confidenceBuckets.linkedMediumPending}</span>
-                            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-center font-medium text-muted">{confidenceBuckets.linkedLowPending}</span>
-                          </div>
-                          <div className="grid grid-cols-[56px_1fr_1fr_1fr] items-center gap-1 text-[10px]">
-                            <span className="text-muted">Cross-CiP</span>
-                            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-center font-medium text-primary">{confidenceBuckets.crossHighPending}</span>
-                            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-center font-medium text-secondary">{confidenceBuckets.crossMediumPending}</span>
-                            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-center font-medium text-muted">{confidenceBuckets.crossLowPending}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={requestConfirmAllHighConfidence}
-                          disabled={actionDisabled || !canConfirmAllHighConfidence}
-                          className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Confirm high-confidence ({scopedConfidenceBuckets.high})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={requestRejectAllLowConfidence}
-                          disabled={actionDisabled || !canRejectLowConfidence}
-                          className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Reject low-confidence ({scopedConfidenceBuckets.low})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleGenerateForEmpty}
-                          disabled={actionDisabled || !canGenerateForEmpty}
-                          className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Generate missing suggestions
-                        </button>
-                      </div>
-
-                      <div className="rounded-xl border border-subtle bg-surface-1 p-3">
-                        <p className="text-[11px] font-medium text-secondary">
-                          Advanced tools
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={requestResetAllToSuggested}
-                            disabled={actionDisabled || !canResetRejected}
-                            className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Reset rejected to suggested
-                          </button>
-                        </div>
-                      </div>
-                      </div>
-                    </details>
-                  )}
-                </aside>
-              )}
-
-              <div className="hidden lg:flex lg:justify-center">
-                <button
-                  type="button"
-                  onClick={() => setIsSidebarCollapsed((v) => !v)}
-                  className="group sticky top-24 flex h-9 w-9 items-center justify-center rounded-full border border-subtle bg-surface-1 text-secondary shadow-md transition-all duration-200 hover:scale-[1.03] hover:bg-surface-2 hover:text-primary active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-accent-blue/35 focus:ring-offset-2"
-                  title={isSidebarCollapsed ? "Show left panel" : "Hide left panel"}
-                  aria-label={isSidebarCollapsed ? "Show left panel" : "Hide left panel"}
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                    className="transition-transform duration-200"
-                  >
-                    {isSidebarCollapsed ? (
-                      <polyline points="9 6 15 12 9 18" />
-                    ) : (
-                      <polyline points="15 6 9 12 15 18" />
-                    )}
-                  </svg>
-                </button>
-              </div>
-
-	              <div className="flex flex-col gap-3">
-	                <section className="card overflow-hidden p-0">
-	                  <div className="relative overflow-hidden border-b border-subtle bg-[linear-gradient(135deg,rgba(37,99,235,0.12),rgba(255,255,255,0.96)_38%,rgba(255,255,255,1)_72%)] px-4 py-4">
-	                    <div className="pointer-events-none absolute right-6 top-4 h-20 w-20 rounded-full bg-accent-blue/10 blur-2xl" aria-hidden />
-	                    <div className="flex flex-wrap items-start justify-between gap-3">
-	                      <div className="min-w-0 space-y-1.5">
-	                        <div className="flex items-center gap-2">
-	                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-accent-blue/12 text-accent-blue shadow-sm ring-1 ring-accent-blue/15">
-	                            <svg
-	                              width="16"
-	                              height="16"
-	                              viewBox="0 0 24 24"
-	                              fill="none"
-	                              stroke="currentColor"
-	                              strokeWidth="2"
-	                              strokeLinecap="round"
-	                              strokeLinejoin="round"
-	                              aria-hidden
-	                            >
-	                              <path d="M21 12a9 9 0 0 0-15.5-6.4" />
-	                              <path d="M3 4v5h5" />
-	                              <path d="M3 12a9 9 0 0 0 15.5 6.4" />
-	                              <path d="M21 20v-5h-5" />
-	                            </svg>
-	                          </span>
-	                          <div>
-	                            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-blue">
-	                              Sync console
-	                            </p>
-	                            <p className="text-small font-semibold text-primary">Kaizen Sync</p>
-	                          </div>
-	                        </div>
-	                        <p className="text-sm font-medium text-primary">
-	                          {buildSyncStatusSummary(syncConsoleQueueSummary).title}
-	                        </p>
-	                        <p className="text-[11px] text-secondary">
-	                          Push confirmed cross-CiP skills back to Kaizen in the background.
-	                          <span className="ml-1 text-muted">
-	                            {buildSyncStatusSummary(syncConsoleQueueSummary).detail}
-	                          </span>
-	                        </p>
-	                        <p className="text-[11px] text-muted">
-	                          Last sync to Kaizen was{" "}
-	                          <span className="font-medium text-secondary">
-	                            {formatSyncTimestamp(lastQueueSyncedAtV2) ?? "not yet recorded"}
-	                          </span>
-	                        </p>
-	                      </div>
-	                      <div className="flex flex-col items-end gap-2">
-	                        <button
-	                          type="button"
-	                          onClick={() => startBackgroundQueueSync()}
-	                          disabled={!canRunQueueSync}
-	                          className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-	                        >
-	                          {isSyncingQueue ? "Syncing..." : "Sync to Kaizen"}
-	                        </button>
-	                      </div>
-	                    </div>
-	                  </div>
-	                  {(!pushQueueV2.queue_available || queueProgressMessage) && (
-	                    <div className="p-4">
-	                      {!pushQueueV2.queue_available ? (
-	                        <div className="rounded-xl border border-amber-400/35 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-700">
-	                          Queue table is not available yet. Run database migration{" "}
-	                          <code>0013_key_skill_push_queue.sql</code>.
-	                        </div>
-	                      ) : queueProgressMessage ? (
-	                        <p className="text-xs text-secondary">{queueProgressMessage}</p>
-	                      ) : null}
-	                    </div>
-	                  )}
-	                </section>
-
-	                {/* ── Unified controls toolbar ────────────────────────────────── */}
-                <div className="card p-3 space-y-2">
-                  {/* Last audit result — inline accent line */}
-                  {lastAuditSummary && (
-                    <p className="border-l-2 border-accent-blue pl-2 text-[11px] text-secondary">
-                      Last audit:{" "}
-                      <span className="font-semibold text-primary">
-                        {lastAuditSummary.issueCount} issues
-                      </span>{" "}
-                      across {lastAuditSummary.entriesWithIssues || lastAuditSummary.entriesConsidered} entries
-                      {lastAuditSummary.overlinkedEntryCount > 0
-                        ? ` · ${lastAuditSummary.overlinkedEntryCount} overlinked`
-                        : ""}
-                      {lastAuditSummary.persistenceWarningCount > 0
-                        ? ` · ${lastAuditSummary.persistenceWarningCount} persistence warnings`
-                        : ""}
-                    </p>
-                  )}
-
-                  {auditReviewSummary.totalEntries > 0 && (
-                    <div className="rounded-2xl border border-accent-blue/20 bg-gradient-to-r from-accent-blue/8 via-surface-1 to-surface-1 px-4 py-3">
-                      <div className="space-y-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-blue">
-                          Review flow
-                        </p>
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-primary">
-                            {reviewStage === "to_review" && toReviewTab !== "all" && filteredAuditQueueSummary
-                              ? filteredAuditQueueSummary.label
-                              : reviewStage === "awaiting_sync"
-                                ? `${awaitingSyncEntries.length} entr${
-                                    awaitingSyncEntries.length === 1 ? "y" : "ies"
-                                  } awaiting Kaizen sync`
-                                : reviewStage === "reviewed"
-                                  ? `${reviewedEntries.length} reviewed entr${
-                                      reviewedEntries.length === 1 ? "y" : "ies"
-                                    }`
-                              : auditReviewSummary.allReviewed
-                              ? "Audit review complete"
-                              : `${auditReviewSummary.suggestionsToReview} suggestion${
-                                  auditReviewSummary.suggestionsToReview === 1 ? "" : "s"
-                                } to review`}
-                          </p>
-                          {(reviewStage === "to_review" && toReviewTab !== "all" && filteredAuditQueueSummary) ? (
-                            <p className="text-[11px] text-secondary">
-                              {filteredAuditQueueSummary.entryCount}{" "}
-                              {filteredAuditQueueSummary.entryCount === 1 ? "entry" : "entries"}
-                            </p>
-                          ) : reviewStage === "to_review" ? (
-                            <p className="text-[11px] text-secondary">
-                              Work through the queue one suggestion at a time.
-                            </p>
-                          ) : reviewStage === "awaiting_sync" ? (
-                            <p className="text-[11px] text-secondary">
-                              Run Kaizen Sync, then Audit again when you want a fresh pass.
-                            </p>
-                          ) : reviewStage === "reviewed" ? (
-                            <p className="text-[11px] text-secondary">
-                              Everything here is already reviewed for this audit pass.
-                            </p>
-                          ) : auditReviewSummary.allReviewed ? (
-                            <p className="text-[11px] text-secondary">
-                              Run Kaizen Sync, then Audit again when you want a fresh pass.
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-1.5">
+                        {queueMode === "focus" && (
                           <div className="inline-flex rounded-full border border-subtle bg-surface-1 p-0.5">
                             <button
                               type="button"
-                              onClick={() => setReviewStage("to_review")}
+                              onClick={() => setFocusReviewModePersisted("classic")}
                               className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                                reviewStage === "to_review"
+                                focusReviewMode === "classic"
                                   ? "bg-surface-2 text-primary shadow-sm"
                                   : "text-secondary hover:text-primary"
                               }`}
                             >
-                              To review ({auditReviewSummary.suggestionsToReview})
+                              Card
                             </button>
                             <button
                               type="button"
-                              onClick={() => setReviewStage("awaiting_sync")}
+                              onClick={() => setFocusReviewModePersisted("swipe")}
                               className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                                reviewStage === "awaiting_sync"
+                                focusReviewMode === "swipe"
                                   ? "bg-surface-2 text-primary shadow-sm"
                                   : "text-secondary hover:text-primary"
                               }`}
                             >
-                              Awaiting sync ({auditReviewSummary.reviewedQueued})
+                              Swipe
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setReviewStage("reviewed")}
-                              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                                reviewStage === "reviewed"
-                                  ? "bg-surface-2 text-primary shadow-sm"
-                                  : "text-secondary hover:text-primary"
-                              }`}
-                            >
-                              Reviewed ({auditReviewSummary.keptOverCap + auditReviewSummary.reviewedNoAction})
-                            </button>
-                          </div>
-                        </div>
-
-                        {reviewStage === "to_review" && (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <div className="inline-flex rounded-full border border-subtle bg-surface-1 p-0.5">
-                              <button
-                                type="button"
-                                onClick={() => setQueueMode("focus")}
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                                  queueMode === "focus"
-                                    ? "bg-surface-2 text-primary shadow-sm"
-                                    : "text-secondary hover:text-primary"
-                                }`}
-                              >
-                                Focus
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setQueueMode("list")}
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                                  queueMode === "list"
-                                    ? "bg-surface-2 text-primary shadow-sm"
-                                    : "text-secondary hover:text-primary"
-                                }`}
-                              >
-                                List
-                              </button>
-                            </div>
-                            {queueMode === "focus" && (
-                              <div className="inline-flex rounded-full border border-subtle bg-surface-1 p-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() => setFocusReviewModePersisted("classic")}
-                                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                                    focusReviewMode === "classic"
-                                      ? "bg-surface-2 text-primary shadow-sm"
-                                      : "text-secondary hover:text-primary"
-                                  }`}
-                                >
-                                  Classic
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setFocusReviewModePersisted("swipe")}
-                                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                                    focusReviewMode === "swipe"
-                                      ? "bg-surface-2 text-primary shadow-sm"
-                                      : "text-secondary hover:text-primary"
-                                  }`}
-                                >
-                                  Swipe
-                                </button>
-                              </div>
-                            )}
                           </div>
                         )}
                       </div>
-                    </div>
+                    </>
                   )}
                 </div>
+                )}
                 {reviewStage === "to_review" ? (
+                  showGettingStartedGuide ? (
+                    <ReviewGettingStarted
+                      entriesCount={entries.length}
+                      hasAuditData={hasAuditData}
+                      pendingReviewCount={toReviewCounts.all}
+                      reviewedQueuedCount={auditReviewSummary.reviewedQueued}
+                      syncPendingCount={syncConsoleQueueSummary.pending}
+                      syncFailedCount={syncConsoleQueueSummary.failed}
+                      onOpenAudit={() => setIsAuditChooserOpen(true)}
+                      onSyncToKaizen={() => startBackgroundQueueSync()}
+                      canRunAudit={!actionDisabled && !isAuditing && entries.length > 0}
+                      canSyncToKaizen={canRunQueueSync}
+                      isAuditing={isAuditing}
+                      isSyncing={isSyncingQueue}
+                    />
+                  ) : (
                   <ReviewQueue
                     key={`${reviewStage}|${toReviewTab}|${statusFilter}|${sourceFilter}|${confidenceFilter}|${queueMode}|${focusReviewMode}|${query}`}
                     entries={entriesForQueue}
@@ -3289,6 +3444,7 @@ function KeySkillReviewPageContent() {
                     pendingRemovalCountByEntryId={pendingRemovalCountByEntryId}
                     onUnlinkKaizenSkill={handleUnlinkKaizenSkill}
                   />
+                  )
                 ) : (
                   <section className="space-y-3">
                     <div className="rounded-xl border border-subtle bg-surface-2 px-4 py-3">
@@ -3359,7 +3515,7 @@ function KeySkillReviewPageContent() {
                                       </p>
                                       {audit?.overlinked_by ? (
                                         <p className="text-[11px] text-muted">
-                                          Originally flagged as over cap by {audit.overlinked_by}.
+                                          Originally flagged with too many links (over by {audit.overlinked_by}).
                                         </p>
                                       ) : null}
                                     </div>
@@ -3372,7 +3528,7 @@ function KeySkillReviewPageContent() {
                                       </p>
                                       {audit?.overlinked_by ? (
                                         <p className="mt-1 text-[11px] text-muted">
-                                          Audit snapshot: over cap by {audit.overlinked_by}
+                                          Audit snapshot: too many links (over by {audit.overlinked_by})
                                         </p>
                                       ) : null}
                                     </>
@@ -3390,190 +3546,91 @@ function KeySkillReviewPageContent() {
                   </section>
                 )}
 
+                <section
+                  className={`rounded-xl border px-3 py-2.5 ${syncStripClass}`}
+                  aria-label="Kaizen sync status"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                        Kaizen sync
+                      </p>
+                      <p className="text-xs font-medium text-primary">{syncStatusSummary.title}</p>
+                      <p className="text-[11px] text-muted">
+                        Last sync{" "}
+                        <span className="text-secondary">
+                          {formatSyncTimestamp(lastQueueSyncedAtV2) ?? "not yet recorded"}
+                        </span>
+                        {syncStatusSummary.detail ? (
+                          <>
+                            {" "}
+                            · <span className="text-secondary">{syncStatusSummary.detail}</span>
+                          </>
+                        ) : null}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => startBackgroundQueueSync()}
+                      disabled={!canRunQueueSync}
+                      className={`shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${
+                        syncNeedsAttention ? "btn-primary" : "btn-secondary"
+                      }`}
+                    >
+                      {isSyncingQueue ? "Syncing..." : "Sync to Kaizen"}
+                    </button>
+                  </div>
+
+                  {syncNeedsAttention && (
+                    <div className="mt-2 space-y-2 border-t border-subtle/80 pt-2">
+                      {!pushQueueV2.queue_available ? (
+                        <p className="text-[11px] text-amber-700">
+                          Queue table is not available yet. Run database migration{" "}
+                          <code className="rounded bg-surface-1 px-1 py-0.5 text-[10px]">
+                            0013_key_skill_push_queue.sql
+                          </code>
+                          .
+                        </p>
+                      ) : null}
+                      {queueProgressMessage ? (
+                        <p className="text-[11px] text-secondary">{queueProgressMessage}</p>
+                      ) : null}
+                      {pushQueueV2.queue_available &&
+                      !queueProgressMessage &&
+                      syncConsoleQueueSummary.pending === 0 &&
+                      syncConsoleQueueSummary.failed === 0 &&
+                      syncConsoleQueueSummary.running === 0 ? (
+                        <p className="text-[11px] text-muted">
+                          Push confirmed cross-CiP skills back to Kaizen after you finish reviewing.
+                        </p>
+                      ) : pushQueueV2.queue_available && !queueProgressMessage ? (
+                        <p className="text-[11px] text-muted">
+                          Push confirmed cross-CiP skills back to Kaizen in the background.
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+                </section>
+
 	              </div>
             </div>
           )}
         </main>
 
-        {!isLoading && (
-          <div className="fixed right-5 top-5 z-40 md:right-7 md:top-7">
-            <div className="relative flex flex-col items-end">
-              <button
-                type="button"
-                onClick={() => {
-                  if (isAuditing || actionDisabled) return;
-                  setIsAuditChooserOpen((current) => !current);
-                }}
-                disabled={actionDisabled || isAuditing}
-                className={[
-                  "relative z-10 inline-flex min-h-12 items-center gap-2 rounded-full border px-3.5 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition-all",
-                  "focus:outline-none focus:ring-2 focus:ring-[#525252]/35 focus:ring-offset-2",
-                  isAuditing
-                    ? "border-[#111827] bg-[#111827] text-white"
-                    : auditButtonState === "success"
-                      ? "border-[#27272A] bg-[#27272A] text-white"
-                      : isAuditChooserOpen
-                        ? "border-[#A1A1AA] bg-white text-[#18181B]"
-                        : "border-[#D4D4D8] bg-[#F5F5F5] text-[#18181B] hover:-translate-y-0.5 hover:border-[#A1A1AA] hover:bg-white active:translate-y-0 active:scale-[0.98]",
-                  "disabled:cursor-not-allowed disabled:opacity-60",
-                ].join(" ")}
-                aria-label={
-                  isAuditing
-                    ? "Audit running"
-                    : isAuditChooserOpen
-                      ? "Close audit options"
-                      : "Open audit options"
-                }
-                title={
-                  isAuditing
-                    ? "Auditing..."
-                    : isAuditChooserOpen
-                      ? "Close audit options"
-                      : "Choose audit options"
-                }
-              >
-                {isAuditing ? (
-                  <>
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/10">
-                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-                    </span>
-                    <span className="text-sm font-semibold tracking-tight">Auditing...</span>
-                  </>
-                ) : auditButtonState === "success" ? (
-                  <>
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/12">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </span>
-                    <span className="text-sm font-semibold tracking-tight">Run audit</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#18181B] text-white">
-                      <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        <path d="M12 3l1.2 3.2L16.5 7.5l-3.3 1.3L12 12l-1.2-3.2L7.5 7.5l3.3-1.3L12 3z" />
-                        <path d="M5 14l.7 1.8L7.5 16.5l-1.8.7L5 19l-.7-1.8L2.5 16.5l1.8-.7L5 14z" />
-                      </svg>
-                    </span>
-                    <span className="text-sm font-semibold tracking-tight">Run audit</span>
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className={`transition-transform ${isAuditChooserOpen ? "rotate-180" : ""}`}
-                      aria-hidden
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </>
-                )}
-              </button>
-
-            <div
-              aria-hidden={!isAuditChooserOpen || isAuditing}
-              className={[
-                "absolute right-0 top-full mt-2 w-[min(22rem,calc(100vw-2.5rem))] origin-top-right overflow-hidden transition-all duration-300 ease-out",
-                isAuditChooserOpen && !isAuditing
-                  ? "max-h-[32rem] translate-y-0 scale-100 opacity-100"
-                  : "pointer-events-none max-h-0 -translate-y-2 scale-[0.98] opacity-0",
-              ].join(" ")}
-            >
-              <div className="rounded-2xl border border-subtle bg-surface-1 p-3 shadow-[0_18px_55px_rgba(0,0,0,0.18)]">
-                <div className="space-y-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-blue">
-                    Audit options
-                  </p>
-                  <p className="text-sm font-semibold text-primary">Choose what to audit</p>
-                  <p className="text-[11px] text-secondary">
-                    Pick one mode, then start the audit when you are ready.
-                  </p>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {auditModeOptions.map((option) => (
-                    <button
-                      key={option.mode}
-                      type="button"
-                      onClick={() => setSelectedAuditRunMode(option.mode)}
-                      className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${
-                        selectedAuditRunMode === option.mode
-                          ? "border-accent-blue/40 bg-accent-blue/10"
-                          : "border-subtle bg-surface-2 hover:bg-surface-3"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold text-primary">{option.label}</p>
-                          <p className="mt-1 text-[11px] text-secondary">{option.description}</p>
-                        </div>
-                        <span className="rounded-full border border-subtle bg-surface-1 px-2 py-0.5 text-[10px] font-medium text-secondary">
-                          {option.count}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-[11px] text-muted">
-                    {selectedAuditRunMode === "everything"
-                      ? "Runs across the whole portfolio."
-                      : selectedAuditRunEntryIds.length === 0
-                        ? "No entries match this mode right now."
-                        : `Runs on ${selectedAuditRunEntryIds.length} matching entr${
-                            selectedAuditRunEntryIds.length === 1 ? "y" : "ies"
-                          }.`}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsAuditChooserOpen(false)}
-                      className="rounded-full border border-subtle bg-surface-2 px-3 py-1.5 text-xs font-medium text-secondary transition hover:bg-surface-3 hover:text-primary"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void runAudit(selectedAuditRunMode)}
-                      disabled={
-                        actionDisabled ||
-                        isAuditing ||
-                        (selectedAuditRunMode !== "everything" &&
-                          selectedAuditRunEntryIds.length === 0)
-                      }
-                      className="rounded-full bg-[#18181B] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Start audit
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            </div>
+        {!isLoading && entries.length === 0 && (
+          <div className="fixed right-5 top-24 z-40 md:right-7">
+            <ReviewAuditChooser
+              isOpen={isAuditChooserOpen}
+              onOpenChange={setIsAuditChooserOpen}
+              isAuditing={isAuditing}
+              auditButtonState={auditButtonState}
+              disabled={actionDisabled}
+              selectedAuditRunMode={selectedAuditRunMode}
+              onSelectAuditRunMode={setSelectedAuditRunMode}
+              auditModeOptions={auditModeOptions}
+              selectedAuditRunEntryCount={selectedAuditRunEntryIds.length}
+              onRunAudit={(mode) => runAudit(mode)}
+            />
           </div>
         )}
       </div>

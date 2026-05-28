@@ -41,10 +41,10 @@ export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
             Key Skills
           </Link>
           <Link
-            href="/dashboard/gap-report"
+            href="/dashboard/progress?view=priorities"
             className="rounded-md px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
           >
-            Gap report
+            Priorities
           </Link>
           <button
             type="button"

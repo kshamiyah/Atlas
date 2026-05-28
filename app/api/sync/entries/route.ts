@@ -3,7 +3,7 @@ import {
   getUserFromBearerToken,
   createSupabaseClientWithToken,
 } from "@/lib/supabase/api-client";
-import { inferOsatsStorageFields } from "@/lib/requirements/osats-evidence";
+import { resolveOsatsStorageFields } from "@/lib/requirements/osats-evidence";
 import { isUnsignedAssessorEvidence } from "@/lib/kaizen/evidence-eligibility";
 
 export type EntriesSyncBody = {
@@ -356,13 +356,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const needsOsatsFallback = rows.some(
-      (row) =>
-        row.detected_entry_type === "osats_summative" &&
-        (row.kaizen_procedure_id === null || row.assessor_role_id === null),
+    const hasOsatsSummative = rows.some(
+      (row) => row.detected_entry_type === "osats_summative",
     );
 
-    if (needsOsatsFallback) {
+    if (hasOsatsSummative) {
       const { data: proceduresCatalog } = await supabase
         .from("procedures_catalog")
         .select("kaizen_id, name")
@@ -372,7 +370,7 @@ export async function POST(request: Request) {
         rows = rows.map((row) => {
           if (row.detected_entry_type !== "osats_summative") return row;
 
-          const inferred = inferOsatsStorageFields(
+          const resolved = resolveOsatsStorageFields(
             {
               detected_entry_type: row.detected_entry_type,
               extracted_fields: row.extracted_fields,
@@ -384,9 +382,8 @@ export async function POST(request: Request) {
 
           return {
             ...row,
-            kaizen_procedure_id:
-              row.kaizen_procedure_id ?? inferred.kaizen_procedure_id,
-            assessor_role_id: row.assessor_role_id ?? inferred.assessor_role_id,
+            kaizen_procedure_id: resolved.kaizen_procedure_id,
+            assessor_role_id: resolved.assessor_role_id,
           };
         });
       }

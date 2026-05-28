@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
-import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { buildProgressMessages } from "@/lib/progress/message-centre";
 import {
   checkpointTypeLabel,
@@ -18,6 +17,7 @@ import {
 import { calculateArcpCountdown } from "@/lib/profile/ltft";
 import { calculateKeySkillsProRataCheckpoint } from "@/lib/profile/ltft-pro-rata";
 import { normalizeStageName } from "@/lib/profile/stage";
+import { resolveCheckpointStageForProgress } from "@/lib/progress/scope-dimensions";
 import type { ProgressSummaryResponse, ProgressSummaryScope } from "@/lib/types/progress";
 
 type CipRow = { id: string; number: number };
@@ -60,21 +60,9 @@ function emptySummary(scope: ProgressSummaryScope): ProgressSummaryResponse {
 }
 
 export async function GET(req: NextRequest) {
-  const supabase = await getServerSupabaseClient();
-  const bypassAuth = isDevAuthBypassEnabled();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  const { supabase, userId, bypassAuth } = await resolveRequestAuth();
 
-  if (authError && !(bypassAuth && !user)) {
-    return NextResponse.json(
-      { error: authError.message },
-      { status: 500 },
-    );
-  }
-
-  if (!user && !bypassAuth) {
+  if (!userId && !bypassAuth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -83,17 +71,11 @@ export async function GET(req: NextRequest) {
   if ("error" in parsedScope) {
     return NextResponse.json({ error: parsedScope.error }, { status: 400 });
   }
-  const { scopeEcho, stageScope, stageGroup, cipNumber } = parsedScope;
+  const { scopeEcho, stageScope, stageGroup, cipNumber, progressYear } = parsedScope;
 
-  if (!user && bypassAuth) {
+  if (!userId) {
     return NextResponse.json(emptySummary(scopeEcho));
   }
-
-  if (!user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = user.id;
 
   const [
     stagesRes,
@@ -208,8 +190,9 @@ export async function GET(req: NextRequest) {
     profile?.current_stage_id
       ? stageRows.find((row) => row.id === profile.current_stage_id)?.name ?? null
       : null;
-  const currentStage = normalizeStageName(
-    stageFromProfileId ?? profile?.current_grade ?? null,
+  const currentStage = resolveCheckpointStageForProgress(
+    progressYear,
+    normalizeStageName(stageFromProfileId ?? profile?.current_grade ?? null),
   );
   const arcpCountdown = calculateArcpCountdown(
     profile?.arcp_date ?? null,

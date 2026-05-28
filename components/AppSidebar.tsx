@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -166,6 +166,8 @@ const PROFILE_NAV_ITEM = {
 
 const MOBILE_NAV = [...NAV, PROFILE_NAV_ITEM];
 
+const SIDEBAR_EXPAND_COACH_KEY = "piq.sidebar.expand-coach-seen";
+
 export function AppSidebar({
   userEmail,
   lastSyncAt,
@@ -205,14 +207,40 @@ export function AppSidebar({
     };
   }, []);
 
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showExpandCoach, setShowExpandCoach] = useState(false);
+  const userInitiatedCollapseRef = useRef(false);
+
+  useEffect(() => {
     try {
-      return window.localStorage.getItem("piq.sidebar.collapsed") === "1";
+      setIsCollapsed(window.localStorage.getItem("piq.sidebar.collapsed") === "1");
     } catch {
-      return false;
+      // no-op
     }
-  });
+  }, []);
+
+  const dismissExpandCoach = useCallback(() => {
+    setShowExpandCoach(false);
+    try {
+      window.localStorage.setItem(SIDEBAR_EXPAND_COACH_KEY, "1");
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isCollapsed) return;
+    if (!userInitiatedCollapseRef.current) return;
+
+    userInitiatedCollapseRef.current = false;
+    try {
+      if (window.localStorage.getItem(SIDEBAR_EXPAND_COACH_KEY) !== "1") {
+        setShowExpandCoach(true);
+      }
+    } catch {
+      // no-op
+    }
+  }, [isCollapsed]);
 
   const syncStatus = syncState(lastSyncAt);
   const syncText = formatSyncTime(lastSyncAt);
@@ -221,6 +249,9 @@ export function AppSidebar({
   function toggleSidebarCollapse() {
     setIsCollapsed((prev) => {
       const next = !prev;
+      if (next) {
+        userInitiatedCollapseRef.current = true;
+      }
       try {
         window.localStorage.setItem("piq.sidebar.collapsed", next ? "1" : "0");
       } catch {
@@ -236,6 +267,8 @@ export function AppSidebar({
     router.push("/");
     router.refresh();
   }
+
+  const sidebarWidth = isCollapsed ? "4.5rem" : "18rem";
 
   return (
     <>
@@ -337,59 +370,125 @@ export function AppSidebar({
 
       <aside
         className={[
-          "relative z-20 hidden h-screen shrink-0 flex-col overflow-x-visible overflow-y-hidden border-r border-subtle bg-surface-2/85 backdrop-blur md:flex",
+          "relative z-20 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-subtle bg-surface-2/85 backdrop-blur md:flex",
         ].join(" ")}
         style={{
-          width: isCollapsed ? "5rem" : "18rem",
+          width: sidebarWidth,
           transition:
             "width 360ms cubic-bezier(0.22, 1, 0.36, 1), border-color 260ms ease, background-color 260ms ease",
         }}
       >
         <div
           className={[
-            "space-y-2 border-b border-subtle transition-all duration-300 ease-in-out",
-            isCollapsed ? "px-2 py-3" : "px-5 py-5",
+            "border-b border-subtle transition-all duration-300 ease-in-out",
+            isCollapsed ? "px-2 py-3" : "space-y-2 px-4 py-4",
           ].join(" ")}
         >
           <div
             className={[
-              "transition-all duration-300 ease-in-out",
-              isCollapsed
-                ? "flex flex-col items-center justify-center gap-2"
-                : "flex items-center gap-2.5",
+              "flex min-w-0 items-center",
+              isCollapsed ? "justify-center" : "justify-between gap-2",
             ].join(" ")}
           >
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary shadow-sm">
-                <span className="text-micro font-bold" style={{ color: "var(--surface-1)" }}>
-                  A
-                </span>
-              </div>
-              <span
-                className={[
-                  "inline-block overflow-hidden whitespace-nowrap text-sm font-semibold tracking-tight text-primary transition-all duration-300 ease-in-out",
-                  isCollapsed
-                    ? "max-w-0 -translate-x-1 opacity-0"
-                    : "max-w-[140px] translate-x-0 opacity-100",
-                ].join(" ")}
+            {isCollapsed ? (
+              <button
+                type="button"
+                onClick={() => {
+                  dismissExpandCoach();
+                  toggleSidebarCollapse();
+                }}
+                title="Expand sidebar"
+                aria-label="Expand sidebar"
+                className="flex w-full flex-col items-center gap-1 rounded-xl border border-transparent px-1 py-1.5 transition hover:border-subtle hover:bg-surface-3/80 focus:outline-none focus:ring-2 focus:ring-accent-primary/35 focus:ring-offset-2 focus:ring-offset-surface-2"
               >
-                Atlas
-              </span>
-            </div>
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary shadow-sm">
+                  <span className="text-micro font-bold" style={{ color: "var(--surface-1)" }}>
+                    A
+                  </span>
+                </div>
+                <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted">
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                  Expand
+                </span>
+              </button>
+            ) : (
+              <>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary shadow-sm">
+                    <span className="text-micro font-bold" style={{ color: "var(--surface-1)" }}>
+                      A
+                    </span>
+                  </div>
+                  <span className="truncate text-sm font-semibold tracking-tight text-primary">
+                    Atlas
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleSidebarCollapse}
+                  title="Collapse sidebar"
+                  aria-label="Collapse sidebar"
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-surface-3 hover:text-primary"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
-          <p
-            className={[
-              "overflow-hidden text-[11px] leading-snug text-muted transition-all duration-300 ease-in-out",
-              isCollapsed
-                ? "max-h-0 -translate-y-1 opacity-0"
-                : "max-h-10 translate-y-0 opacity-100",
-            ].join(" ")}
-          >
-            Track evidence coverage, review skills, and write entries faster.
-          </p>
+          {isCollapsed && showExpandCoach ? (
+            <div
+              className="mt-2 animate-fade-up rounded-lg border border-accent-blue/25 bg-accent-blue/10 px-2 py-2 text-center"
+              role="status"
+            >
+              <p className="text-[10px] leading-snug text-secondary">
+                Click Expand to open the sidebar again.
+              </p>
+              <button
+                type="button"
+                onClick={dismissExpandCoach}
+                className="mt-1.5 text-[10px] font-semibold text-accent-blue hover:underline"
+              >
+                Got it
+              </button>
+            </div>
+          ) : null}
+          {!isCollapsed ? (
+            <p className="text-[11px] leading-snug text-muted">
+              Track evidence coverage, review skills, and write entries faster.
+            </p>
+          ) : null}
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-4">
+        <nav
+          className={[
+            "flex-1 space-y-1 transition-all duration-300 ease-in-out",
+            isCollapsed ? "px-2 py-3" : "px-3 py-4",
+          ].join(" ")}
+        >
           <p
             className={[
               "overflow-hidden px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted transition-all duration-300 ease-in-out",
@@ -411,8 +510,10 @@ export function AppSidebar({
                 href={item.href}
                 title={item.label}
                 className={[
-                  "flex items-center rounded-xl border py-2.5 text-small transition-all duration-300 ease-in-out",
-                  isCollapsed ? "justify-center px-2" : "gap-3 px-3.5",
+                  "flex items-center rounded-xl border text-small transition-all duration-300 ease-in-out",
+                  isCollapsed
+                    ? "mx-auto h-10 w-10 justify-center p-0"
+                    : "gap-3 px-3.5 py-2.5",
                   isActive
                     ? "border-accent-primary bg-accent-primary text-surface-1 shadow-sm"
                     : "border-transparent text-secondary hover:border-subtle hover:bg-surface-3 hover:text-primary",
@@ -436,7 +537,12 @@ export function AppSidebar({
           })}
         </nav>
 
-        <div className="space-y-2 border-t border-subtle px-3 py-3">
+        <div
+          className={[
+            "space-y-2 border-t border-subtle transition-all duration-300 ease-in-out",
+            isCollapsed ? "px-2 py-3" : "px-3 py-3",
+          ].join(" ")}
+        >
           {userEmail && (
             <>
               <div
@@ -589,28 +695,6 @@ export function AppSidebar({
             </button>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={toggleSidebarCollapse}
-          className="group pointer-events-auto absolute right-1 top-1/2 z-40 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-subtle bg-surface-2 text-secondary shadow-md transition-all duration-200 hover:scale-[1.03] hover:bg-surface-1 hover:text-primary active:scale-[0.98]"
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.9"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`transition-transform duration-300 ease-in-out ${isCollapsed ? "rotate-180" : ""}`}
-          >
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
       </aside>
     </>
   );

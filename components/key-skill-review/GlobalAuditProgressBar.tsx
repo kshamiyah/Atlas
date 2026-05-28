@@ -20,13 +20,12 @@ function formatElapsed(seconds: number): string {
 }
 
 export function GlobalAuditProgressBar() {
-  const [progress, setProgress] = useState<PersistedAuditProgress | null>(() =>
-    typeof window === "undefined" ? null : readAuditProgress(),
-  );
+  const [progress, setProgress] = useState<PersistedAuditProgress | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   useEffect(() => {
     const refresh = () => setProgress(readAuditProgress());
+    refresh();
     const onStorage = (event: StorageEvent) => {
       if (event.key == null || event.key === AUDIT_PROGRESS_STORAGE_KEY) refresh();
     };

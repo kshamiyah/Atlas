@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { ProgressKeySkillGroup, ProgressKeySkillRow } from "@/lib/types/progress";
+import { buildWriteEntryHref } from "@/lib/generate/query-params";
 
 function buildEntriesHref(title: string, day: string | null): string {
   const p = new URLSearchParams();
@@ -90,10 +91,19 @@ export function ProgressKeySkillDetail({
       </section>
 
       {!skill.is_confirmed && (
-        <div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={buildWriteEntryHref({
+              skillId: skill.key_skill_id,
+              cip: group.cip_number,
+            })}
+            className="inline-flex rounded-lg border border-accent-primary bg-accent-primary px-4 py-2 text-micro font-semibold text-surface-1 transition-opacity hover:opacity-90"
+          >
+            Write an entry
+          </Link>
           <Link
             href={reviewHref}
-            className="inline-flex rounded-lg border border-accent-primary bg-accent-primary px-4 py-2 text-micro font-semibold text-surface-1 transition-opacity hover:opacity-90"
+            className="inline-flex rounded-lg border border-subtle bg-surface-2 px-4 py-2 text-micro font-semibold text-primary transition-colors hover:bg-surface-3"
           >
             Review in Review Entries
           </Link>

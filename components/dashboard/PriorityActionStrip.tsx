@@ -45,8 +45,8 @@ function buildActions(cips: GapReportCip[], pendingSuggestionCount: number): Act
       priority: "medium",
       title: `CiP ${worst.cip_number} needs ${needed} more confirmed skill${needed !== 1 ? "s" : ""}`,
       sub: `Currently ${worst.coverage_pct}% complete. ${worst.cip_title}.`,
-      href: "/dashboard/gap-report",
-      cta: "View Gap Report",
+      href: "/dashboard/progress?view=priorities",
+      cta: "View Priorities",
     });
   }
 

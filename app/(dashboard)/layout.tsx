@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
-import { getServerSupabaseClient } from "@/lib/supabase/server";
+import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { AppSidebar } from "@/components/AppSidebar";
-import { isDevAuthBypassEnabled } from "@/lib/auth/dev-bypass";
 import { GlobalAuditProgressBar } from "@/components/key-skill-review/GlobalAuditProgressBar";
 import { SyncRefreshListener } from "@/components/dashboard/SyncRefreshListener";
 
@@ -10,30 +9,26 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await getServerSupabaseClient();
-  const bypassAuth = isDevAuthBypassEnabled();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user, userId, bypassAuth, impersonating } =
+    await resolveRequestAuth();
 
-  if (!user && !bypassAuth) redirect("/login");
+  if (!userId && !bypassAuth) redirect("/login");
 
-  // Last sync timestamp
-  const { data: syncRow } = user
-    ? await supabase
-        .from("kaizen_sync_log")
-        .select("synced_at")
-        .order("synced_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    : { data: null as { synced_at: string } | null };
+  const syncLogQuery = supabase
+    .from("kaizen_sync_log")
+    .select("synced_at")
+    .order("synced_at", { ascending: false })
+    .limit(1);
+  if (userId) syncLogQuery.eq("user_id", userId);
+
+  const { data: syncRow } = await syncLogQuery.maybeSingle();
 
   let profilePhotoUrl: string | null = null;
-  if (user) {
+  if (userId) {
     const { data: profileRow, error: profileErr } = await supabase
       .from("profiles")
       .select("profile_photo_url")
-      .eq("id", user.id)
+      .eq("id", userId)
       .maybeSingle();
     if (!profileErr && profileRow && typeof profileRow.profile_photo_url === "string") {
       const u = profileRow.profile_photo_url.trim();
@@ -52,11 +47,19 @@ export default async function DashboardLayout({
         }}
       />
       <AppSidebar
-        userEmail={user?.email ?? (bypassAuth ? "dev-bypass@localhost" : undefined)}
+        userEmail={
+          user?.email ??
+          (impersonating ? "dev-bypass (impersonating)" : bypassAuth ? "dev-bypass@localhost" : undefined)
+        }
         lastSyncAt={syncRow?.synced_at ?? null}
         profilePhotoUrl={profilePhotoUrl}
       />
       <div className="relative flex-1 overflow-y-auto">
+        {impersonating ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-900">
+            Dev bypass — viewing data for user {userId}
+          </div>
+        ) : null}
         <SyncRefreshListener />
         <GlobalAuditProgressBar />
         <div className="min-h-full md:px-3 md:py-4 lg:px-5">

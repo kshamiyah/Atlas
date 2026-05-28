@@ -13,6 +13,9 @@ import type {
   StatusFilter,
 } from "./ReviewFilters";
 import type { AuditReviewDecisionBody } from "@/lib/types/key-skill-review-api";
+import {
+  filterSuggestionsForEntry,
+} from "@/lib/key-skill-review/filter-suggestions";
 import { buildCurrentAuditDecisionMap } from "@/lib/key-skill-review/audit-review-decisions";
 import { RECOMMENDED_SKILLS_PER_ENTRY_TARGET } from "@/lib/key-skill-review/entry-skill-target";
 
@@ -207,9 +210,9 @@ function structureEntryNarrative(rawText: string, title: string): StructuredEntr
 }
 
 function reviewItemKindLabel(kind: UnifiedReviewItem["kind"]): string {
-  if (kind === "suggestion") return "Pending suggestion";
-  if (kind === "remove") return "Overlinked removal";
-  return "Replacement suggestion";
+  if (kind === "suggestion") return "New suggestion";
+  if (kind === "remove") return "Remove link";
+  return "Swap skill";
 }
 
 function buildEntryReviewReason(
@@ -235,7 +238,7 @@ function buildEntryReviewReason(
     const overlinkedBy = Number(auditResult?.overlinked_by ?? 0);
     const base =
       auditResult?.overlinked && overlinkedBy > 0
-        ? `This entry is over cap by ${overlinkedBy}`
+        ? `Too many skills linked (over by ${overlinkedBy})`
         : `${itemCounts.remove + itemCounts.replace} overlinked recommendation${
             itemCounts.remove + itemCounts.replace === 1 ? "" : "s"
           } still need review`;
@@ -254,7 +257,7 @@ function buildEntryReviewReason(
   const pendingSuggestionCount = pendingSuggestionsForEntry(entry, auditResult).length;
 
   if (auditResult?.overlinked && overlinkedBy > 0) {
-    parts.push(`This entry is over cap by ${overlinkedBy}`);
+    parts.push(`Too many skills linked (over by ${overlinkedBy})`);
   }
   if (replaceCount > 0) {
     parts.push(`${replaceCount} replacement recommendation${replaceCount === 1 ? "" : "s"} need review`);
@@ -360,7 +363,7 @@ function buildUnifiedReviewItemsForEntry(
     kind: "suggestion",
     entryId: entry.id,
     title: suggestion.key_skill_title,
-    subtitle: `CiP ${suggestion.cip_number} · ${suggestion.source === "cross_cip" ? "Cross-CiP" : "Linked"}`,
+    subtitle: `CiP ${suggestion.cip_number} · ${suggestion.source === "cross_cip" ? "From another CiP" : "Same CiP"}`,
     rationale: suggestion.rationale,
     confidence:
       typeof suggestion.confidence === "number" && suggestion.confidence > 0
@@ -369,8 +372,8 @@ function buildUnifiedReviewItemsForEntry(
     recommendation: null,
     suggestionId: suggestion.suggestion_id ?? null,
     suggestionSource: suggestion.source,
-    swipeRightLabel: "Confirm",
-    swipeLeftLabel: "Reject",
+    swipeRightLabel: "Accept",
+    swipeLeftLabel: "Skip",
   }));
 
   const candidateRecommendations = Array.isArray(auditResult?.candidate_recommendations)
@@ -441,8 +444,8 @@ function buildUnifiedReviewItemsForEntry(
             recommendation && typeof recommendation.suggestion_id === "string"
               ? findSuggestionSource(entry, recommendation.suggestion_id)
               : null,
-          swipeRightLabel: "Action",
-          swipeLeftLabel: "Keep current",
+          swipeRightLabel: "Apply",
+          swipeLeftLabel: "Keep as is",
           reviewDecisionKey: `remove:${skill.key_skill_id}`,
         });
         continue;
@@ -502,8 +505,8 @@ function buildUnifiedReviewItemsForEntry(
           recommendation && typeof recommendation.suggestion_id === "string"
             ? findSuggestionSource(entry, recommendation.suggestion_id)
             : null,
-        swipeRightLabel: "Action",
-        swipeLeftLabel: "Keep current",
+        swipeRightLabel: "Apply",
+        swipeLeftLabel: "Keep as is",
         reviewDecisionKey: `replace:${skill.key_skill_id}:${skill.replace_skill_id ?? ""}`,
       });
     }
@@ -548,8 +551,8 @@ function buildUnifiedReviewItemsForEntry(
           typeof candidate.suggestion_id === "string"
             ? findSuggestionSource(entry, candidate.suggestion_id)
             : null,
-        swipeRightLabel: "Action",
-        swipeLeftLabel: "Keep current",
+        swipeRightLabel: "Apply",
+        swipeLeftLabel: "Keep as is",
         reviewDecisionKey:
           candidate.action === "replace"
             ? `replace:${candidate.key_skill_id}:${candidate.replace_skill_id ?? ""}`
@@ -616,43 +619,14 @@ export function ReviewQueue({
   const swipeStartX = useRef<number | null>(null);
 
   const visibleEntries = useMemo(() => {
-    const normalisedQuery = query.trim().toLowerCase();
-
-    const applyStatusFilter = (arr: ReviewEntry["linked_cip_suggestions"]) => {
-      if (statusFilter === "all") return arr;
-      return arr.filter((s) => s.status === statusFilter);
-    };
-
-    const applyConfidenceFilter = (arr: ReviewEntry["linked_cip_suggestions"]) => {
-      if (confidenceFilter === "all") return arr;
-      if (confidenceFilter === "lt_0_7") return arr.filter((s) => s.confidence < 0.7);
-      return arr.filter((s) => s.confidence >= 0.7);
-    };
-
-    const matchesSuggestionQuery = (s: ReviewEntry["linked_cip_suggestions"][number]) =>
-      s.key_skill_title.toLowerCase().includes(normalisedQuery) ||
-      s.key_skill_id.toLowerCase().includes(normalisedQuery);
-
     return entries
       .map((entry) => {
-        let linked = entry.linked_cip_suggestions;
-        let cross = entry.cross_cip_suggestions;
-
-        if (sourceFilter === "linked_cip") cross = [];
-        else if (sourceFilter === "cross_cip") linked = [];
-
-        linked = applyConfidenceFilter(applyStatusFilter(linked));
-        cross = applyConfidenceFilter(applyStatusFilter(cross));
-
-        const entryTextMatch =
-          !normalisedQuery ||
-          entry.title.toLowerCase().includes(normalisedQuery) ||
-          entry.raw_text.toLowerCase().includes(normalisedQuery);
-
-        if (!entryTextMatch) {
-          linked = linked.filter(matchesSuggestionQuery);
-          cross = cross.filter(matchesSuggestionQuery);
-        }
+        const { linked, cross } = filterSuggestionsForEntry(entry, {
+          query,
+          status: statusFilter,
+          source: sourceFilter,
+          confidence: confidenceFilter,
+        });
 
         const filteredEntry = {
           ...entry,
@@ -1105,8 +1079,7 @@ export function ReviewQueue({
       <section className="card p-5">
         <h2 className="text-small font-semibold text-primary mb-1.5">Review queue</h2>
         <p className="text-micro text-muted">
-          No entries match the current filters. Try broadening your filters or clearing the
-          search.
+          No entries match your filters. Try clearing a filter or broadening your search.
         </p>
       </section>
     );
@@ -1258,21 +1231,46 @@ export function ReviewQueue({
     return (
       <section className="space-y-3">
         {focusReviewMode !== "swipe" && (
-          <div className="sticky top-3 z-10 rounded-xl border border-subtle bg-surface-2/95 p-3 backdrop-blur">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[11px] text-secondary">
-                <span className="font-semibold text-primary">{activeEntryReviewCount}</span> review item{activeEntryReviewCount === 1 ? "" : "s"} on this entry ·{" "}
-                <span className="font-semibold text-primary">{totalReviewItemsAcrossVisible}</span> in current queue
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5">
+          <div className="sticky top-3 z-10 space-y-3 rounded-xl border border-subtle bg-surface-2/95 p-3 backdrop-blur">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+                  Focus mode
+                </p>
+                <h2 className="text-small font-semibold text-primary">
+                  Entry {activeIndex + 1} of {visibleEntries.length}
+                  <span className="font-normal text-muted"> · </span>
+                  {activeEntryReviewCount} decision
+                  {activeEntryReviewCount === 1 ? "" : "s"} left on this entry
+                </h2>
+                <p className="text-[11px] text-secondary">
+                  {totalReviewItemsAcrossVisible} left in queue
+                  {activeEntryReviewReason ? (
+                    <>
+                      {" "}
+                      · {activeEntryReviewReason}
+                    </>
+                  ) : null}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={goToPrevReviewable}
+                  disabled={prevReviewableIndex == null}
+                  className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Shortcut: P"
+                >
+                  Previous (P)
+                </button>
                 <button
                   type="button"
                   onClick={goToNextReviewable}
                   disabled={nextReviewableIndex == null}
-                  className="btn-secondary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="btn-primary text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
                   title="Shortcut: N"
                 >
-                  Next to review (N)
+                  Next (N)
                 </button>
                 <button
                   type="button"
@@ -1285,68 +1283,23 @@ export function ReviewQueue({
                 </button>
               </div>
             </div>
-          </div>
-        )}
 
-        {focusReviewMode !== "swipe" && (
-          <div className="rounded-xl border border-subtle bg-surface-2 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                  Focus Mode
-                </p>
-                <h2 className="text-small font-semibold text-primary">
-                  Entry {activeIndex + 1} of {visibleEntries.length}
-                </h2>
-                <p className="text-[11px] text-muted">
-                  {totalReviewItemsAcrossVisible} review item
-                  {totalReviewItemsAcrossVisible === 1 ? "" : "s"} across current filters
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={goToNextReviewable}
-                  disabled={nextReviewableIndex == null}
-                  className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Next to review
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-2 flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-subtle pt-2">
               <label className="inline-flex items-center gap-2 text-[11px] text-secondary">
                 <input
                   type="checkbox"
                   checked={autoAdvanceEnabled}
                   onChange={(e) => setAutoAdvanceEnabled(e.target.checked)}
                 />
-                Auto-advance when an entry reaches 0 pending
+                Auto-advance when an entry is finished
               </label>
             </div>
 
-            <p className="mt-3 rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[11px] text-secondary">
-              {activeEntryReviewCount} review item{activeEntryReviewCount === 1 ? "" : "s"} on this entry
-            </p>
-            <p className="mt-2 rounded-lg border border-subtle bg-surface-1 px-3 py-2 text-[11px] text-secondary">
-              <span className="font-medium text-primary">Review:</span>{" "}
-              {activeEntryReviewReason}
-            </p>
-
-            <details className="mt-3 rounded-lg border border-subtle bg-surface-1 p-3">
+            <details className="rounded-lg border border-subtle bg-surface-1 p-3">
               <summary className="cursor-pointer text-[11px] font-medium text-secondary">
-                Queue progress and navigation
+                More navigation and progress
               </summary>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={goToPrevReviewable}
-                  disabled={prevReviewableIndex == null}
-                  className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Previous to review
-                </button>
                 <button
                   type="button"
                   onClick={() => navigateToIndex(Math.max(activeIndex - 1, 0))}
@@ -1373,7 +1326,6 @@ export function ReviewQueue({
                   {totalSuggestions - pendingSuggestions === 1 ? "" : "s"} already made
                 </p>
               </div>
-
               <div className="mt-3">
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-4">
                   <div
@@ -1430,16 +1382,17 @@ export function ReviewQueue({
                       <div className="flex items-start justify-between gap-3">
                       <div>
                           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
-                            Swipe Spotlight
+                            Swipe spotlight
                           </p>
 	                          <h3 className="text-small font-semibold text-primary">{activeEntry.title}</h3>
-	                          <p className="text-[11px] text-muted">
-	                            {totalReviewItemsAcrossVisible} left in this queue · {activeEntryReviewCount} on this entry
+	                          <p className="text-[11px] text-secondary">
+	                            Entry {activeIndex + 1} of {visibleEntries.length} · {activeEntryReviewCount}{" "}
+                              decision{activeEntryReviewCount === 1 ? "" : "s"} on this entry ·{" "}
+                              {totalReviewItemsAcrossVisible} left in queue
 	                          </p>
-	                          <p className="mt-1 text-[11px] text-secondary">
-	                            <span className="font-medium text-primary">Review:</span>{" "}
-	                            {activeEntryReviewReason}
-	                          </p>
+	                          {activeEntryReviewReason ? (
+	                            <p className="mt-1 text-[11px] text-muted">{activeEntryReviewReason}</p>
+	                          ) : null}
 	                        </div>
                         {onRequestExitSwipeMode && (
                           <button
@@ -1533,7 +1486,7 @@ export function ReviewQueue({
                                   </p>
                                 </div>
                                 <p className="mt-1 text-[11px] text-secondary">
-                                  Confirming this would make it {activeSuggestionProjectedCount} of {activeEntryTarget}.
+                                  Accepting this would make it {activeSuggestionProjectedCount} of {activeEntryTarget}.
                                 </p>
                                 {activeEntryLinkedTitles.length > 0 ? (
                                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1564,17 +1517,17 @@ export function ReviewQueue({
                                   </p>
                                   <p className="text-[11px] text-secondary">
                                     {effectiveOverCapBy > 0
-                                      ? `${effectiveOverCapBy} over cap`
+                                      ? `${effectiveOverCapBy} over limit`
                                       : "Within target"}
                                   </p>
                                 </div>
                                 <p className="mt-1 text-[11px] text-secondary">
                                   {activeReviewItem.kind === "remove"
                                     ? `Acting on this would make it ${projectedAuditLinkedCount} of ${activeEntryTarget}${
-                                        projectedAuditOverCapBy > 0 ? `, still ${projectedAuditOverCapBy} over cap` : ""
+                                        projectedAuditOverCapBy > 0 ? `, still ${projectedAuditOverCapBy} over limit` : ""
                                       }.`
                                     : `Replacing this would keep it at ${projectedAuditLinkedCount} of ${activeEntryTarget}${
-                                        projectedAuditOverCapBy > 0 ? `, still ${projectedAuditOverCapBy} over cap` : ""
+                                        projectedAuditOverCapBy > 0 ? `, still ${projectedAuditOverCapBy} over limit` : ""
                                       }.`}
                                 </p>
                                 {effectiveCurrentLinkedTitles.length > 0 ? (
