@@ -7,7 +7,10 @@ import {
   findGradeFacetInCatalog,
   resolveSmartScanFilterUrl,
 } from "../../../portfolioiq-extension/readiness/search-filter-catalog.js";
-import { buildSmartScanPlan } from "../../../portfolioiq-extension/readiness/smart-search-scrape.js";
+import {
+  buildSmartScanPlan,
+  resolveCoursesFilterUrl,
+} from "../../../portfolioiq-extension/readiness/smart-search-scrape.js";
 
 const USER_CATALOG = {
   filters: [
@@ -30,6 +33,10 @@ const USER_CATALOG = {
     {
       label: "Other evidence ",
       url: "https://training.rcog.org.uk/search?f%5B0%5D=log_entry%3Alogentry_other_evidence",
+    },
+    {
+      label: "Courses ",
+      url: "https://training.rcog.org.uk/search?f%5B0%5D=field_logentry_evidence_type%3A1044",
     },
     {
       label: "Self Observation Form (Self TO1) ",
@@ -76,8 +83,8 @@ describe("smart scan plan", () => {
     const byId = Object.fromEntries(plan.filters.map((filter) => [filter.id, filter]));
 
     assert.equal(byId.cip_assessments.stackGrade, true);
+    assert.equal(byId.courses.stackGrade, true);
     assert.equal(byId.osats_summative.stackGrade, false);
-    assert.equal(byId.other_evidence.stackGrade, false);
     assert.equal(byId.to2.stackGrade, true);
 
     const cipUrl = new URL(byId.cip_assessments.url);
@@ -91,6 +98,11 @@ describe("smart scan plan", () => {
     const to2Url = new URL(byId.to2.url);
     assert.equal(to2Url.searchParams.get("f[0]"), "aggregated_field_grade:71");
     assert.equal(to2Url.searchParams.get("f[1]"), "assessment_type:assesstype_to2");
+
+    const coursesUrl = new URL(byId.courses.url);
+    assert.equal(coursesUrl.searchParams.get("f[0]"), "aggregated_field_grade:71");
+    assert.equal(coursesUrl.searchParams.get("f[1]"), "log_entry:logentry_other_evidence");
+    assert.equal(coursesUrl.searchParams.get("f[2]"), "field_logentry_evidence_type:1044");
   });
 
   it("resolves smart scan filter URLs from catalog labels", () => {

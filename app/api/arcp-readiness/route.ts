@@ -18,7 +18,12 @@ import {
   TO2_TARGET_PER_TRAINING_YEAR,
 } from "@/lib/requirements/team-observation-evidence";
 import { parseProfilePosts } from "@/lib/progress/year-portfolio";
-import { TOTAL_CIP_COUNT } from "@/lib/kaizen/cip-assessment";
+import {
+  annotateCourseCatalog,
+  assignCourseEntries,
+  collectCourseEvidenceEntries,
+  isCourseRequirementMet,
+} from "../../../portfolioiq-extension/readiness/course-evidence.js";
 import {
   buildClinicalEntrustmentExpectations,
   evaluateClinicalEntrustment,
@@ -319,52 +324,42 @@ export async function GET(request: Request) {
 
   const { data: courseEntries } = await supabase
     .from("kaizen_entries")
-    .select("title, extracted_fields")
+    .select("title, extracted_fields, assessment_type, category, detected_entry_type")
     .eq("user_id", userId)
     .eq("detected_entry_type", "other_evidence");
 
+  const courseEvidenceEntries = collectCourseEvidenceEntries({
+    entries: [],
+    all_entries: (courseEntries ?? []).map((e) => ({
+      title: e.title,
+      name: e.title,
+      assessment_type: e.assessment_type,
+      category: e.category,
+      detected_entry_type: e.detected_entry_type,
+      extracted_fields: e.extracted_fields,
+    })),
+  });
+
   const entryTitlesLower = new Set<string>();
   const evidenceTypesLower = new Set<string>();
-  for (const e of courseEntries ?? []) {
-    entryTitlesLower.add(String(e.title ?? "").toLowerCase().trim());
-    const ef = e.extracted_fields as Record<string, unknown> | null;
+  for (const e of courseEvidenceEntries) {
+    entryTitlesLower.add(String(e.title ?? e.name ?? "").toLowerCase().trim());
+    const ef = (e.extracted_fields || e.extractedFields) as Record<string, unknown> | null;
     const evType = String(ef?.["evidence type"] ?? "").toLowerCase().trim();
     if (evType) evidenceTypesLower.add(evType);
   }
 
-  const COURSE_KEYWORDS: Record<string, string[]> = {
-    "ctg":             ["ctg"],
-    "robust":          ["robust"],
-    "prompt":          ["prompt", "also"],
-    "basic practical": ["basic practical", "basic skills"],
-    "basic ultrasound":["basic ultrasound"],
-    "3rd degree":      ["3rd degree", "third degree"],
-    "resilience":      ["resilience", "step-up", "stepup"],
-    "sitm":            ["sitm"],
-    "leadership":      ["leadership"],
-  };
+  const annotatedCourses = annotateCourseCatalog(coursesCatalog ?? []);
+  const courseAssignments = assignCourseEntries(annotatedCourses, courseEvidenceEntries, {
+    currentStage,
+  });
 
-  function courseMatched(name: string): boolean {
-    const n = name.toLowerCase().trim();
-    if (entryTitlesLower.has(n)) return true;
-    if (evidenceTypesLower.has(n)) return true;
-    for (const evType of evidenceTypesLower) {
-      if (n.includes(evType) || evType.includes(n.split("(")[0].trim())) return true;
-    }
-    for (const [fragment, keywords] of Object.entries(COURSE_KEYWORDS)) {
-      if (!n.includes(fragment)) continue;
-      for (const kw of keywords) {
-        for (const title of entryTitlesLower) { if (title.includes(kw)) return true; }
-        for (const evType of evidenceTypesLower) { if (evType.includes(kw)) return true; }
-      }
-    }
-    return false;
-  }
-
-  const relevantCourses = (coursesCatalog ?? []).filter(
+  const relevantCourses = annotatedCourses.filter(
     (c: { required_by_stage: string }) => !relevantStages || relevantStages.has(c.required_by_stage)
   );
-  const coursesComplete = relevantCourses.filter((c: { name: string }) => courseMatched(c.name)).length;
+  const coursesComplete = relevantCourses.filter((c: { name: string; required_by_stage: string }) =>
+    isCourseRequirementMet(c, courseAssignments),
+  ).length;
   const coursesTotal = relevantCourses.length;
   const coursesPct = coursesTotal > 0 ? Math.round((coursesComplete / coursesTotal) * 100) : 100;
 
