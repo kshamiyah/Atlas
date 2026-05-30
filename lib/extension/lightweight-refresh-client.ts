@@ -1,11 +1,20 @@
+export type SyncMode = "light" | "full";
+
 export type LightweightRefreshPayload = {
   phase?: string;
   detail?: string;
+  sync_mode?: SyncMode;
   scannedCount?: number;
+  count?: number;
+  index?: number;
+  total?: number;
   newEntriesSynced?: number;
   newCipAssessmentsSynced?: number;
   refreshedCount?: number;
   failedCount?: number;
+  cipSuccessCount?: number;
+  cipFailureCount?: number;
+  cipTotal?: number;
 };
 
 export const LIGHTWEIGHT_REFRESH_MESSAGE = "PORTFOLIOIQ_LIGHTWEIGHT_REFRESH";
@@ -19,14 +28,25 @@ export const EXTENSION_AUTO_START_DELAY_MS = 500;
 export const EXTENSION_UNAVAILABLE_MESSAGE =
   "Atlas extension not detected. Open this page in Chrome with the extension enabled, then click Refresh now.";
 
-export function postLightweightRefresh(force: boolean) {
+export function postPortfolioSync(options?: { force?: boolean; syncMode?: SyncMode }) {
   window.postMessage(
     {
       type: LIGHTWEIGHT_REFRESH_MESSAGE,
-      payload: { force },
+      payload: {
+        force: Boolean(options?.force),
+        sync_mode: options?.syncMode ?? "light",
+      },
     },
     "*",
   );
+}
+
+export function postLightweightRefresh(force: boolean) {
+  postPortfolioSync({ force, syncMode: "light" });
+}
+
+export function postFullPortfolioSync() {
+  postPortfolioSync({ force: true, syncMode: "full" });
 }
 
 export function isLightweightRefreshAck(

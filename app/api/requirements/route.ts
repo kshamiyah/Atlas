@@ -12,6 +12,11 @@ import {
   groupOsatsEntriesByProcedure,
   KAIZEN_CONSULTANT_ROLE_ID,
 } from "@/lib/requirements/osats-evidence";
+import {
+  buildTeamObservationSummary,
+  TO2_TARGET_PER_TRAINING_YEAR,
+} from "@/lib/requirements/team-observation-evidence";
+import { parseProfilePosts } from "@/lib/progress/year-portfolio";
 
 // Assessor role ID that counts as a consultant sign-off
 const CONSULTANT_ROLE_ID = KAIZEN_CONSULTANT_ROLE_ID;
@@ -28,6 +33,17 @@ function emptyRequirementsResponse() {
     procedures: [],
     courses: [],
     exams: [],
+    team_observations: {
+      target: TO2_TARGET_PER_TRAINING_YEAR,
+      complete: 0,
+      total: TO2_TARGET_PER_TRAINING_YEAR,
+      pct: 0,
+      complete_requirement: false,
+      training_year: null,
+      items: [],
+      listed_to1: 0,
+      listed_to2: 0,
+    },
     summary: {
       procedures_complete: 0,
       procedures_total: 0,
@@ -35,6 +51,8 @@ function emptyRequirementsResponse() {
       courses_total: 0,
       exams_complete: 0,
       exams_total: 0,
+      team_observations_complete: 0,
+      team_observations_total: TO2_TARGET_PER_TRAINING_YEAR,
     },
     profile_stage: null,
     profile_working_pattern: null,
@@ -74,7 +92,7 @@ export async function GET(request: Request) {
   // Resolve user's current training stage for scoped progress views
   const { data: profile } = await supabase
     .from("profiles")
-    .select("current_stage_id, current_grade, working_percent, arcp_date")
+    .select("current_stage_id, current_grade, working_percent, arcp_date, post_history")
     .eq("id", userId)
     .maybeSingle();
 
@@ -284,6 +302,22 @@ export async function GET(request: Request) {
     complete: completedExamTypes.has(evType),
   }));
 
+  // ── 4. Team observations (TO2) ─────────────────────────────────────────────
+  const { data: observationEntries } = await supabase
+    .from("kaizen_entries")
+    .select("id, title, assessment_type, training_year, status, kaizen_date")
+    .eq("user_id", userId)
+    .or(
+      "title.ilike.%team observation%,title.ilike.%to1%,title.ilike.%to2%,assessment_type.ilike.%team observation%,assessment_type.ilike.%to1%,assessment_type.ilike.%to2%",
+    );
+
+  const profilePosts = parseProfilePosts(profile?.post_history);
+  const teamObservations = buildTeamObservationSummary(observationEntries ?? [], {
+    trainingYear: profileStage?.name ?? normalizedStageFromGrade,
+    posts: profilePosts,
+    target: TO2_TARGET_PER_TRAINING_YEAR,
+  });
+
   // ── Summary counts ────────────────────────────────────────────────────────────
   const summary = {
     procedures_complete: procedures.filter((p) => p.complete).length,
@@ -292,12 +326,15 @@ export async function GET(request: Request) {
     courses_total: courses.length,
     exams_complete: exams.filter((e) => e.complete).length,
     exams_total: exams.length,
+    team_observations_complete: teamObservations.complete,
+    team_observations_total: teamObservations.target,
   };
 
   return NextResponse.json({
     procedures,
     courses,
     exams,
+    team_observations: teamObservations,
     summary,
     profile_stage: profileStage,
     profile_working_pattern: {

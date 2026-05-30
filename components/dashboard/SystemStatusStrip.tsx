@@ -8,6 +8,7 @@ import {
   type LightweightRefreshPayload,
 } from "@/lib/extension/lightweight-refresh-client";
 import { useLightweightRefreshBridge } from "@/lib/extension/use-lightweight-refresh-bridge";
+import { SyncModesInfoTip } from "@/components/dashboard/SyncModesInfoTip";
 
 type ViewState =
   | { kind: "idle" }
@@ -59,9 +60,14 @@ function summarizeDone(payload: LightweightRefreshPayload): string {
   if ((payload.refreshedCount ?? 0) > 0) {
     parts.push(`${payload.refreshedCount} older entr${payload.refreshedCount === 1 ? "y" : "ies"} refreshed`);
   }
+  if ((payload.cipSuccessCount ?? 0) > 0) {
+    parts.push(`${payload.cipSuccessCount} CiP page${payload.cipSuccessCount === 1 ? "" : "s"} updated`);
+  }
 
   if (parts.length === 0) {
-    return "Checked. No new entries found.";
+    return payload.sync_mode === "full"
+      ? "Full sync complete. No new entries found."
+      : "Checked. No new entries found.";
   }
 
   return `Updated ${parts.join(", ")}.`;
@@ -69,14 +75,29 @@ function summarizeDone(payload: LightweightRefreshPayload): string {
 
 function phaseMessage(payload: LightweightRefreshPayload): string {
   switch (payload.phase) {
+    case "first_sync":
+      return "First sync — importing your full portfolio…";
+    case "full_sync":
+      return payload.detail || "Full sync — re-scanning your entire portfolio…";
+    case "smart_search":
+      return "Checking OSATs, team observations, and other requirements…";
+    case "smart_search_page":
+      return `Targeted search (${payload.count ?? 0} rows)…`;
+    case "entries":
+    case "entries-page":
+      return `Scanning portfolio entries (${payload.count ?? 0})…`;
+    case "cip-start":
+      return `Syncing CiP ${payload.index ?? 0}/${payload.total ?? 0}…`;
     case "scan_entries":
-      return `${payload.scannedCount ?? 0} entries scanned`;
+      return `${payload.scannedCount ?? 0} recent entries scanned`;
     case "done":
       return summarizeDone(payload);
     case "error":
       return payload.detail || "Refresh failed.";
     default:
-      return "Refreshing ePortfolio changes.";
+      return payload.sync_mode === "full"
+        ? "Running full portfolio sync…"
+        : "Refreshing ePortfolio changes.";
   }
 }
 
@@ -151,10 +172,15 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
   const beginRefresh = useCallback(
     (force: boolean) => {
       setState({ kind: "starting", message: "Starting refresh." });
-      startRefresh(force);
+      startRefresh(force, "light");
     },
     [startRefresh],
   );
+
+  const beginFullSync = useCallback(() => {
+    setState({ kind: "starting", message: "Starting full sync." });
+    startRefresh(true, "full");
+  }, [startRefresh]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -223,21 +249,17 @@ export function SystemStatusStrip({ lastSyncByType }: SystemStatusStripProps) {
             disabled={isRunning}
             className="rounded-full border border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-medium text-primary transition hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Refresh now
+            Quick sync
           </button>
-          {state.kind === "done" ? (
-            <button
-              type="button"
-              onClick={() => {
-                window.sessionStorage.removeItem(SESSION_RUN_KEY);
-                window.sessionStorage.removeItem(SESSION_SUMMARY_KEY);
-                beginRefresh(true);
-              }}
-              className="rounded-full border border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-medium text-secondary transition hover:bg-surface-3"
-            >
-              Force refresh
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={beginFullSync}
+            disabled={isRunning}
+            className="rounded-full border border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-medium text-secondary transition hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Full sync
+          </button>
+          <SyncModesInfoTip align="end" />
         </div>
       </div>
     </section>

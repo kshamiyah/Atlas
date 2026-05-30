@@ -5,6 +5,13 @@ import {
 } from "@/lib/supabase/api-client";
 import { resolveOsatsStorageFields } from "@/lib/requirements/osats-evidence";
 import { isUnsignedAssessorEvidence } from "@/lib/kaizen/evidence-eligibility";
+import {
+  inferDetectedEntryType,
+  isCipAssessmentEntry,
+  mergeCipAssessmentUpsertRow,
+  toCipAssessmentUpsertRow,
+  type CipAssessmentRecord,
+} from "@/lib/kaizen/cip-assessment";
 
 export type EntriesSyncBody = {
   entries: Array<{
@@ -150,24 +157,11 @@ function toExtractionStatus(
   return "failed";
 }
 
-function inferDetectedEntryType(
+function inferDetectedEntryTypeFromRow(
   assessmentType: string,
   title: string,
 ): string | null {
-  const haystack = normaliseText(`${assessmentType} ${title}`).toLowerCase();
-
-  if (/mini[-\s]?cex|minicex/.test(haystack)) return "minicex";
-  if (/cbd|case[-\s]?based/.test(haystack)) return "cbd";
-  if (/notss|non[-\s]?technical/.test(haystack)) return "notss";
-  if (/osats.*summative|summative.*osats/.test(haystack))
-    return "osats_summative";
-  if (/osats|formative/.test(haystack)) return "osats_formative";
-  if (/reflect|reflective/.test(haystack)) return "reflection";
-  if (/procedure|logbook/.test(haystack)) return "procedure";
-  if (/team observation|to2|to1/.test(haystack)) return "other_evidence";
-  if (/course|conference|evidence/.test(haystack)) return "other_evidence";
-
-  return null;
+  return inferDetectedEntryType(assessmentType, title);
 }
 
 export async function POST(request: Request) {
@@ -199,6 +193,7 @@ export async function POST(request: Request) {
   let acceptedCount = 0;
   let skippedLowSignalCount = 0;
   let skippedUnsignedAssessorCount = 0;
+  let syncedCipAssessmentsCount = 0;
 
   if (entries.length > 0) {
     const rowsByKey = new Map<string, NormalisedEntryRow>();
@@ -235,7 +230,7 @@ export async function POST(request: Request) {
         source_url: sourceUrl,
         detected_entry_type:
           detectedEntryTypeFromPayload ??
-          inferDetectedEntryType(String(e.assessment_type ?? ""), title),
+          inferDetectedEntryTypeFromRow(String(e.assessment_type ?? ""), title),
         kaizen_date: String(e.kaizen_date ?? ""),
         assessment_type: String(e.assessment_type ?? ""),
         title,
@@ -313,6 +308,7 @@ export async function POST(request: Request) {
         isUnsignedAssessorEvidence({
           detected_entry_type: row.detected_entry_type,
           assessment_type: row.assessment_type,
+          title: row.title,
           status: row.status,
           extracted_fields: row.extracted_fields,
         })
@@ -327,7 +323,102 @@ export async function POST(request: Request) {
     rows = filteredRows;
     skippedLowSignalCount = skippedLowSignalRows.length;
     skippedUnsignedAssessorCount = skippedUnsignedAssessorRows.length;
-    acceptedCount = rows.length;
+
+    const cipAssessmentRows = rows.filter((row) =>
+      isCipAssessmentEntry({
+        assessment_type: row.assessment_type,
+        title: row.title,
+        detected_entry_type: row.detected_entry_type,
+      }),
+    );
+    const portfolioEntryRows = rows.filter(
+      (row) =>
+        !isCipAssessmentEntry({
+          assessment_type: row.assessment_type,
+          title: row.title,
+          detected_entry_type: row.detected_entry_type,
+        }),
+    );
+
+    if (cipAssessmentRows.length > 0) {
+      const cipRows = cipAssessmentRows
+        .map((row) =>
+          toCipAssessmentUpsertRow(user.id, row.source_entry_id, {
+            title: row.title,
+            kaizen_date: row.kaizen_date,
+            status: row.status,
+            linked_cip_number: row.linked_cip_number,
+            extracted_fields: row.extracted_fields,
+          }),
+        )
+        .filter((row) => row.cip_number != null || row.kaizen_entry_id);
+
+      if (cipRows.length > 0) {
+        const kaizenEntryIds = cipRows
+          .map((row) => row.kaizen_entry_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+        const existingByKaizenId = new Map<string, CipAssessmentRecord>();
+        if (kaizenEntryIds.length > 0) {
+          const { data: existingRows, error: existingError } = await supabase
+            .from("cip_assessments")
+            .select(
+              "id, kaizen_entry_id, cip_number, cip_kaizen_id, cip_name, date, trainee_entrustment, trainee_level, trainee_comments, es_agrees, es_entrustment, es_meets_expectations, es_level, es_comments, status, updated_at",
+            )
+            .eq("user_id", user.id)
+            .in("kaizen_entry_id", kaizenEntryIds);
+
+          if (existingError) {
+            return NextResponse.json(
+              { error: "Failed to load existing CiP assessments: " + existingError.message },
+              { status: 500 },
+            );
+          }
+
+          for (const row of (existingRows ?? []) as CipAssessmentRecord[]) {
+            if (row.kaizen_entry_id) existingByKaizenId.set(row.kaizen_entry_id, row);
+          }
+        }
+
+        const mergedCipRows = cipRows.map((row) =>
+          mergeCipAssessmentUpsertRow(
+            row.kaizen_entry_id ? existingByKaizenId.get(row.kaizen_entry_id) : null,
+            row,
+          ),
+        );
+
+        const { error: cipUpsertError } = await supabase
+          .from("cip_assessments")
+          .upsert(mergedCipRows, {
+            onConflict: "user_id,kaizen_entry_id",
+            ignoreDuplicates: false,
+          });
+
+        if (cipUpsertError) {
+          return NextResponse.json(
+            { error: "Failed to upsert CiP assessments: " + cipUpsertError.message },
+            { status: 500 },
+          );
+        }
+      }
+
+      syncedCipAssessmentsCount = cipRows.length;
+
+      const cipSourceEntryIds = cipAssessmentRows
+        .map((row) => row.source_entry_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+      if (cipSourceEntryIds.length > 0) {
+        await supabase
+          .from("kaizen_entries")
+          .delete()
+          .eq("user_id", user.id)
+          .in("source_entry_id", cipSourceEntryIds);
+      }
+    }
+
+    acceptedCount = portfolioEntryRows.length;
+    rows = portfolioEntryRows;
 
     if (skippedLowSignalRows.length > 0) {
       console.warn(
@@ -412,6 +503,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     synced: acceptedCount,
+    synced_cip_assessments: syncedCipAssessmentsCount,
     received: entries.length,
     skipped_low_signal: skippedLowSignalCount,
     skipped_unsigned_assessor: skippedUnsignedAssessorCount,

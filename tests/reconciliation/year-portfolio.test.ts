@@ -93,6 +93,8 @@ test("scopeRequirementsByYear and summary helpers", () => {
       courses_total: 1,
       exams_complete: 0,
       exams_total: 0,
+      team_observations_complete: 0,
+      team_observations_total: 2,
     },
   );
 });

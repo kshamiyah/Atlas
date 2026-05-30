@@ -47,6 +47,8 @@ export type ProgressSummaryResponse = {
   kpis: {
     cips_checkpoint: ProgressKpiBlock;
     cips: ProgressKpiBlock;
+    cip_assessments: ProgressKpiBlock;
+    cip_assessments_on_track: ProgressKpiBlock;
     key_skills: ProgressKpiBlock;
     descriptors: ProgressKpiBlock;
   };
@@ -74,6 +76,30 @@ export type ProgressCipGapDescriptor = {
   text: string;
 };
 
+export type ProgressCipAssessmentStatus =
+  | "missing"
+  | "below_expectations"
+  | "below_entrustment"
+  | "pending_entrustment"
+  | "on_track";
+
+export type ProgressCipAssessmentSummary = {
+  status: ProgressCipAssessmentStatus;
+  status_reason: string;
+  is_complete: boolean;
+  is_clinical: boolean;
+  expected_entrustment: number | null;
+  expected_entrustment_label: string | null;
+  es_entrustment: number | null;
+  es_entrustment_label: string | null;
+  es_meets_expectations: boolean | null;
+  es_meets_expectations_label: string | null;
+  trainee_entrustment: number | null;
+  trainee_entrustment_label: string | null;
+  assessment_date: string | null;
+  record_status: string | null;
+};
+
 export type ProgressCipRow = {
   cip_number: number;
   cip_title: string;
@@ -81,6 +107,9 @@ export type ProgressCipRow = {
   checkpoint_type: ProgressCheckpointType;
   expected_key_skills_by_now: number | null;
   status_reason: string;
+  evidence_status: ProgressRagStatus;
+  evidence_status_reason: string;
+  assessment: ProgressCipAssessmentSummary;
   entries_count: number;
   last_entry_date: string | null;
   key_skills: ProgressKpiBlock;

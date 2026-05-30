@@ -9,6 +9,7 @@ import {
   scopeRequirementsByYear,
   type RequirementsSummary,
 } from "@/lib/progress/year-portfolio";
+import { scopeTeamObservationSummaryForYear } from "@/lib/requirements/team-observation-evidence";
 import {
   curriculumBandLabelForScope,
   curriculumBandLabelForYear,
@@ -50,6 +51,11 @@ type RequirementScopeData = {
   procedures: Array<{ required_by_stage: string; complete: boolean; name: string }>;
   courses: Array<{ required_by_stage: string; complete: boolean; name: string }>;
   exams: Array<{ required_by_stage: string; complete: boolean; name: string }>;
+  team_observations?: {
+    complete: number;
+    target: number;
+    items: Array<{ training_year: string | null; complete: boolean }>;
+  };
 };
 
 function formatPct(value: number): string {
@@ -248,7 +254,12 @@ export function ProgressSnapshotView({
         const procedures = scopeRequirementsByYear(requirementsData.procedures, selectedYear);
         const courses = scopeRequirementsByYear(requirementsData.courses, selectedYear);
         const exams = scopeRequirementsByYear(requirementsData.exams, selectedYear);
-        setRequirements(buildRequirementsSummary(procedures, courses, exams));
+        const teamObservations = requirementsData.team_observations
+          ? scopeTeamObservationSummaryForYear(requirementsData.team_observations, selectedYear)
+          : null;
+        setRequirements(
+          buildRequirementsSummary(procedures, courses, exams, teamObservations),
+        );
       } else {
         setRequirements(null);
       }
@@ -417,11 +428,29 @@ export function ProgressSnapshotView({
         />
       </section>
 
-      {waypointReadyLabel ? (
-        <p className="text-[11px] text-secondary">
-          Waypoint-ready CiPs in this band:{" "}
-          <span className="font-medium text-primary">{waypointReadyLabel}</span>
-        </p>
+      {waypointReadyLabel || progressData ? (
+        <div className="space-y-1 text-[11px] text-secondary">
+          {waypointReadyLabel ? (
+            <p>
+              Waypoint-ready CiPs in this band:{" "}
+              <span className="font-medium text-primary">{waypointReadyLabel}</span>
+            </p>
+          ) : null}
+          {progressData ? (
+            <p>
+              CiP assessments:{" "}
+              <span className="font-medium text-primary">
+                {progressData.kpis.cip_assessments.covered}/
+                {progressData.kpis.cip_assessments.total} complete
+              </span>
+              {" · "}
+              <span className="font-medium text-primary">
+                {progressData.kpis.cip_assessments_on_track.covered} on track
+              </span>{" "}
+              for {progressData.checkpoint.current_stage ?? "this stage"}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <section className="grid gap-3 lg:grid-cols-2">
@@ -492,14 +521,14 @@ export function ProgressSnapshotView({
                 Formal requirements ({yearLabel})
               </h3>
               <p className="mt-1 text-[11px] text-secondary">
-                OSATS, courses, and exams due by {yearLabel}.
+                OSATS, courses, exams, and team observations due by {yearLabel}.
               </p>
             </div>
             <Link href="/dashboard/requirements" className="btn-secondary text-xs">
               Open requirements
             </Link>
           </div>
-          <div className="mt-4 grid gap-2 md:grid-cols-3">
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             <RequirementPillar
               label="OSATS"
               summary={{
@@ -519,6 +548,13 @@ export function ProgressSnapshotView({
               summary={{
                 complete: requirements.exams_complete,
                 total: requirements.exams_total,
+              }}
+            />
+            <RequirementPillar
+              label="Team observations"
+              summary={{
+                complete: requirements.team_observations_complete,
+                total: requirements.team_observations_total,
               }}
             />
           </div>

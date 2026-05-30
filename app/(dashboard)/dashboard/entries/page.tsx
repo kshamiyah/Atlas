@@ -3,6 +3,11 @@ import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { EntriesListClient } from "@/components/dashboard/EntriesListClient";
 import { parseProfilePosts } from "@/lib/progress/year-portfolio";
 import { normalizeStageName } from "@/lib/profile/stage";
+import {
+  cipAssessmentToBrowsableEntry,
+  type BrowsableEntryRow,
+  type CipAssessmentRecord,
+} from "@/lib/kaizen/cip-assessment";
 
 export default async function EntriesPage({
   searchParams,
@@ -27,20 +32,57 @@ export default async function EntriesPage({
     .order("synced_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(500);
+  const cipAssessmentsQuery = supabase
+    .from("cip_assessments")
+    .select(
+      "id, kaizen_entry_id, cip_number, cip_kaizen_id, cip_name, date, trainee_entrustment, trainee_level, trainee_comments, es_agrees, es_entrustment, es_meets_expectations, es_level, es_comments, status, updated_at",
+    )
+    .order("updated_at", { ascending: false })
+    .limit(100);
   const countQuery = supabase
     .from("kaizen_entries")
     .select("id", { count: "exact", head: true });
+  const cipCountQuery = supabase
+    .from("cip_assessments")
+    .select("id", { count: "exact", head: true });
+
+  const cipsQuery = supabase.from("cips").select("number, title").order("number");
 
   if (userId) {
     entriesQuery.eq("user_id", userId);
+    cipAssessmentsQuery.eq("user_id", userId);
     countQuery.eq("user_id", userId);
+    cipCountQuery.eq("user_id", userId);
   }
 
-  const [{ data: entries }, { count: totalSyncedCount }, { data: profile }] = await Promise.all([
+  const [
+    { data: portfolioEntries },
+    { data: cipAssessments },
+    { count: portfolioSyncedCount },
+    { count: cipSyncedCount },
+    { data: profile },
+    { data: cips },
+  ] = await Promise.all([
     entriesQuery,
+    cipAssessmentsQuery,
     countQuery,
+    cipCountQuery,
     profileQuery,
+    cipsQuery,
   ]);
+
+  const cipCatalog = new Map((cips ?? []).map((cip) => [cip.number as number, cip.title as string]));
+  const browsablePortfolioEntries = (portfolioEntries ?? []) as BrowsableEntryRow[];
+  const browsableCipEntries = ((cipAssessments ?? []) as CipAssessmentRecord[]).map((record) =>
+    cipAssessmentToBrowsableEntry(record, "https://training.rcog.org.uk", cipCatalog),
+  );
+  const entries = [...browsablePortfolioEntries, ...browsableCipEntries].sort((a, b) => {
+    const aSync = a.synced_at ? new Date(a.synced_at).getTime() : 0;
+    const bSync = b.synced_at ? new Date(b.synced_at).getTime() : 0;
+    if (bSync !== aSync) return bSync - aSync;
+    return String(b.kaizen_date ?? "").localeCompare(String(a.kaizen_date ?? ""));
+  });
+  const totalSyncedCount = (portfolioSyncedCount ?? 0) + (cipSyncedCount ?? 0);
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialDayFilter = resolvedSearchParams?.day?.trim() ?? "";
   const initialQuery = resolvedSearchParams?.q?.trim() ?? "";
@@ -59,7 +101,7 @@ export default async function EntriesPage({
               My Entries
             </h1>
             <p className="mt-1 text-sm leading-6 text-secondary">
-              Your synced evidence history from ePortfolio.
+              Your synced evidence history from ePortfolio, including CiP assessments.
             </p>
           </div>
           <a href="/dashboard" className="btn-secondary w-fit px-4 py-2 text-small">
@@ -68,8 +110,8 @@ export default async function EntriesPage({
         </header>
 
         <EntriesListClient
-          entries={entries ?? []}
-          totalSyncedCount={totalSyncedCount ?? 0}
+          entries={entries}
+          totalSyncedCount={totalSyncedCount}
           postHistory={postHistory}
           initialDayFilter={initialDayFilter}
           initialQuery={initialQuery}

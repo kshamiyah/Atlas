@@ -3,46 +3,7 @@ import {
   createSupabaseClientWithToken,
   getUserFromBearerToken,
 } from "@/lib/supabase/api-client";
-import {
-  extractAssessmentRequestSignal,
-  requiresAssessorSignoff,
-} from "@/lib/kaizen/evidence-eligibility";
-
-function normalizeText(value: unknown): string {
-  return String(value ?? "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isClearlyComplete(status: string, requestSignal: string): boolean {
-  const combined = `${normalizeText(status)} ${normalizeText(requestSignal)}`
-    .trim()
-    .toLowerCase();
-
-  return (
-    combined.includes("completed") ||
-    combined.includes("complete") ||
-    combined.includes("signed")
-  );
-}
-
-function shouldRefreshAssessorEntry(status: string, requestSignal: string): boolean {
-  if (isClearlyComplete(status, requestSignal)) return false;
-
-  const combined = `${normalizeText(status)} ${normalizeText(requestSignal)}`
-    .trim()
-    .toLowerCase();
-
-  return (
-    combined.includes("expired") ||
-    combined.includes("pending") ||
-    combined.includes("awaiting") ||
-    combined.includes("requested") ||
-    combined.includes("ready for assessment") ||
-    combined.length === 0
-  );
-}
+import { needsLightweightStatusRefresh } from "@/lib/kaizen/evidence-eligibility";
 
 export async function GET(req: NextRequest) {
   const auth = await getUserFromBearerToken(req.headers.get("Authorization"));
@@ -73,30 +34,38 @@ export async function GET(req: NextRequest) {
 
   const refresh_entries = rows
     .filter((row) =>
-      requiresAssessorSignoff(row.detected_entry_type, row.assessment_type),
+      needsLightweightStatusRefresh({
+        detected_entry_type: row.detected_entry_type,
+        assessment_type: row.assessment_type,
+        title: row.title,
+        status: row.status,
+        extracted_fields: row.extracted_fields as Record<string, unknown> | null | undefined,
+      }),
     )
-    .map((row) => {
-      const requestSignal = extractAssessmentRequestSignal(
-        row.extracted_fields as Record<string, unknown> | null | undefined,
-      );
-
-      return {
-        source_entry_id: String(row.source_entry_id ?? "").trim() || null,
-        source_url: String(row.source_url ?? "").trim() || null,
-        title: String(row.title ?? "").trim(),
-        assessment_type: String(row.assessment_type ?? "").trim(),
-        status: String(row.status ?? "").trim(),
-        synced_at: String(row.synced_at ?? "").trim() || null,
-        request_signal: requestSignal,
-        should_refresh: shouldRefreshAssessorEntry(
-          String(row.status ?? ""),
-          requestSignal,
-        ),
-      };
+    .map((row) => ({
+      source_entry_id: String(row.source_entry_id ?? "").trim() || null,
+      source_url: String(row.source_url ?? "").trim() || null,
+      title: String(row.title ?? "").trim(),
+      assessment_type: String(row.assessment_type ?? "").trim(),
+      status: String(row.status ?? "").trim(),
+      synced_at: String(row.synced_at ?? "").trim() || null,
+    }))
+    .filter((row) => row.source_url)
+    .sort((a, b) => {
+      const aTeam = /team\s+observation|\bto2\b|to2 for to1/i.test(
+        `${a.title} ${a.assessment_type}`,
+      )
+        ? 1
+        : 0;
+      const bTeam = /team\s+observation|\bto2\b|to2 for to1/i.test(
+        `${b.title} ${b.assessment_type}`,
+      )
+        ? 1
+        : 0;
+      if (aTeam !== bTeam) return bTeam - aTeam;
+      return 0;
     })
-    .filter((row) => row.should_refresh && row.source_url)
-    .slice(0, 20)
-    .map(({ should_refresh: _ignored, ...row }) => row);
+    .slice(0, 20);
 
   return NextResponse.json({
     known_ids,

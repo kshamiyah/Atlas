@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeySkillRow } from "@/components/gap-report/KeySkillRow";
+import {
+  ProgressCipAssessmentBadge,
+  ProgressCipAssessmentFields,
+} from "@/components/progress/ProgressCipAssessmentBadge";
 import { buildWriteEntryHref } from "@/lib/generate/query-params";
 import {
   curriculumBandLabelForScope,
@@ -13,7 +17,14 @@ import {
   type StageName,
   type StageScope,
 } from "@/lib/profile/stage";
+import { scopeTeamObservationSummaryForYear } from "@/lib/requirements/team-observation-evidence";
 import type { GapReport, GapReportCip } from "@/lib/types/gap-report";
+import type {
+  ProgressCipAssessmentStatus,
+  ProgressCipAssessmentSummary,
+  ProgressCipsResponse,
+} from "@/lib/types/progress";
+import { curriculumBandScopeForYear } from "@/lib/progress/scope-dimensions";
 
 type RequirementOsatsEntry = {
   id: string;
@@ -53,6 +64,17 @@ type RequirementScopeData = {
   procedures: RequirementProcedure[];
   courses: RequirementCourse[];
   exams: RequirementExam[];
+  team_observations?: {
+    complete: number;
+    target: number;
+    items: Array<{
+      id: string;
+      title: string;
+      training_year: string | null;
+      status: string;
+      complete: boolean;
+    }>;
+  };
   profile_stage?: { name: string } | null;
 };
 
@@ -63,6 +85,8 @@ type RequirementsSummary = {
   courses_total: number;
   exams_complete: number;
   exams_total: number;
+  team_observations_complete: number;
+  team_observations_total: number;
 };
 
 type MobileView = "list" | "detail";
@@ -105,13 +129,25 @@ type PriorityRow =
       title: string;
       subtitle: string;
       exam: RequirementExam;
+    }
+  | {
+      id: string;
+      kind: "cip_assessment";
+      tone: PriorityTone;
+      badge: string;
+      title: string;
+      subtitle: string;
+      cipNumber: number;
+      cipTitle: string;
+      assessment: ProgressCipAssessmentSummary;
     };
 
 type PriorityKindFilter = "all" | PriorityRow["kind"];
 
 const PRIORITY_KIND_FILTERS: Array<{ id: PriorityKindFilter; label: string }> = [
   { id: "all", label: "All" },
-  { id: "cip", label: "CiPs" },
+  { id: "cip", label: "CiP evidence" },
+  { id: "cip_assessment", label: "CiP assessments" },
   { id: "procedure", label: "OSATS" },
   { id: "course", label: "Courses" },
   { id: "exam", label: "Exams" },
@@ -152,6 +188,66 @@ async function fetchGapReport(stageScope: StageScope | null = null): Promise<Gap
     throw new Error(message);
   }
   return body as GapReport;
+}
+
+function buildProgressScopeParams(
+  selectedYear: StageName | null,
+  selectedStageScope: StageScope | null,
+): URLSearchParams {
+  const params = new URLSearchParams();
+  if (selectedYear) params.set("year", selectedYear);
+  const stageScope =
+    selectedStageScope ?? (selectedYear ? curriculumBandScopeForYear(selectedYear) : null);
+  if (stageScope) params.set("stage_scope", stageScope);
+  return params;
+}
+
+async function fetchProgressCips(
+  selectedYear: StageName | null,
+  selectedStageScope: StageScope | null,
+): Promise<ProgressCipsResponse | null> {
+  try {
+    const params = buildProgressScopeParams(selectedYear, selectedStageScope);
+    const url = new URL("/api/progress/cips", window.location.origin);
+    for (const [key, value] of params.entries()) {
+      url.searchParams.set(key, value);
+    }
+    const res = await fetch(url.toString(), { headers: { "Content-Type": "application/json" } });
+    const text = await res.text();
+    const body = text ? JSON.parse(text) : null;
+    if (!res.ok) return null;
+    return body as ProgressCipsResponse;
+  } catch {
+    return null;
+  }
+}
+
+function assessmentPriorityTone(status: ProgressCipAssessmentStatus): PriorityTone | null {
+  switch (status) {
+    case "below_expectations":
+    case "below_entrustment":
+    case "missing":
+      return "high";
+    case "pending_entrustment":
+      return "medium";
+    case "on_track":
+      return null;
+  }
+}
+
+function assessmentBadge(status: ProgressCipAssessmentStatus): string {
+  switch (status) {
+    case "missing":
+      return "Missing";
+    case "below_expectations":
+      return "Below expectations";
+    case "below_entrustment":
+      return "Below entrustment";
+    case "pending_entrustment":
+      return "Entrustment pending";
+    case "on_track":
+      return "Complete";
+  }
 }
 
 function missingSkills(cip: GapReportCip): number {
@@ -250,6 +346,7 @@ function scopeRequirements(
   procedures: RequirementProcedure[];
   courses: RequirementCourse[];
   exams: RequirementExam[];
+  teamObservations: RequirementScopeData["team_observations"] | null;
 } {
   if (!data) {
     return {
@@ -257,6 +354,7 @@ function scopeRequirements(
       procedures: [],
       courses: [],
       exams: [],
+      teamObservations: null,
     };
   }
 
@@ -277,6 +375,9 @@ function scopeRequirements(
   const exams = selectedYear
     ? examsSource.filter((item) => matchesYear(item.required_by_stage))
     : examsSource;
+  const teamObservations = data.team_observations
+    ? scopeTeamObservationSummaryForYear(data.team_observations, selectedYear)
+    : null;
 
   return {
     summary: {
@@ -286,10 +387,13 @@ function scopeRequirements(
       courses_total: courses.length,
       exams_complete: exams.filter((e) => e.complete).length,
       exams_total: exams.length,
+      team_observations_complete: teamObservations?.complete ?? 0,
+      team_observations_total: teamObservations?.target ?? 2,
     },
     procedures,
     courses,
     exams,
+    teamObservations,
   };
 }
 
@@ -301,6 +405,7 @@ export function ProgressPrioritiesView({
   selectedStageScope: StageScope | null;
 }) {
   const [report, setReport] = useState<GapReport | null>(null);
+  const [progressCips, setProgressCips] = useState<ProgressCipsResponse | null>(null);
   const [requirementsData, setRequirementsData] = useState<RequirementScopeData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -316,15 +421,24 @@ export function ProgressPrioritiesView({
     setErrorMessage(null);
     setRequirementsWarning(null);
     try {
-      const [gapData, requirements] = await Promise.all([
+      const [gapData, requirements, cipsData] = await Promise.all([
         fetchGapReport(selectedStageScope),
         fetchRequirements(),
+        fetchProgressCips(selectedYear, selectedStageScope),
       ]);
       setReport(gapData);
       setRequirementsData(requirements);
+      setProgressCips(cipsData);
       if (!requirements) {
         setRequirementsWarning(
           "Formal requirements (OSATS, courses, exams) could not be loaded. CiP priorities are still shown.",
+        );
+      }
+      if (!cipsData) {
+        setRequirementsWarning((prev) =>
+          prev
+            ? `${prev} CiP assessment data could not be loaded.`
+            : "CiP assessment data could not be loaded.",
         );
       }
     } catch (err) {
@@ -332,7 +446,7 @@ export function ProgressPrioritiesView({
     } finally {
       setIsLoading(false);
     }
-  }, [selectedStageScope]);
+  }, [selectedStageScope, selectedYear]);
 
   useEffect(() => {
     void load();
@@ -343,7 +457,7 @@ export function ProgressPrioritiesView({
     setExpandedKeySkillIds(new Set());
     setMobileView("list");
     setKindFilter("all");
-  }, [selectedStageScope]);
+  }, [selectedStageScope, selectedYear]);
 
   const sortedCips = useMemo(() => {
     const cips = report?.cips ?? [];
@@ -375,8 +489,59 @@ export function ProgressPrioritiesView({
     [requirementsData, selectedYear],
   );
 
+  const assessmentCounts = useMemo(() => {
+    const rows = progressCips?.cips ?? [];
+    let missing = 0;
+    let atRisk = 0;
+    let onTrack = 0;
+    for (const row of rows) {
+      if (row.assessment.status === "on_track") onTrack += 1;
+      else if (row.assessment.status === "pending_entrustment") atRisk += 1;
+      else missing += 1;
+    }
+    return {
+      missing,
+      atRisk,
+      onTrack,
+      complete: rows.filter((row) => row.assessment.is_complete).length,
+      total: rows.length || 14,
+    };
+  }, [progressCips]);
+
   const allPriorityRows = useMemo(() => {
     const rows: PriorityRow[] = [];
+
+    for (const cipRow of progressCips?.cips ?? []) {
+      const tone = assessmentPriorityTone(cipRow.assessment.status);
+      if (tone == null) {
+        if (!priorityOnly) {
+          rows.push({
+            id: `cip-assessment-${cipRow.cip_number}`,
+            kind: "cip_assessment",
+            tone: "low",
+            badge: assessmentBadge(cipRow.assessment.status),
+            title: `CiP ${cipRow.cip_number} assessment`,
+            subtitle: cipRow.assessment.status_reason,
+            cipNumber: cipRow.cip_number,
+            cipTitle: cipRow.cip_title,
+            assessment: cipRow.assessment,
+          });
+        }
+        continue;
+      }
+
+      rows.push({
+        id: `cip-assessment-${cipRow.cip_number}`,
+        kind: "cip_assessment",
+        tone,
+        badge: assessmentBadge(cipRow.assessment.status),
+        title: `CiP ${cipRow.cip_number} assessment`,
+        subtitle: cipRow.assessment.status_reason,
+        cipNumber: cipRow.cip_number,
+        cipTitle: cipRow.cip_title,
+        assessment: cipRow.assessment,
+      });
+    }
 
     for (const cip of sortedCips) {
       const missing = missingSkills(cip);
@@ -449,6 +614,25 @@ export function ProgressPrioritiesView({
       });
     }
 
+    const teamObs = scopedRequirements.teamObservations;
+    if (teamObs && teamObs.complete < teamObs.target) {
+      const missing = Math.max(0, teamObs.target - teamObs.complete);
+      rows.push({
+        id: "team-observations-gap",
+        kind: "course",
+        tone: missing >= 2 ? "high" : "medium",
+        badge: "TO2",
+        title: "Team Observation 2",
+        subtitle: `${teamObs.complete}/${teamObs.target} complete for ${selectedYear ?? teamObs.training_year ?? "training year"} · 2 required annually`,
+        course: {
+          id: "team-observations",
+          name: "Team Observation 2",
+          required_by_stage: selectedYear ?? teamObs.training_year ?? "Current year",
+          complete: false,
+        },
+      });
+    }
+
     const filtered = priorityOnly
       ? rows.filter((row) => row.tone === "high" || row.tone === "medium")
       : rows;
@@ -457,14 +641,27 @@ export function ProgressPrioritiesView({
       const toneDelta = toneWeight(a.tone) - toneWeight(b.tone);
       if (toneDelta !== 0) return toneDelta;
       if (a.kind === "cip" && b.kind === "cip") return b.missing - a.missing;
+      if (a.kind === "cip_assessment" && b.kind === "cip_assessment") {
+        return a.cipNumber - b.cipNumber;
+      }
       return a.title.localeCompare(b.title);
     });
-  }, [priorityOnly, scopedRequirements.courses, scopedRequirements.exams, scopedRequirements.procedures, sortedCips]);
+  }, [
+    priorityOnly,
+    progressCips,
+    scopedRequirements.courses,
+    scopedRequirements.exams,
+    scopedRequirements.procedures,
+    scopedRequirements.teamObservations,
+    selectedYear,
+    sortedCips,
+  ]);
 
   const kindCounts = useMemo(() => {
     const counts: Record<PriorityKindFilter, number> = {
       all: allPriorityRows.length,
       cip: 0,
+      cip_assessment: 0,
       procedure: 0,
       course: 0,
       exam: 0,
@@ -515,6 +712,13 @@ export function ProgressPrioritiesView({
             scopedRequirements.summary.exams_complete,
           detail: `${scopedRequirements.summary.exams_complete}/${scopedRequirements.summary.exams_total} complete`,
         },
+        {
+          label: "TO2 outstanding",
+          value:
+            scopedRequirements.summary.team_observations_total -
+            scopedRequirements.summary.team_observations_complete,
+          detail: `${scopedRequirements.summary.team_observations_complete}/${scopedRequirements.summary.team_observations_total} complete`,
+        },
       ]
     : [];
 
@@ -531,8 +735,8 @@ export function ProgressPrioritiesView({
           <div>
             <h2 className="text-small font-semibold text-primary">Priorities</h2>
             <p className="mt-1 max-w-2xl text-xs leading-5 text-secondary">
-              Ranked next actions across CiPs, OSATS, courses, and exams, so you can see what
-              matters most in the current scope.
+              Ranked next actions across CiP evidence, CiP assessments, OSATS, courses, and exams,
+              so you can see what matters most in the current scope.
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
               <span className="rounded-full border border-subtle bg-surface-2 px-2.5 py-1 text-secondary">
@@ -590,7 +794,22 @@ export function ProgressPrioritiesView({
           </div>
         ) : null}
 
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div className="rounded-xl border border-accent-purple/30 bg-accent-purple/10 px-3 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-purple">
+              CiP assessments outstanding
+            </p>
+            <p className="mt-1 text-heading-3 font-semibold text-accent-purple">
+              {assessmentCounts.missing + assessmentCounts.atRisk}
+            </p>
+            <p className="mt-1 text-[11px] text-secondary">
+              {assessmentCounts.complete}/{assessmentCounts.total} complete ·{" "}
+              {assessmentCounts.onTrack} on track
+              {progressCips?.checkpoint.current_stage
+                ? ` for ${progressCips.checkpoint.current_stage}`
+                : ""}
+            </p>
+          </div>
           <div className="rounded-xl border border-accent-red/25 bg-accent-red/10 px-3 py-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-red">
               CiPs needing attention
@@ -634,7 +853,7 @@ export function ProgressPrioritiesView({
                 Recommended next actions
               </h3>
               <p className="mt-1 text-[12px] text-secondary">
-                Start with the biggest coverage gaps, then close formal checklist blockers.
+                Start with CiP assessments and coverage gaps, then close formal checklist blockers.
               </p>
             </div>
             <Link href="/dashboard/requirements" className="btn-secondary text-xs">
@@ -862,6 +1081,72 @@ export function ProgressPrioritiesView({
                       ))}
                     </ul>
                   )}
+                </>
+              ) : selectedPriority.kind === "cip_assessment" ? (
+                <>
+                  <h2 className="text-heading-3 font-semibold text-primary">
+                    CiP {selectedPriority.cipNumber}: {selectedPriority.cipTitle}
+                  </h2>
+                  <p className="mt-1 text-small text-secondary">
+                    Supervisor CiP assessment for{" "}
+                    {progressCips?.checkpoint.current_stage ?? selectedYear ?? "this ARCP cycle"}
+                  </p>
+
+                  <section className="mt-4 space-y-3">
+                    <ProgressCipAssessmentBadge assessment={selectedPriority.assessment} />
+                    <ProgressCipAssessmentFields assessment={selectedPriority.assessment} />
+                    {selectedPriority.assessment.assessment_date ? (
+                      <p className="text-[11px] text-muted">
+                        Assessment date: {selectedPriority.assessment.assessment_date}
+                      </p>
+                    ) : null}
+                  </section>
+
+                  <section className="mt-4 rounded-xl border border-accent-blue/25 bg-accent-blue/8 p-3.5">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.07em] text-accent-blue">
+                      Next best actions
+                    </h3>
+                    {selectedPriority.assessment.status === "missing" ? (
+                      <>
+                        <p className="mt-2 text-xs text-secondary">
+                          Request your Educational Supervisor to complete the CiP assessment in
+                          Kaizen, then re-sync with the Atlas extension.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Link
+                            href={`/dashboard/entries?q=CiP+${selectedPriority.cipNumber}`}
+                            className="btn-secondary text-xs"
+                          >
+                            View assessment entries
+                          </Link>
+                          <Link
+                            href={`/dashboard/progress?view=overview&tab=cips&focus_cip=${selectedPriority.cipNumber}${selectedYear ? `&year=${encodeURIComponent(selectedYear)}` : ""}`}
+                            className="btn-primary text-xs"
+                          >
+                            Open CiP progress
+                          </Link>
+                        </div>
+                      </>
+                    ) : selectedPriority.assessment.status === "on_track" ? (
+                      <p className="mt-2 text-xs text-secondary">
+                        This CiP assessment meets stage expectations. Keep evidence fresh in your
+                        portfolio.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="mt-2 text-xs text-secondary">
+                          {selectedPriority.assessment.status_reason} Discuss with your Educational
+                          Supervisor and update your development plan if needed.
+                        </p>
+                        <Link
+                          href={`/dashboard/progress?view=overview&tab=cips&focus_cip=${selectedPriority.cipNumber}${selectedYear ? `&year=${encodeURIComponent(selectedYear)}` : ""}`}
+                          className="btn-secondary mt-3 text-xs"
+                        >
+                          Review in CiP progress
+                        </Link>
+                      </>
+                    )}
+                  </section>
                 </>
               ) : selectedPriority.kind === "procedure" ? (
                 <>

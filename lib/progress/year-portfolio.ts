@@ -38,6 +38,8 @@ export type RequirementsSummary = {
   courses_total: number;
   exams_complete: number;
   exams_total: number;
+  team_observations_complete: number;
+  team_observations_total: number;
 };
 
 export type EvidenceScopeMethod = "post_window" | "training_year";
@@ -297,6 +299,7 @@ export function buildRequirementsSummary(
   procedures: Array<{ complete: boolean }>,
   courses: Array<{ complete: boolean }>,
   exams: Array<{ complete: boolean }>,
+  teamObservations?: { complete: number; target: number } | null,
 ): RequirementsSummary {
   const procedureSummary = summarizeRequirements(procedures);
   const courseSummary = summarizeRequirements(courses);
@@ -308,6 +311,8 @@ export function buildRequirementsSummary(
     courses_total: courseSummary.total,
     exams_complete: examSummary.complete,
     exams_total: examSummary.total,
+    team_observations_complete: teamObservations?.complete ?? 0,
+    team_observations_total: teamObservations?.target ?? 2,
   };
 }
 

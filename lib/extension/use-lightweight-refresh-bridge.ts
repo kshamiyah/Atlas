@@ -7,8 +7,9 @@ import {
   EXTENSION_UNAVAILABLE_MESSAGE,
   isLightweightRefreshAck,
   isLightweightRefreshProgress,
-  postLightweightRefresh,
+  postPortfolioSync,
   type LightweightRefreshPayload,
+  type SyncMode,
 } from "@/lib/extension/lightweight-refresh-client";
 
 type RefreshHandlers = {
@@ -43,16 +44,16 @@ export function useLightweightRefreshBridge(handlers: RefreshHandlers) {
     handlersRef.current.onUnavailable();
   }, [clearTimers]);
 
-  const scheduleRetry = useCallback(function retry(force: boolean) {
+  const scheduleRetry = useCallback(function retry(force: boolean, syncMode: SyncMode) {
     retryTimerRef.current = window.setTimeout(() => {
       if (!refreshInFlightRef.current) return;
-      postLightweightRefresh(force);
-      scheduleRetry(force);
+      postPortfolioSync({ force, syncMode });
+      scheduleRetry(force, syncMode);
     }, EXTENSION_ACK_RETRY_MS);
   }, []);
 
   const startRefresh = useCallback(
-    (force: boolean) => {
+    (force: boolean, syncMode: SyncMode = "light") => {
       if (typeof window === "undefined") return;
       if (refreshInFlightRef.current) return;
 
@@ -63,8 +64,8 @@ export function useLightweightRefreshBridge(handlers: RefreshHandlers) {
         finishUnavailable();
       }, EXTENSION_ACK_TIMEOUT_MS);
 
-      postLightweightRefresh(force);
-      scheduleRetry(force);
+      postPortfolioSync({ force, syncMode });
+      scheduleRetry(force, syncMode);
     },
     [clearTimers, finishUnavailable, scheduleRetry],
   );

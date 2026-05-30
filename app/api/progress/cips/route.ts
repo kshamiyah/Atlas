@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { computeProgressCipRows } from "@/lib/progress/cip-metrics";
 import {
+  buildClinicalEntrustmentExpectationsFromRows,
+  computeCipAssessmentKpis,
+  indexBestCipAssessmentsByNumber,
+  type CipAssessmentDbRow,
+} from "@/lib/progress/cip-assessment-metrics";
+import {
   checkpointTypeLabel,
   resolveProgressCheckpointType,
 } from "@/lib/progress/checkpoint-readiness";
@@ -85,6 +91,8 @@ export async function GET(req: NextRequest) {
     entriesRes,
     confirmedRes,
     coverageRes,
+    cipAssessmentsRes,
+    supervisionRequirementsRes,
   ] = await Promise.all([
     supabase.from("stages").select("id, name, stage_group").order("sort_order", { ascending: true }),
     supabase
@@ -114,6 +122,16 @@ export async function GET(req: NextRequest) {
       .from("key_skill_descriptor_coverage")
       .select("key_skill_id, descriptor_id, covered, review_entry_id")
       .eq("user_id", userId),
+    supabase
+      .from("cip_assessments")
+      .select(
+        "cip_number, date, status, trainee_entrustment, trainee_level, es_entrustment, es_meets_expectations, es_level, es_agrees",
+      )
+      .eq("user_id", userId),
+    supabase
+      .from("stage_requirements")
+      .select("target_value, cips(number), stages(name)")
+      .eq("requirement_type", "supervision_level"),
   ]);
 
   for (const res of [
@@ -125,6 +143,8 @@ export async function GET(req: NextRequest) {
     entriesRes,
     confirmedRes,
     coverageRes,
+    cipAssessmentsRes,
+    supervisionRequirementsRes,
   ]) {
     if (res.error) {
       return NextResponse.json(
@@ -215,6 +235,19 @@ export async function GET(req: NextRequest) {
     working_percent: arcpCountdown.workingPercent,
   } as const;
 
+  const clinicalEntrustmentExpectations = buildClinicalEntrustmentExpectationsFromRows(
+    supervisionRequirementsRes.data ?? [],
+  );
+  const assessmentsByNumber = indexBestCipAssessmentsByNumber(
+    (cipAssessmentsRes.data ?? []) as CipAssessmentDbRow[],
+  );
+  const assessmentKpis = computeCipAssessmentKpis({
+    cipNumbers: cips.map((c) => c.number),
+    assessmentsByNumber,
+    stage: currentStage,
+    expectations: clinicalEntrustmentExpectations,
+  });
+
   const cipsPayload = computeProgressCipRows({
     cips,
     keySkills,
@@ -224,6 +257,7 @@ export async function GET(req: NextRequest) {
     confirmedRows: (confirmedRes.data ?? []) as ConfirmedRow[],
     coverageRows: (coverageRes.data ?? []) as CoverageRow[],
     checkpoint,
+    assessmentsByNumber: assessmentKpis.byNumber,
   });
 
   const body: ProgressCipsResponse = {

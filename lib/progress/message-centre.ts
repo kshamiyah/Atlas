@@ -1,4 +1,8 @@
-import type { ProgressMessage, ProgressMessagePriority } from "../types/progress";
+import type {
+  ProgressCipAssessmentSummary,
+  ProgressMessage,
+  ProgressMessagePriority,
+} from "../types/progress";
 
 type CipRow = { id: string; number: number };
 type KeySkillRow = { id: string; cip_id: string };
@@ -85,6 +89,8 @@ export function buildProgressMessages(params: {
   scopedEntries: ReviewEntryRow[];
   confirmedRows: ConfirmedRow[];
   coverageRows: CoverageRow[];
+  assessmentsByNumber: Map<number, ProgressCipAssessmentSummary>;
+  currentStage: string | null;
   linkPreserve: ProgressLinkPreservation;
 }): ProgressMessage[] {
   const {
@@ -95,6 +101,8 @@ export function buildProgressMessages(params: {
     scopedEntries,
     confirmedRows,
     coverageRows,
+    assessmentsByNumber,
+    currentStage,
     linkPreserve,
   } = params;
 
@@ -137,6 +145,66 @@ export function buildProgressMessages(params: {
   }
 
   const candidates: Candidate[] = [];
+
+  const missingAssessments: number[] = [];
+  const belowExpectations: number[] = [];
+  const belowEntrustment: number[] = [];
+
+  for (const cip of [...cips].sort((a, b) => a.number - b.number)) {
+    const assessment = assessmentsByNumber.get(cip.number);
+    if (!assessment) continue;
+    if (assessment.status === "missing") missingAssessments.push(cip.number);
+    if (assessment.status === "below_expectations") belowExpectations.push(cip.number);
+    if (assessment.status === "below_entrustment") belowEntrustment.push(cip.number);
+  }
+
+  if (belowExpectations.length > 0) {
+    candidates.push({
+      id: "cip-assessment-below-expectations",
+      priority: "high",
+      title: "CiP assessments below expectations",
+      body: `Educational Supervisor rated CiP ${belowExpectations.join(", ")} below expectations${currentStage ? ` for ${currentStage}` : ""}.`,
+      cta_label: "Review CiP assessments",
+      cta_href: buildProgressHref(linkPreserve, {
+        tab: "cips",
+        focus_cip: String(belowExpectations[0]),
+      }),
+      _gap: belowExpectations.length * 100,
+    });
+  }
+
+  if (belowEntrustment.length > 0) {
+    candidates.push({
+      id: "cip-assessment-below-entrustment",
+      priority: "high",
+      title: "Clinical CiP entrustment below stage expectation",
+      body: `CiP ${belowEntrustment.join(", ")} ${belowEntrustment.length === 1 ? "is" : "are"} below the expected entrustment level${currentStage ? ` for ${currentStage}` : ""}.`,
+      cta_label: "Review CiP assessments",
+      cta_href: buildProgressHref(linkPreserve, {
+        tab: "cips",
+        focus_cip: String(belowEntrustment[0]),
+      }),
+      _gap: belowEntrustment.length * 80,
+    });
+  }
+
+  if (missingAssessments.length > 0) {
+    candidates.push({
+      id: "cip-assessment-missing",
+      priority: missingAssessments.length >= 3 ? "high" : "medium",
+      title:
+        missingAssessments.length === 1
+          ? "CiP assessment missing"
+          : "CiP assessments missing",
+      body: `${missingAssessments.length} of 14 CiP assessments still need supervisor judgment${currentStage ? ` for ${currentStage}` : ""}: CiP ${missingAssessments.join(", ")}.`,
+      cta_label: "View CiP assessments",
+      cta_href: buildProgressHref(linkPreserve, {
+        tab: "cips",
+        focus_cip: String(missingAssessments[0]),
+      }),
+      _gap: missingAssessments.length * 50,
+    });
+  }
 
   // --- High: CiP at risk (descriptor pct < 60% OR zero confirmed skills in CiP) ---
   const sortedCipIds = [...curriculumCipIds].sort((a, b) => {

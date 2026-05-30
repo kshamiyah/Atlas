@@ -22,6 +22,16 @@ export function ProgressKpiStrip({
 
   const items = [
     {
+      key: "cip_assessments",
+      label: "CiP assessments",
+      sub: checkpoint.current_stage
+        ? `Supervisor judgments recorded for ${checkpoint.current_stage} ARCP (14 CiPs required)`
+        : "Supervisor judgments for all 14 CiPs",
+      block: kpis.cip_assessments,
+      accent: "var(--accent-purple, #8b5cf6)",
+      supporting: `${kpis.cip_assessments_on_track.covered} on track for stage entrustment and expectations`,
+    },
+    {
       key: "cips_checkpoint",
       label: isWaypoint || isStageEnd ? "Waypoint-ready CiPs" : "CiP readiness",
       sub: isWaypoint
@@ -59,7 +69,7 @@ export function ProgressKpiStrip({
           stricter bar than ST1 annual pacing.
         </p>
       ) : null}
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       {items.map((item) => (
         <div
           key={item.key}

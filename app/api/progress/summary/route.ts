@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveRequestAuth } from "@/lib/auth/request-auth";
 import { buildProgressMessages } from "@/lib/progress/message-centre";
 import {
+  buildClinicalEntrustmentExpectationsFromRows,
+  computeCipAssessmentKpis,
+  indexBestCipAssessmentsByNumber,
+  type CipAssessmentDbRow,
+} from "@/lib/progress/cip-assessment-metrics";
+import {
   checkpointTypeLabel,
   resolveProgressCheckpointType,
 } from "@/lib/progress/checkpoint-readiness";
@@ -51,6 +57,8 @@ function emptySummary(scope: ProgressSummaryScope): ProgressSummaryResponse {
     kpis: {
       cips_checkpoint: { covered: 0, total: 0, pct: 0 },
       cips: { covered: 0, total: 0, pct: 0 },
+      cip_assessments: { covered: 0, total: 0, pct: 0 },
+      cip_assessments_on_track: { covered: 0, total: 0, pct: 0 },
       key_skills: { covered: 0, total: 0, pct: 0 },
       descriptors: { covered: 0, total: 0, pct: 0 },
     },
@@ -86,6 +94,8 @@ export async function GET(req: NextRequest) {
     entriesRes,
     confirmedRes,
     coverageRes,
+    cipAssessmentsRes,
+    supervisionRequirementsRes,
   ] = await Promise.all([
     supabase.from("stages").select("id, name, stage_group").order("sort_order", { ascending: true }),
     supabase
@@ -109,6 +119,16 @@ export async function GET(req: NextRequest) {
       .from("key_skill_descriptor_coverage")
       .select("key_skill_id, descriptor_id, covered, review_entry_id")
       .eq("user_id", userId),
+    supabase
+      .from("cip_assessments")
+      .select(
+        "cip_number, date, status, trainee_entrustment, trainee_level, es_entrustment, es_meets_expectations, es_level, es_agrees",
+      )
+      .eq("user_id", userId),
+    supabase
+      .from("stage_requirements")
+      .select("target_value, cips(number), stages(name)")
+      .eq("requirement_type", "supervision_level"),
   ]);
 
   for (const res of [
@@ -120,6 +140,8 @@ export async function GET(req: NextRequest) {
     entriesRes,
     confirmedRes,
     coverageRes,
+    cipAssessmentsRes,
+    supervisionRequirementsRes,
   ]) {
     if (res.error) {
       return NextResponse.json(
@@ -214,7 +236,7 @@ export async function GET(req: NextRequest) {
     working_percent: arcpCountdown.workingPercent,
   } as const;
 
-  const { kpis } = computeProgressKpis({
+  const { kpis: evidenceKpis } = computeProgressKpis({
     scopedEntryIds,
     cips,
     keySkills,
@@ -224,6 +246,25 @@ export async function GET(req: NextRequest) {
     checkpoint,
   });
 
+  const clinicalEntrustmentExpectations = buildClinicalEntrustmentExpectationsFromRows(
+    supervisionRequirementsRes.data ?? [],
+  );
+  const assessmentsByNumber = indexBestCipAssessmentsByNumber(
+    (cipAssessmentsRes.data ?? []) as CipAssessmentDbRow[],
+  );
+  const assessmentKpis = computeCipAssessmentKpis({
+    cipNumbers: cips.map((c) => c.number),
+    assessmentsByNumber,
+    stage: currentStage,
+    expectations: clinicalEntrustmentExpectations,
+  });
+
+  const kpis = {
+    ...evidenceKpis,
+    cip_assessments: assessmentKpis.complete,
+    cip_assessments_on_track: assessmentKpis.on_track,
+  };
+
   const messages = buildProgressMessages({
     cips,
     keySkills,
@@ -232,6 +273,8 @@ export async function GET(req: NextRequest) {
     scopedEntries,
     confirmedRows,
     coverageRows,
+    assessmentsByNumber: assessmentKpis.byNumber,
+    currentStage,
     linkPreserve: {
       stage_scope: stageScope && stageScope.length > 0 ? stageScope : null,
       stage_group: stageGroup && stageGroup.length > 0 ? stageGroup : null,

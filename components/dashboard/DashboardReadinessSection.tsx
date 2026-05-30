@@ -14,6 +14,7 @@ type ArcpReadiness = {
     osats: { pct: number };
     courses: { pct: number };
     exams: { pct: number };
+    team_observations?: { pct: number; complete: number; total: number; target?: number };
   };
   is_waypoint: boolean;
   current_stage: string | null;
@@ -352,6 +353,15 @@ export function DashboardReadinessSection({
               { label: "Summative OSATS", pct: readiness.pillars.osats.pct, weight: "30%" },
               { label: "Courses", pct: readiness.pillars.courses.pct, weight: "15%" },
               { label: "Exams", pct: readiness.pillars.exams.pct, weight: "5%" },
+              ...(readiness.pillars.team_observations
+                ? [
+                    {
+                      label: "Team observations",
+                      pct: readiness.pillars.team_observations.pct,
+                      weight: "Formal",
+                    },
+                  ]
+                : []),
             ].map((pillar) => (
               <div key={pillar.label} className="flex items-center gap-3">
                 <span className="w-24 shrink-0 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>

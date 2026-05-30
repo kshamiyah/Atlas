@@ -31,6 +31,22 @@ type RequirementsData = {
   procedures: Procedure[];
   courses: Course[];
   exams: Exam[];
+  team_observations?: {
+    target: number;
+    complete: number;
+    total: number;
+    pct: number;
+    complete_requirement: boolean;
+    training_year: string | null;
+    items: Array<{
+      id: string;
+      title: string;
+      training_year: string | null;
+      status: string;
+      complete: boolean;
+      date: string | null;
+    }>;
+  };
   summary: {
     procedures_complete: number;
     procedures_total: number;
@@ -38,6 +54,8 @@ type RequirementsData = {
     courses_total: number;
     exams_complete: number;
     exams_total: number;
+    team_observations_complete: number;
+    team_observations_total: number;
   };
   profile_stage?: {
     id: string;
@@ -53,7 +71,7 @@ type RequirementsData = {
   } | null;
 };
 
-type TabId = "procedures" | "courses" | "exams";
+type TabId = "procedures" | "courses" | "exams" | "team_observations";
 type PrototypeId = "P1" | "P2" | "P3" | "P4" | "P5" | "P6";
 type ViewMode = "YEAR" | "BAND";
 type YearScopeId = "CURRENT_YEAR" | "ST1" | "ST2" | "ST3" | "ST4" | "ST5" | "ST6" | "ST7";
@@ -62,7 +80,17 @@ type BandScopeId = "CURRENT_BAND" | "BAND_ST1_2" | "BAND_ST3_5" | "BAND_ST6_7";
 type RequirementItem =
   | (Procedure & { kind: "procedures"; key: string })
   | (Course & { kind: "courses"; key: string })
-  | (Exam & { kind: "exams"; key: string });
+  | (Exam & { kind: "exams"; key: string })
+  | ({
+      id: string;
+      name: string;
+      required_by_stage: string;
+      complete: boolean;
+      status?: string;
+      date?: string | null;
+      kind: "team_observations";
+      key: string;
+    });
 type PriorityBucket = "Now" | "Next" | "Later";
 
 const STAGE_ORDER = ["ST1", "ST2", "ST3", "ST4", "ST5", "ST6", "ST7"] as const;
@@ -284,6 +312,21 @@ function getTabItems(tab: TabId, data: RequirementsData): RequirementItem[] {
         if (a.complete !== b.complete) return a.complete ? 1 : -1;
         return a.name.localeCompare(b.name);
       });
+  }
+
+  if (tab === "team_observations") {
+    const teamObs = data.team_observations;
+    if (!teamObs) return [];
+    return teamObs.items.map((item) => ({
+      id: item.id,
+      name: item.title,
+      required_by_stage: item.training_year ?? teamObs.training_year ?? "Current year",
+      complete: item.complete,
+      status: item.status,
+      date: item.date,
+      kind: "team_observations" as const,
+      key: `team-obs-${item.id}`,
+    }));
   }
 
   return data.exams
@@ -542,6 +585,13 @@ export default function RequirementsPage() {
   const scopedProcedures = data.procedures.filter((item) => scopeSet.has(item.required_by_stage));
   const scopedCourses = data.courses.filter((item) => scopeSet.has(item.required_by_stage));
   const scopedExams = data.exams.filter((item) => scopeSet.has(item.required_by_stage));
+  const teamObs = data.team_observations;
+  const teamObsYear = teamObs?.training_year ?? currentStageName;
+  const teamObsInScope =
+    teamObs &&
+    (viewMode !== "YEAR" ||
+      yearScopeId === "CURRENT_YEAR" ||
+      (isStageName(yearScopeId) && yearScopeId === teamObsYear));
 
   const scopedSummary = {
     procedures_complete: scopedProcedures.filter((p) => p.complete).length,
@@ -550,6 +600,8 @@ export default function RequirementsPage() {
     courses_total: scopedCourses.length,
     exams_complete: scopedExams.filter((e) => e.complete).length,
     exams_total: scopedExams.length,
+    team_observations_complete: teamObsInScope ? teamObs.complete : 0,
+    team_observations_total: teamObsInScope ? teamObs.target : 0,
   };
 
   function expectedRequirementContributionByNow(item: RequirementItem): number | null {
@@ -580,17 +632,41 @@ export default function RequirementsPage() {
       complete: scopedSummary.exams_complete,
       total: scopedSummary.exams_total,
     },
+    {
+      id: "team_observations" as const,
+      label: "Team observations",
+      complete: scopedSummary.team_observations_complete,
+      total: scopedSummary.team_observations_total,
+    },
   ];
 
   const activeTabSummary = tabs.find((t) => t.id === activeTab) ?? tabs[0];
   const totalComplete =
-    scopedSummary.procedures_complete + scopedSummary.courses_complete + scopedSummary.exams_complete;
+    scopedSummary.procedures_complete +
+    scopedSummary.courses_complete +
+    scopedSummary.exams_complete +
+    scopedSummary.team_observations_complete;
   const totalCount =
-    scopedSummary.procedures_total + scopedSummary.courses_total + scopedSummary.exams_total;
+    scopedSummary.procedures_total +
+    scopedSummary.courses_total +
+    scopedSummary.exams_total +
+    scopedSummary.team_observations_total;
   const scopedAllItems = [
     ...scopedProcedures.map((p) => ({ ...p, kind: "procedures" as const, key: `scope-proc-${p.id}` })),
     ...scopedCourses.map((c) => ({ ...c, kind: "courses" as const, key: `scope-course-${c.id}` })),
     ...scopedExams.map((e) => ({ ...e, kind: "exams" as const, key: `scope-exam-${e.evidence_type}` })),
+    ...(teamObsInScope
+      ? (teamObs?.items ?? []).map((item) => ({
+          id: item.id,
+          name: item.title,
+          required_by_stage: item.training_year ?? teamObsYear ?? "Current year",
+          complete: item.complete,
+          status: item.status,
+          date: item.date,
+          kind: "team_observations" as const,
+          key: `scope-team-obs-${item.id}`,
+        }))
+      : []),
   ] satisfies RequirementItem[];
 
   const overallExpectedByNowRaw =

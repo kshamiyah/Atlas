@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import type { ProgressCipRow, ProgressRagStatus } from "@/lib/types/progress";
+import {
+  ProgressCipAssessmentBadge,
+  ProgressCipAssessmentFields,
+} from "@/components/progress/ProgressCipAssessmentBadge";
 
 function statusLabel(status: ProgressRagStatus, checkpointType: ProgressCipRow["checkpoint_type"]): string {
   if (status === "green") return "On track";
@@ -54,7 +58,27 @@ export function ProgressCipDetail({ row }: ProgressCipDetailProps) {
       </header>
 
       <section>
-        <h4 className="text-micro font-semibold text-primary">Coverage</h4>
+        <h4 className="text-micro font-semibold text-primary">CiP assessment</h4>
+        <div className="mt-2 space-y-3">
+          <ProgressCipAssessmentBadge assessment={row.assessment} />
+          <ProgressCipAssessmentFields assessment={row.assessment} />
+          {row.assessment.assessment_date ? (
+            <p className="text-[11px] text-muted">
+              Assessment date: {row.assessment.assessment_date}
+            </p>
+          ) : null}
+          <Link
+            href={`/dashboard/entries?q=CiP+${row.cip_number}`}
+            className="inline-flex text-[11px] font-medium text-accent-primary hover:underline"
+          >
+            View CiP assessment entries
+          </Link>
+        </div>
+      </section>
+
+      <section>
+        <h4 className="text-micro font-semibold text-primary">Evidence coverage</h4>
+        <p className="mt-1 text-[11px] text-secondary">{row.evidence_status_reason}</p>
         <p className="mt-1 text-[11px] text-secondary">
           Key skills {row.key_skills.covered}/{row.key_skills.total} ({row.key_skills.pct}%) ·
           Descriptors {row.descriptors.covered}/{row.descriptors.total} ({row.descriptors.pct}%)

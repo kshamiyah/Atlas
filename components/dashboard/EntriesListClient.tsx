@@ -86,20 +86,48 @@ function compareEntries(a: EntryRow, b: EntryRow, sortKey: SortKey): number {
 function formatEntryType(entry: EntryRow) {
   const detectedType = normalizeText(entry.detected_entry_type).toLowerCase();
   const typeMap: Record<string, string> = {
+    cip_assessment: "CiP assessment",
     osats_formative: "OSATS formative",
     osats_summative: "OSATS summative",
     reflective_log: "Reflection",
     reflective_log_entry: "Reflection",
+    reflection: "Reflection",
     cbd: "Case-based discussion",
+    minicex: "Mini-CEX",
     mini_cex: "Mini-CEX",
+    notss: "NOTSS/NOA",
     noa: "NOTSS/NOA",
     other_evidence: "Other evidence",
     teaching: "Teaching",
+    procedure: "Procedure",
   };
 
   if (detectedType && typeMap[detectedType]) return typeMap[detectedType];
 
   return normalizeText(entry.assessment_type) || "Entry";
+}
+
+function isCipAssessmentEntry(entry: EntryRow): boolean {
+  return normalizeText(entry.detected_entry_type).toLowerCase() === "cip_assessment";
+}
+
+function isClinicalCipEntry(entry: EntryRow): boolean {
+  const cipNumber = entry.linked_cip_number;
+  return typeof cipNumber === "number" && cipNumber >= 9 && cipNumber <= 12;
+}
+
+function readExtractedField(
+  entry: EntryRow,
+  key: string,
+): string | number | boolean | null {
+  const fields = entry.extracted_fields;
+  if (!fields || typeof fields !== "object") return null;
+  const value = fields[key];
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  return normalizeText(value) || null;
 }
 
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
@@ -111,6 +139,22 @@ function Field({ label, value }: { label: string; value: string | number | null 
       <p className="text-[12px] text-primary">{value}</p>
     </div>
   );
+}
+
+function formatCipDetailHeading(entry: EntryRow): string {
+  const title = normalizeText(entry.title);
+  const withoutPrefix = title.replace(/^Assessment for\s+/i, "");
+  if (withoutPrefix) return withoutPrefix;
+
+  if (entry.linked_cip_number != null && entry.category) {
+    return `CiP ${entry.linked_cip_number}: ${entry.category}`;
+  }
+
+  if (entry.linked_cip_number != null) {
+    return `CiP ${entry.linked_cip_number}`;
+  }
+
+  return "CiP assessment";
 }
 
 export function EntriesListClient({
@@ -159,7 +203,7 @@ export function EntriesListClient({
     yearFilter !== "all";
 
   const assessmentTypes = useMemo(
-    () => uniqueSorted(entries.map((entry) => entry.assessment_type)),
+    () => uniqueSorted(entries.map((entry) => formatEntryType(entry))),
     [entries],
   );
   const statuses = useMemo(
@@ -171,16 +215,19 @@ export function EntriesListClient({
     const q = query.trim().toLowerCase();
     const filtered = yearScopedEntries.filter((entry) => {
       const title = normalizeText(entry.title);
-      const type = normalizeText(entry.assessment_type);
+      const type = formatEntryType(entry);
       const status = normalizeText(entry.status);
       const date = normalizeText(entry.kaizen_date);
+      const cipNumber =
+        entry.linked_cip_number != null ? `cip ${entry.linked_cip_number}` : "";
 
       const matchesQuery =
         !q ||
         title.toLowerCase().includes(q) ||
         type.toLowerCase().includes(q) ||
         status.toLowerCase().includes(q) ||
-        date.toLowerCase().includes(q);
+        date.toLowerCase().includes(q) ||
+        cipNumber.includes(q);
       const matchesType = typeFilter === "all" || type === typeFilter;
       const matchesStatus = statusFilter === "all" || status === statusFilter;
       const matchesDay = matchesKaizenDayFilter(entry.kaizen_date, dayFilter);
@@ -381,9 +428,7 @@ export function EntriesListClient({
                       <div className="min-w-0 space-y-2 px-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="inline-flex max-w-full rounded-md bg-surface-4 px-1.5 py-0.5 text-[11px] font-medium text-secondary">
-                            <span className="truncate">
-                              {normalizeText(entry.assessment_type) || "Entry"}
-                            </span>
+                            <span className="truncate">{formatEntryType(entry)}</span>
                           </span>
                         </div>
                         <p className="min-w-0 text-sm font-medium leading-6 text-primary">
@@ -427,11 +472,13 @@ export function EntriesListClient({
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex rounded-md bg-surface-4 px-1.5 py-0.5 text-[11px] font-medium text-secondary">
-                        {normalizeText(selectedEntry.assessment_type) || "Entry"}
+                        {formatEntryType(selectedEntry)}
                       </span>
                     </div>
                     <h3 className="text-lg font-semibold text-primary">
-                      {normalizeText(selectedEntry.title) || "Untitled entry"}
+                      {isCipAssessmentEntry(selectedEntry)
+                        ? formatCipDetailHeading(selectedEntry)
+                        : normalizeText(selectedEntry.title) || "Untitled entry"}
                     </h3>
                     <p className="text-[12px] text-secondary">
                       Entry date {normalizeText(selectedEntry.kaizen_date) || "—"} · synced{" "}
@@ -440,8 +487,40 @@ export function EntriesListClient({
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Training year" value={normalizeText(selectedEntry.training_year)} />
-                    <Field label="Linked key skills count" value={selectedEntry.key_skills_count ?? null} />
+                    {isCipAssessmentEntry(selectedEntry) ? (
+                      <>
+                        <Field
+                          label="Assessment status"
+                          value={readExtractedField(selectedEntry, "assessment status")}
+                        />
+                        {isClinicalCipEntry(selectedEntry) ? (
+                          <>
+                            <Field
+                              label="Trainee entrustment"
+                              value={readExtractedField(selectedEntry, "trainee entrustment")}
+                            />
+                            <Field
+                              label="ES entrustment"
+                              value={readExtractedField(selectedEntry, "es entrustment")}
+                            />
+                            <Field
+                              label="Meeting expectations"
+                              value={readExtractedField(selectedEntry, "meeting expectations")}
+                            />
+                          </>
+                        ) : (
+                          <Field
+                            label="Meeting expectations"
+                            value={readExtractedField(selectedEntry, "meeting expectations")}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Field label="Training year" value={normalizeText(selectedEntry.training_year)} />
+                        <Field label="Linked key skills count" value={selectedEntry.key_skills_count ?? null} />
+                      </>
+                    )}
                   </div>
 
                   <div className="space-y-1">

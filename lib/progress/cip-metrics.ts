@@ -1,5 +1,9 @@
 import { entrySortDate } from "./summary-metrics";
 import { classifyCipCheckpointStatus } from "./checkpoint-readiness";
+import {
+  mergeEvidenceAndAssessmentRag,
+  type ProgressCipAssessmentSummary,
+} from "./cip-assessment-metrics";
 import type {
   ProgressCheckpointContext,
   ProgressCipGapDescriptor,
@@ -7,6 +11,7 @@ import type {
   ProgressCipRow,
   ProgressCipTopEntry,
   ProgressKpiBlock,
+  ProgressRagStatus,
 } from "../types/progress";
 
 type CipCurriculum = { id: string; number: number; title: string };
@@ -44,6 +49,20 @@ function kpiBlock(covered: number, total: number): ProgressKpiBlock {
   };
 }
 
+function combineStatusReason(params: {
+  evidenceReason: string;
+  assessment: ProgressCipAssessmentSummary;
+  combinedStatus: ProgressRagStatus;
+  evidenceStatus: ProgressRagStatus;
+}): string {
+  const { evidenceReason, assessment, combinedStatus, evidenceStatus } = params;
+  if (combinedStatus === evidenceStatus) return evidenceReason;
+  if (assessment.status === "missing") {
+    return `${evidenceReason} CiP assessment missing for this ARCP cycle.`;
+  }
+  return `${evidenceReason} ${assessment.status_reason}`;
+}
+
 export function computeProgressCipRows(params: {
   cips: CipCurriculum[];
   keySkills: KeySkillCurriculum[];
@@ -53,6 +72,7 @@ export function computeProgressCipRows(params: {
   confirmedRows: ConfirmedRow[];
   coverageRows: CoverageRow[];
   checkpoint: ProgressCheckpointContext;
+  assessmentsByNumber: Map<number, ProgressCipAssessmentSummary>;
 }): ProgressCipRow[] {
   const {
     cips,
@@ -63,6 +83,7 @@ export function computeProgressCipRows(params: {
     confirmedRows,
     coverageRows,
     checkpoint,
+    assessmentsByNumber,
   } = params;
 
   const cipById = new Map(cips.map((c) => [String(c.id), c]));
@@ -184,14 +205,45 @@ export function computeProgressCipRows(params: {
       stageElapsedFraction: checkpoint.stage_elapsed_fraction,
       workingPercent: checkpoint.working_percent,
     });
+    const assessment =
+      assessmentsByNumber.get(cip.number) ??
+      ({
+        status: "missing",
+        status_reason: "No CiP assessment recorded for this ARCP cycle.",
+        is_complete: false,
+        is_clinical: false,
+        expected_entrustment: null,
+        expected_entrustment_label: null,
+        es_entrustment: null,
+        es_entrustment_label: null,
+        es_meets_expectations: null,
+        es_meets_expectations_label: null,
+        trainee_entrustment: null,
+        trainee_entrustment_label: null,
+        assessment_date: null,
+        record_status: null,
+      } satisfies ProgressCipAssessmentSummary);
+    const combinedStatus = mergeEvidenceAndAssessmentRag(
+      checkpointStatus.status,
+      assessment.status,
+      checkpoint.type,
+    );
 
     out.push({
       cip_number: cip.number,
       cip_title: cip.title ?? "",
-      status: checkpointStatus.status,
+      status: combinedStatus,
       checkpoint_type: checkpoint.type,
       expected_key_skills_by_now: checkpointStatus.expectedSkillsByNow,
-      status_reason: checkpointStatus.reason,
+      status_reason: combineStatusReason({
+        evidenceReason: checkpointStatus.reason,
+        assessment,
+        combinedStatus,
+        evidenceStatus: checkpointStatus.status,
+      }),
+      evidence_status: checkpointStatus.status,
+      evidence_status_reason: checkpointStatus.reason,
+      assessment,
       entries_count,
       last_entry_date,
       key_skills,

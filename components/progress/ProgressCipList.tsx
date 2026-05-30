@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProgressCipRow } from "@/lib/types/progress";
+import { ProgressCipAssessmentBadge } from "@/components/progress/ProgressCipAssessmentBadge";
 
 function statusChip(row: ProgressCipRow): { label: string; className: string } {
   const { status, checkpoint_type: checkpointType } = row;
@@ -69,6 +70,9 @@ export function ProgressCipList({ rows, selectedCipNumber, onSelect }: ProgressC
                 >
                   {chip.label}
                 </span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <ProgressCipAssessmentBadge assessment={row.assessment} compact />
               </div>
               <div className="mt-2 flex gap-3 text-[11px] tabular-nums text-muted">
                 <span>

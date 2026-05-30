@@ -13,17 +13,19 @@ import {
   calculateProRataProgress,
 } from "@/lib/profile/ltft-pro-rata";
 import { buildOsatsCountsByProcedure } from "@/lib/requirements/osats-evidence";
-
-// Expected CiP entrustability level by stage (from RCOG Table 4)
-const EXPECTED_LEVEL_BY_STAGE: Record<string, number> = {
-  ST1: 1,
-  ST2: 2,
-  ST3: 3,
-  ST4: 3,
-  ST5: 4,
-  ST6: 5,
-  ST7: 5,
-};
+import {
+  buildTeamObservationSummary,
+  TO2_TARGET_PER_TRAINING_YEAR,
+} from "@/lib/requirements/team-observation-evidence";
+import { parseProfilePosts } from "@/lib/progress/year-portfolio";
+import { TOTAL_CIP_COUNT } from "@/lib/kaizen/cip-assessment";
+import {
+  buildClinicalEntrustmentExpectations,
+  evaluateClinicalEntrustment,
+  getExpectedClinicalEntrustment,
+  isCipAssessmentComplete,
+  isClinicalCip,
+} from "@/lib/kaizen/cip-supervision";
 
 const CONSULTANT_ROLE_ID = 597;
 
@@ -143,7 +145,7 @@ export async function GET(request: Request) {
   // ── Profile ────────────────────────────────────────────────────────────────
   const { data: profile } = await supabase
     .from("profiles")
-    .select("current_stage_id, current_grade, arcp_date, working_percent")
+    .select("current_stage_id, current_grade, arcp_date, working_percent, post_history")
     .eq("id", userId)
     .maybeSingle();
 
@@ -189,7 +191,32 @@ export async function GET(request: Request) {
 
   const relevantStages = currentStage ? stagesUpTo(currentStage) : null;
   const isWaypoint = currentStage ? WAYPOINT_STAGES.has(currentStage) : false;
-  const expectedLevel = currentStage ? (EXPECTED_LEVEL_BY_STAGE[currentStage] ?? null) : null;
+
+  const { data: supervisionRequirementRows } = await supabase
+    .from("stage_requirements")
+    .select("target_value, cips(number), stages(name)")
+    .eq("requirement_type", "supervision_level");
+
+  const clinicalEntrustmentExpectations = buildClinicalEntrustmentExpectations(
+    (supervisionRequirementRows ?? [])
+      .map((row: {
+        target_value: string;
+        cips: { number: number } | { number: number }[] | null;
+        stages: { name: string } | { name: string }[] | null;
+      }) => {
+        const cip = Array.isArray(row.cips) ? row.cips[0] : row.cips;
+        const stage = Array.isArray(row.stages) ? row.stages[0] : row.stages;
+        if (!cip?.number || !stage?.name) return null;
+        return {
+          cip_number: cip.number,
+          stage: stage.name,
+          expected_level: Number.parseInt(row.target_value, 10),
+        };
+      })
+      .filter((row): row is { cip_number: number; stage: string; expected_level: number } =>
+        row != null && Number.isInteger(row.expected_level),
+      ),
+  );
 
   // ── Key skills ─────────────────────────────────────────────────────────────
   const [{ data: keySkillsCatalog }, { data: confirmedSkillRows }] =
@@ -360,6 +387,24 @@ export async function GET(request: Request) {
   const examsTotal = relevantExamTypes.length;
   const examsPct = examsTotal > 0 ? Math.round((examsComplete / examsTotal) * 100) : 100;
 
+  const { data: observationEntries } = await supabase
+    .from("kaizen_entries")
+    .select("id, title, assessment_type, training_year, status, kaizen_date")
+    .eq("user_id", userId)
+    .or(
+      "title.ilike.%team observation%,title.ilike.%to1%,title.ilike.%to2%,assessment_type.ilike.%team observation%,assessment_type.ilike.%to1%,assessment_type.ilike.%to2%",
+    );
+
+  const profilePosts = parseProfilePosts(profile?.post_history);
+  const teamObservations = buildTeamObservationSummary(observationEntries ?? [], {
+    trainingYear: currentStage,
+    posts: profilePosts,
+    target: TO2_TARGET_PER_TRAINING_YEAR,
+  });
+  const to2Complete = teamObservations.complete;
+  const to2Target = teamObservations.target;
+  const to2Pct = teamObservations.pct;
+
   const osatsProRata = calculateProRataProgress({
     total: osatsTotal,
     actual: osatsComplete,
@@ -382,12 +427,33 @@ export async function GET(request: Request) {
   // ── CiP assessments ────────────────────────────────────────────────────────
   const { data: cipAssessments } = await supabase
     .from("cip_assessments")
-    .select("cip_number, trainee_level, es_agrees, es_level, status")
+    .select(
+      "cip_number, trainee_entrustment, trainee_level, es_agrees, es_entrustment, es_meets_expectations, es_level, status",
+    )
     .eq("user_id", userId);
 
   const hasEsLevels = (cipAssessments ?? []).some(
-    (a: { es_level: number | null }) => a.es_level !== null
+    (a: {
+      es_entrustment: number | null;
+      es_meets_expectations: boolean | null;
+      es_level: number | null;
+    }) =>
+      a.es_entrustment != null ||
+      a.es_meets_expectations != null ||
+      a.es_level != null,
   );
+
+  const completedCipNumbers = new Set<number>();
+  for (const assessment of cipAssessments ?? []) {
+    const cipNumber = assessment.cip_number as number | null;
+    if (cipNumber == null) continue;
+    if (isCipAssessmentComplete(assessment)) {
+      completedCipNumbers.add(cipNumber);
+    }
+  }
+  const cipAssessmentsComplete = completedCipNumbers.size;
+  const cipAssessmentsTotal = TOTAL_CIP_COUNT;
+  const cipAssessmentsMissing = Math.max(0, cipAssessmentsTotal - cipAssessmentsComplete);
 
   // ── Portfolio % (weighted blend) ───────────────────────────────────────────
   const portfolioPct = Math.round(
@@ -404,22 +470,38 @@ export async function GET(request: Request) {
   const selectedStageRank = currentStage ? stageRank(currentStage) : 0;
   const isSeniorSimulation = selectedStageRank >= 6;
   const isMiddleGradeSimulation = selectedStageRank >= 3 && selectedStageRank <= 5;
+
+  if (cipAssessmentsMissing > 0) {
+    blockers.push(
+      `${cipAssessmentsMissing} CiP assessment${cipAssessmentsMissing > 1 ? "s" : ""} missing for this ARCP cycle (${cipAssessmentsComplete}/${cipAssessmentsTotal} complete)`,
+    );
+  }
+
   const incompleteEvidence =
     confirmedSkills < 3 &&
     osatsComplete === 0 &&
     coursesComplete === 0 &&
     examsComplete === 0 &&
+    to2Complete === 0 &&
     portfolioPct < 10;
 
+  const entrustmentEvaluation =
+    currentStage != null
+      ? evaluateClinicalEntrustment({
+          assessments: cipAssessments ?? [],
+          stage: currentStage,
+          expectations: clinicalEntrustmentExpectations,
+        })
+      : { cipsBelowEntrustment: [], cipsBelowExpectations: [], entrustmentGap: 0 };
+
   if (mode === "predicted_outcome" && currentStage) {
-    // Mode 2: use actual ES levels
-    const cipsBelowExpected: number[] = [];
-    let cipLevelGap = 0;
-    for (const a of cipAssessments ?? []) {
-      if (a.es_level !== null && expectedLevel !== null && a.es_level < expectedLevel) {
-        cipsBelowExpected.push(a.cip_number as number);
-        cipLevelGap += expectedLevel - a.es_level;
-      }
+    const cipsBelowExpected = entrustmentEvaluation.cipsBelowEntrustment;
+    const cipLevelGap = entrustmentEvaluation.entrustmentGap;
+
+    if (entrustmentEvaluation.cipsBelowExpectations.length > 0) {
+      blockers.push(
+        `${entrustmentEvaluation.cipsBelowExpectations.length} CiP assessment${entrustmentEvaluation.cipsBelowExpectations.length > 1 ? "s" : ""} rated below expectations: CiP ${entrustmentEvaluation.cipsBelowExpectations.join(", ")}`,
+      );
     }
 
     if (isWaypoint && currentStage === "ST2" && !completedExamTypes.has("474")) {
@@ -433,18 +515,30 @@ export async function GET(request: Request) {
       let severityScore = 0;
       severityScore += cipsBelowExpected.length >= 4 ? 5 : cipsBelowExpected.length >= 2 ? 3 : 1;
       severityScore += cipLevelGap >= 5 ? 3 : cipLevelGap >= 3 ? 2 : cipLevelGap >= 1 ? 1 : 0;
+      if (entrustmentEvaluation.cipsBelowExpectations.length > 0) severityScore += 2;
       if (osatsComplete < osatsTotal) severityScore += 1;
       if (coursesComplete < coursesTotal) severityScore += 1;
       if (examsComplete < examsTotal) severityScore += 1;
+      if (to2Complete < to2Target) severityScore += 1;
       if (isSeniorSimulation && portfolioPct < 65) severityScore += 1;
       if (isSeniorSimulation && keySkillsPct < 50) severityScore += 1;
       predictedOutcome = mapSeverityScoreToOutcome(severityScore);
+      const expectedByCip = cipsBelowExpected
+        .map((cipNumber) => {
+          const expected =
+            clinicalEntrustmentExpectations.get(cipNumber)?.get(currentStage) ??
+            getExpectedClinicalEntrustment(cipNumber, currentStage);
+          return expected != null ? `CiP ${cipNumber} (expected Level ${expected})` : `CiP ${cipNumber}`;
+        })
+        .join(", ");
       blockers.push(
-        `${cipsBelowExpected.length} CiP${cipsBelowExpected.length > 1 ? "s" : ""} below expected Level ${expectedLevel} for ${currentStage}: CiP ${cipsBelowExpected.join(", ")}`
+        `${cipsBelowExpected.length} clinical CiP${cipsBelowExpected.length > 1 ? "s" : ""} below expected entrustment for ${currentStage}: ${expectedByCip}`,
       );
       if (predictedOutcome === 4) {
         blockers.push(`The gap between your current CiP levels and ${currentStage} expectations is substantial`);
       }
+    } else if (entrustmentEvaluation.cipsBelowExpectations.length > 0) {
+      predictedOutcome = 2;
     } else if (osatsComplete < osatsTotal) {
       predictedOutcome = isSeniorSimulation && osatsPct < 50 ? 3 : 2;
       blockers.push(`${osatsTotal - osatsComplete} summative OSATS incomplete`);
@@ -454,6 +548,11 @@ export async function GET(request: Request) {
     } else if (examsComplete < examsTotal) {
       predictedOutcome = isSeniorSimulation ? 3 : 2;
       blockers.push(`${examsTotal - examsComplete} exam${examsTotal - examsComplete > 1 ? "s" : ""} not recorded`);
+    } else if (to2Complete < to2Target) {
+      predictedOutcome = isSeniorSimulation && to2Pct < 50 ? 3 : 2;
+      blockers.push(
+        `${to2Target - to2Complete} Team Observation 2 missing for ${currentStage || "training year"} (${to2Complete}/${to2Target} complete)`,
+      );
     } else {
       predictedOutcome = 1;
     }
@@ -469,7 +568,12 @@ export async function GET(request: Request) {
       predictedOutcome = isSeniorSimulation ? 4 : 3;
       if (!completedExamTypes.has("473")) blockers.push("MRCOG Part 2 not recorded — required at ST5 waypoint");
       if (!completedExamTypes.has("472")) blockers.push("MRCOG Part 3 not recorded — required at ST5 waypoint");
-    } else if (osatsComplete < osatsTotal || coursesComplete < coursesTotal || examsComplete < examsTotal) {
+    } else if (
+      osatsComplete < osatsTotal ||
+      coursesComplete < coursesTotal ||
+      examsComplete < examsTotal ||
+      to2Complete < to2Target
+    ) {
       let severityScore = 0;
       if (keySkillsPct < 70) severityScore += 1;
       if (keySkillsPct < 45) severityScore += 2;
@@ -477,6 +581,7 @@ export async function GET(request: Request) {
       if (osatsComplete < osatsTotal) severityScore += osatsPct < 50 ? 2 : 1;
       if (coursesComplete < coursesTotal) severityScore += coursesPct < 50 ? 2 : 1;
       if (examsComplete < examsTotal) severityScore += examsPct < 50 ? 2 : 1;
+      if (to2Complete < to2Target) severityScore += to2Pct < 50 ? 2 : 1;
       if (isMiddleGradeSimulation) severityScore += 1;
       if (isSeniorSimulation) severityScore += 2;
       if (portfolioPct < 60) severityScore += 1;
@@ -489,6 +594,10 @@ export async function GET(request: Request) {
         blockers.push(`${coursesTotal - coursesComplete} mandatory course${coursesTotal - coursesComplete > 1 ? "s" : ""} not recorded`);
       if (examsComplete < examsTotal)
         blockers.push(`${examsTotal - examsComplete} exam${examsTotal - examsComplete > 1 ? "s" : ""} not recorded`);
+      if (to2Complete < to2Target)
+        blockers.push(
+          `${to2Target - to2Complete} Team Observation 2 missing for ${currentStage || "training year"} (${to2Complete}/${to2Target} complete)`,
+        );
       if (predictedOutcome >= 3) {
         blockers.push(`Your current portfolio would be judged as below ${currentStage} expectations across multiple pillars`);
       }
@@ -587,11 +696,34 @@ export async function GET(request: Request) {
       osats:      { pct: osatsPct, complete: osatsComplete, total: osatsTotal, weight: 0.3 },
       courses:    { pct: coursesPct, complete: coursesComplete, total: coursesTotal, weight: 0.15 },
       exams:      { pct: examsPct, complete: examsComplete, total: examsTotal, weight: 0.05 },
+      team_observations: {
+        pct: to2Pct,
+        complete: to2Complete,
+        total: to2Target,
+        target: to2Target,
+        weight: 0,
+      },
+      cip_assessments: {
+        complete: cipAssessmentsComplete,
+        total: cipAssessmentsTotal,
+      },
     },
     predicted_outcome: predictedOutcome,
     blockers,
     is_waypoint: isWaypoint,
-    expected_cip_level: expectedLevel,
+    expected_clinical_entrustment:
+      currentStage != null
+        ? Object.fromEntries(
+            [9, 10, 11, 12]
+              .map((cipNumber) => {
+                const expected =
+                  clinicalEntrustmentExpectations.get(cipNumber)?.get(currentStage) ??
+                  getExpectedClinicalEntrustment(cipNumber, currentStage);
+                return expected != null ? [cipNumber, expected] : null;
+              })
+              .filter((entry): entry is [number, number] => entry != null),
+          )
+        : null,
     has_es_levels: hasEsLevels,
     projection: {
       months_left_wte: monthsLeftWte === null ? null : Number(monthsLeftWte.toFixed(2)),
@@ -642,16 +774,27 @@ export async function GET(request: Request) {
     },
     cip_assessments: (cipAssessments ?? []).map((a: {
       cip_number: number | null;
+      trainee_entrustment: number | null;
       trainee_level: number | null;
+      es_entrustment: number | null;
+      es_meets_expectations: boolean | null;
       es_level: number | null;
       es_agrees: boolean | null;
       status: string;
     }) => ({
       cip_number: a.cip_number,
-      trainee_level: a.trainee_level,
+      is_clinical: isClinicalCip(a.cip_number),
+      trainee_entrustment: a.trainee_entrustment ?? a.trainee_level,
+      es_entrustment: a.es_entrustment,
+      es_meets_expectations: a.es_meets_expectations,
       es_level: a.es_level,
       es_agrees: a.es_agrees,
       status: a.status,
+      expected_entrustment:
+        currentStage != null && isClinicalCip(a.cip_number)
+          ? clinicalEntrustmentExpectations.get(a.cip_number)?.get(currentStage) ??
+            getExpectedClinicalEntrustment(a.cip_number, currentStage)
+          : null,
     })),
   });
 }

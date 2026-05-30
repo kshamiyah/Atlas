@@ -245,6 +245,7 @@ export async function POST() {
               ? e.detected_entry_type
               : entryType,
           assessment_type: entryType,
+          title: typeof e.title === "string" ? e.title : null,
           status: typeof e.status === "string" ? e.status : null,
           extracted_fields: extractedFields,
         })
